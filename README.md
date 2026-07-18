@@ -38,6 +38,16 @@ Every space = **authoring mode × visibility × public renderer**.
 - **One-space-per-public-site convention.** Space-level "can this be public",
   page-level "is this live right now". Site chrome (header/footer/nav/logo) is a
   small per-space settings object, not a theming engine.
+- **Journal, Inbox, and Tasks are singleton surfaces, not user-managed spaces.**
+  The app ships with exactly one of each; "create a space" only ever means
+  creating a page tree (notebook, wiki, or site). One workspace total — no
+  Notion-style multi-workspace, which would mean multiple inboxes and journals
+  and defeat frictionless capture.
+- **App theme ≠ site theme.** The app supports light/dark. Each published site
+  picks from a small set of preset themes — design tokens only (fonts, colors,
+  header style), never structure — each with a light and dark variant. A
+  WordPress-style theming engine is explicitly out of scope: the renderer owns
+  structure, the theme owns skin, so every theme works with every space forever.
 
 ## Open questions
 
