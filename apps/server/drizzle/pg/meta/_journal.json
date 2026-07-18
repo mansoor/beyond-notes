@@ -15,6 +15,13 @@
       "when": 1784393469286,
       "tag": "0001_overrated_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784395107570,
+      "tag": "0002_chunky_risque",
+      "breakpoints": true
     }
   ]
 }

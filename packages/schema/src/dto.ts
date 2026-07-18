@@ -113,3 +113,59 @@ export type DocumentView = {
   schemaVersion: number
   updatedAt: string
 }
+
+// ---- journal, inbox, tasks (M2) ----
+
+export const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+
+export const journalDayInput = z.object({ date: dateKey })
+export const journalMonthInput = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM'),
+})
+
+export const captureMemoInput = z.object({
+  content: z.string().trim().min(1).max(5000),
+})
+
+export const promoteToNoteInput = z.object({
+  memoId: z.string(),
+  spaceId: z.string(),
+})
+
+export const promoteToJournalInput = z.object({
+  memoId: z.string(),
+  date: dateKey,
+})
+
+export const promoteToTaskInput = z.object({
+  memoId: z.string(),
+})
+
+export const quickAddTaskInput = z.object({
+  // free text; a trailing @YYYY-MM-DD token becomes the due date
+  text: z.string().trim().min(1).max(500),
+})
+
+export const toggleTaskInput = z.object({
+  taskId: z.string(),
+  checked: z.boolean(),
+})
+
+export type MemoView = {
+  id: string
+  content: string
+  createdAt: string
+  promotedTo: 'note' | 'journal' | 'task' | null
+}
+
+export type TaskView = {
+  id: string
+  pageId: string
+  blockId: string
+  text: string
+  checked: boolean
+  due: string | null
+  pageTitle: string
+  spaceName: string
+  isJournal: boolean
+}

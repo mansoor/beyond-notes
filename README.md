@@ -3,11 +3,13 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M1 (pages + trees) built and verified 2026-07-18. The primitive is
-real: tree spaces (notebook/wiki/site categories, personal or shared), nested
-pages with reparent/reorder (cycle-safe), BlockNote editor with debounced
-autosave behind an optimistic lock, delete-with-cascade. M0 (skeleton: dual-
-dialect DB, invite-only auth, Docker, CI) landed the same day.
+**Status:** M2 (journal + inbox + tasks) built and verified 2026-07-18. The
+daily surfaces are live: per-user journal with date-keyed pages and calendar,
+Memos-style capture with all three promote paths (note / journal / task), and
+the tasks index — checkbox blocks anywhere, reconciled on every save, one
+agenda, `@YYYY-MM-DD` due tokens, toggle-writes-through-to-the-block. Today
+aggregates the journal page, due tasks, and the day's captures. M0 (skeleton)
+and M1 (pages + trees + editor) landed the same day.
 `mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
 
 ## Develop

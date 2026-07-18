@@ -28,6 +28,9 @@ export const spaces = sqliteTable('spaces', {
   category: text('category', { enum: ['notebook', 'wiki', 'site'] })
     .notNull()
     .default('notebook'),
+  kind: text('kind', { enum: ['tree', 'journal'] })
+    .notNull()
+    .default('tree'),
   ownerId: text('owner_id').references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -40,6 +43,7 @@ export const pages = sqliteTable('pages', {
   parentId: text('parent_id').references((): AnySQLiteColumn => pages.id, { onDelete: 'cascade' }),
   title: text('title').notNull().default('Untitled'),
   position: integer('position').notNull().default(0),
+  dateKey: text('date_key'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -50,6 +54,30 @@ export const documents = sqliteTable('documents', {
     .references(() => pages.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
   schemaVersion: integer('schema_version').notNull().default(1),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const memos = sqliteTable('memos', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  promotedTo: text('promoted_to', { enum: ['note', 'journal', 'task'] }),
+  promotedAt: integer('promoted_at', { mode: 'timestamp_ms' }),
+})
+
+export const tasks = sqliteTable('tasks', {
+  id: text('id').primaryKey(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  blockId: text('block_id').notNull(),
+  text: text('text').notNull(),
+  checked: integer('checked', { mode: 'boolean' }).notNull().default(false),
+  due: text('due'),
+  position: integer('position').notNull().default(0),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

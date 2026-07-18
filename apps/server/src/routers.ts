@@ -3,20 +3,30 @@ import type {
   AuthStatus,
   DocumentView,
   InviteView,
+  MemoView,
   PageMeta,
   SpaceView,
+  TaskView,
   UserView,
 } from '@bn/schema'
 import {
   acceptInviteInput,
+  captureMemoInput,
   createInviteInput,
   createPageInput,
   createSpaceInput,
+  journalDayInput,
+  journalMonthInput,
   loginInput,
   movePageInput,
+  promoteToJournalInput,
+  promoteToNoteInput,
+  promoteToTaskInput,
+  quickAddTaskInput,
   renamePageInput,
   saveDocumentInput,
   setupInput,
+  toggleTaskInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -304,11 +314,134 @@ const pagesRouter = router({
   }),
 })
 
+const journalRouter = router({
+  day: authedProcedure
+    .input(journalDayInput)
+    .query(async ({ ctx, input }): Promise<{ page: PageMeta; doc: DocumentView }> => {
+      try {
+        const { page, doc } = await ctx.daily.day(ctx.user, input.date)
+        return {
+          page: toPageMeta(page),
+          doc: {
+            content: doc.content,
+            schemaVersion: doc.schemaVersion,
+            updatedAt: doc.updatedAt.toISOString(),
+          },
+        }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  days: authedProcedure.input(journalMonthInput).query(async ({ ctx, input }) => {
+    try {
+      return await ctx.daily.days(ctx.user, input.month)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
+const memosRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<MemoView[]> => {
+    const memos = await ctx.daily.listMemos(ctx.user)
+    return memos.map((m) => ({
+      id: m.id,
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+      promotedTo: m.promotedTo,
+    }))
+  }),
+
+  capture: authedProcedure.input(captureMemoInput).mutation(async ({ ctx, input }) => {
+    const memo = await ctx.daily.capture(ctx.user, input.content)
+    return { id: memo.id }
+  }),
+
+  promoteToNote: authedProcedure.input(promoteToNoteInput).mutation(async ({ ctx, input }) => {
+    try {
+      const page = await ctx.daily.promoteToNote(ctx.user, input.memoId, input.spaceId)
+      return toPageMeta(page)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  promoteToJournal: authedProcedure
+    .input(promoteToJournalInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.daily.promoteToJournal(ctx.user, input.memoId, input.date)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  promoteToTask: authedProcedure.input(promoteToTaskInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.daily.promoteToTask(ctx.user, input.memoId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  delete: authedProcedure
+    .input(z.object({ memoId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.daily.deleteMemo(ctx.user, input.memoId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
+const tasksRouter = router({
+  agenda: authedProcedure.query(async ({ ctx }): Promise<TaskView[]> => {
+    const rows = await ctx.tasks.agenda(ctx.user)
+    return rows.map(({ task, page, space }) => ({
+      id: task.id,
+      pageId: task.pageId,
+      blockId: task.blockId,
+      text: task.text,
+      checked: task.checked,
+      due: task.due,
+      pageTitle: page.title,
+      spaceName: space.name,
+      isJournal: space.kind === 'journal',
+    }))
+  }),
+
+  toggle: authedProcedure.input(toggleTaskInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tasks.toggle(ctx.user, input.taskId, input.checked)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  quickAdd: authedProcedure.input(quickAddTaskInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.daily.quickAddTask(ctx.user, input.text)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
   spaces: spacesRouter,
   pages: pagesRouter,
+  journal: journalRouter,
+  memos: memosRouter,
+  tasks: tasksRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

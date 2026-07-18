@@ -3,8 +3,10 @@ import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { AuthService } from './auth'
 import type { Config } from './config'
+import type { DailyService } from './daily'
 import type { PagesService } from './pages'
 import type { Repo, UserRow } from './repo'
+import type { TasksService } from './tasks'
 
 export const SESSION_COOKIE = 'bn_session'
 
@@ -15,6 +17,8 @@ export type Context = {
   repo: Repo
   auth: AuthService
   pages: PagesService
+  daily: DailyService
+  tasks: TasksService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -24,6 +28,8 @@ export function makeCreateContext(deps: {
   repo: Repo
   auth: AuthService
   pages: PagesService
+  daily: DailyService
+  tasks: TasksService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

@@ -1,14 +1,10 @@
 import type { UserView } from '@bn/schema'
+import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
+import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
 import { trpc } from '../trpc'
-
-const M2_PLACEHOLDERS = [
-  { label: 'Today', milestone: 'M2' },
-  { label: 'Inbox', milestone: 'M2' },
-  { label: 'Tasks', milestone: 'M2' },
-]
 
 export function Shell(props: { me: UserView; children: ReactNode }) {
   const utils = trpc.useUtils()
@@ -47,23 +43,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           </button>
         </div>
 
-        <div className="flex flex-col text-sm">
-          {M2_PLACEHOLDERS.map((item) => (
-            <div
-              key={item.label}
-              className="flex items-center justify-between px-2 py-1 rounded"
-              style={{ color: 'var(--text-3)' }}
-            >
-              {item.label}
-              <span
-                className="text-[10px] rounded px-1.5"
-                style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-              >
-                {item.milestone}
-              </span>
-            </div>
-          ))}
-        </div>
+        <DailyNav />
 
         <SpacesNav />
 
@@ -87,6 +67,48 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
       </aside>
 
       <main className="flex-1 min-w-0">{props.children}</main>
+    </div>
+  )
+}
+
+function DailyNav() {
+  const memos = trpc.memos.list.useQuery()
+  const agenda = trpc.tasks.agenda.useQuery()
+  const today = todayKey()
+
+  const inboxCount = (memos.data ?? []).filter((m) => !m.promotedTo).length
+  const dueCount = (agenda.data ?? []).filter(
+    (t) => !t.checked && t.due !== null && t.due <= today,
+  ).length
+
+  const items = [
+    { label: 'Today', to: '/day/$date', params: { date: today }, count: null as number | null },
+    { label: 'Inbox', to: '/inbox', params: {}, count: inboxCount },
+    { label: 'Tasks', to: '/tasks', params: {}, count: dueCount },
+  ]
+
+  return (
+    <div className="flex flex-col text-sm">
+      {items.map((item) => (
+        <Link
+          key={item.label}
+          to={item.to}
+          params={item.params}
+          className="flex items-center justify-between px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5"
+          style={{ color: 'var(--text-2)' }}
+          activeProps={{ style: { color: 'var(--accent)', background: 'var(--accent-soft)' } }}
+        >
+          {item.label}
+          {item.count !== null && item.count > 0 && (
+            <span
+              className="text-[11px] rounded-full px-1.5"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+            >
+              {item.count}
+            </span>
+          )}
+        </Link>
+      ))}
     </div>
   )
 }

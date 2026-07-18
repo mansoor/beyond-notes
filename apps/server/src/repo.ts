@@ -21,6 +21,7 @@ export type SpaceRow = {
   id: string
   name: string
   category: 'notebook' | 'wiki' | 'site'
+  kind: 'tree' | 'journal'
   ownerId: string | null
   createdAt: Date
 }
@@ -31,7 +32,28 @@ export type PageRow = {
   parentId: string | null
   title: string
   position: number
+  dateKey: string | null
   createdAt: Date
+  updatedAt: Date
+}
+
+export type MemoRow = {
+  id: string
+  userId: string
+  content: string
+  createdAt: Date
+  promotedTo: 'note' | 'journal' | 'task' | null
+  promotedAt: Date | null
+}
+
+export type TaskRow = {
+  id: string
+  pageId: string
+  blockId: string
+  text: string
+  checked: boolean
+  due: string | null
+  position: number
   updatedAt: Date
 }
 
@@ -197,6 +219,79 @@ export function createRepo(appDb: AppDb) {
 
     async updateDocument(pageId: string, content: string, updatedAt: Date): Promise<void> {
       await db.update(t.documents).set({ content, updatedAt }).where(eq(t.documents.pageId, pageId))
+    },
+
+    // ---- journal helpers ----
+
+    async getSpaceByOwnerAndKind(ownerId: string, kind: 'journal'): Promise<SpaceRow | null> {
+      const rows = await db
+        .select()
+        .from(t.spaces)
+        .where(and(eq(t.spaces.ownerId, ownerId), eq(t.spaces.kind, kind)))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async getPageByDateKey(spaceId: string, dateKey: string): Promise<PageRow | null> {
+      const rows = await db
+        .select()
+        .from(t.pages)
+        .where(and(eq(t.pages.spaceId, spaceId), eq(t.pages.dateKey, dateKey)))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    // ---- memos ----
+
+    async insertMemo(memo: MemoRow): Promise<void> {
+      await db.insert(t.memos).values(memo)
+    },
+
+    async getMemo(id: string): Promise<MemoRow | null> {
+      const rows = await db.select().from(t.memos).where(eq(t.memos.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async listMemos(userId: string): Promise<MemoRow[]> {
+      return db.select().from(t.memos).where(eq(t.memos.userId, userId))
+    },
+
+    async markMemoPromoted(id: string, to: 'note' | 'journal' | 'task', when: Date): Promise<void> {
+      await db.update(t.memos).set({ promotedTo: to, promotedAt: when }).where(eq(t.memos.id, id))
+    },
+
+    async deleteMemo(id: string): Promise<void> {
+      await db.delete(t.memos).where(eq(t.memos.id, id))
+    },
+
+    // ---- tasks index ----
+
+    async listTasksForPage(pageId: string): Promise<TaskRow[]> {
+      return db.select().from(t.tasks).where(eq(t.tasks.pageId, pageId))
+    },
+
+    async listAllTasks(): Promise<TaskRow[]> {
+      return db.select().from(t.tasks)
+    },
+
+    async getTask(id: string): Promise<TaskRow | null> {
+      const rows = await db.select().from(t.tasks).where(eq(t.tasks.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async insertTask(task: TaskRow): Promise<void> {
+      await db.insert(t.tasks).values(task)
+    },
+
+    async updateTask(
+      id: string,
+      patch: Partial<Pick<TaskRow, 'text' | 'checked' | 'due' | 'position' | 'updatedAt'>>,
+    ): Promise<void> {
+      await db.update(t.tasks).set(patch).where(eq(t.tasks.id, id))
+    },
+
+    async deleteTask(id: string): Promise<void> {
+      await db.delete(t.tasks).where(eq(t.tasks.id, id))
     },
   }
 }

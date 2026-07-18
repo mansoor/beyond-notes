@@ -6,10 +6,12 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import { createAuthService } from './auth'
 import type { Config } from './config'
+import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { createPagesService } from './pages'
 import { createRepo } from './repo'
 import { appRouter } from './routers'
+import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 
 export async function buildServer(config: Config, appDb: AppDb) {
@@ -20,12 +22,14 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const repo = createRepo(appDb)
   const auth = createAuthService(repo)
   const pages = createPagesService(repo)
+  const daily = createDailyService(repo)
+  const tasks = createTasksService(repo)
 
   await server.register(fastifyTRPCPlugin, {
     prefix: '/api/trpc',
     trpcOptions: {
       router: appRouter,
-      createContext: makeCreateContext({ config, repo, auth, pages }),
+      createContext: makeCreateContext({ config, repo, auth, pages, daily, tasks }),
     },
   })
 

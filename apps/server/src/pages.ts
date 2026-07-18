@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
+import { reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
 const DOC_SCHEMA_VERSION = 1
@@ -40,7 +41,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
 
     async listSpaces(user: UserRow): Promise<SpaceRow[]> {
       const all = await repo.listSpaces()
-      return all.filter((s) => s.ownerId === null || s.ownerId === user.id)
+      // system spaces (journal) have their own surfaces; the sidebar lists trees only
+      return all.filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === user.id))
     },
 
     async createSpace(
@@ -51,6 +53,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         id: nanoid(),
         name: input.name,
         category: input.category,
+        kind: 'tree',
         ownerId: input.personal ? user.id : null,
         createdAt: now(),
       }
@@ -96,6 +99,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         parentId: input.parentId,
         title: input.title || 'Untitled',
         position: siblings.length,
+        dateKey: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -207,6 +211,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       const when = now()
       await repo.updateDocument(input.pageId, input.content, when)
       await repo.updatePage(input.pageId, { updatedAt: when })
+      // keep the tasks index true to the blocks on every save
+      await reconcileTasks(repo, input.pageId, input.content, when)
       return { updatedAt: when.toISOString() }
     },
   }
