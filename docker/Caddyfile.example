@@ -1,0 +1,15 @@
+# Example reverse-proxy config. Caddy terminates TLS; the app never does.
+# The same app serves the private UI and any published sites - routing is by
+# Host header, so every published space is just another site block.
+
+notes.example.com {
+    reverse_proxy 127.0.0.1:3800
+}
+
+docs.example.com {
+    reverse_proxy 127.0.0.1:3800
+}
+
+example.com {
+    reverse_proxy 127.0.0.1:3800
+}

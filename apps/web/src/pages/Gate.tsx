@@ -1,0 +1,86 @@
+import { useState } from 'react'
+import { CenterCard, ErrorNote, Field, SubmitButton, useSubmit } from '../components'
+import { trpc } from '../trpc'
+import { Shell } from './Shell'
+
+export function Gate() {
+  const status = trpc.auth.status.useQuery()
+
+  if (status.isLoading) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ color: 'var(--text-3)' }}
+      >
+        Loading…
+      </div>
+    )
+  }
+  if (status.error) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ color: 'var(--danger)' }}
+      >
+        Cannot reach the server: {status.error.message}
+      </div>
+    )
+  }
+  if (status.data?.me) return <Shell me={status.data.me} />
+  if (status.data?.needsSetup) return <SetupPage />
+  return <LoginPage />
+}
+
+function SetupPage() {
+  const utils = trpc.useUtils()
+  const setup = trpc.auth.setup.useMutation()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await setup.mutateAsync({ name, email, password })
+    await utils.auth.status.invalidate()
+  })
+
+  return (
+    <CenterCard
+      title="Welcome to Beyond Notes"
+      subtitle="Claim this instance: the first account becomes the admin."
+    >
+      <form onSubmit={onSubmit}>
+        <Field label="Your name" value={name} onChange={setName} autoFocus />
+        <Field label="Email" type="email" value={email} onChange={setEmail} />
+        <Field
+          label="Password (10+ characters)"
+          type="password"
+          value={password}
+          onChange={setPassword}
+        />
+        <ErrorNote message={error} />
+        <SubmitButton label="Create admin account" busy={busy} />
+      </form>
+    </CenterCard>
+  )
+}
+
+function LoginPage() {
+  const utils = trpc.useUtils()
+  const login = trpc.auth.login.useMutation()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await login.mutateAsync({ email, password })
+    await utils.auth.status.invalidate()
+  })
+
+  return (
+    <CenterCard title="Beyond Notes" subtitle="Sign in to continue.">
+      <form onSubmit={onSubmit}>
+        <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus />
+        <Field label="Password" type="password" value={password} onChange={setPassword} />
+        <ErrorNote message={error} />
+        <SubmitButton label="Sign in" busy={busy} />
+      </form>
+    </CenterCard>
+  )
+}

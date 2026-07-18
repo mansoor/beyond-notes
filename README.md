@@ -3,8 +3,28 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** concept settled. `mockup.html` is the UI direction — open it in a
-browser. `TECH-PLAN.md` is the stack, testing, deployment, and release plan.
+**Status:** M0 (walking skeleton) built and verified 2026-07-18 — monorepo,
+dual-dialect DB with migrations, invite-only auth, app shell, Docker, CI.
+`mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
+
+## Develop
+
+Requires Node 20+ (dev machine note: portable Node 22 lives at
+`~/.local/node22` — prepend it to PATH; system Node is 18) and pnpm 9 via
+corepack.
+
+```bash
+pnpm install
+pnpm --filter @bn/server dev     # API on :3800, SQLite at data/beyond.db by default
+pnpm --filter @bn/web dev        # Vite on :5173, proxies /api to :3800
+pnpm test                        # SQLite always; set TEST_PG_URL for the pg run
+pnpm typecheck && pnpm lint
+```
+
+Production-style run: `pnpm build`, then from `apps/server`:
+`WEB_DIST=../web/dist node dist/index.js`. Docker: `docker compose up -d`
+(Postgres) after setting `POSTGRES_PASSWORD` in `.env`. Reset a dev instance
+by deleting `apps/server/data/`.
 
 ## The model
 
