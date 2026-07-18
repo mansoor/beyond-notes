@@ -1,10 +1,13 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import fastifyCookie from '@fastify/cookie'
+import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
+import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
+import { createFsBlobStore } from './blobstore'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
@@ -28,6 +31,54 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
   const publicSrv = createPublicServer(repo, publishing)
+  const blobs = createFsBlobStore(config.UPLOADS_DIR)
+  const attachments = createAttachmentsService(repo, blobs)
+
+  await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
+
+  const userFromRequest = async (req: { cookies?: Record<string, string | undefined> }) => {
+    const token = req.cookies?.bn_session
+    return token ? auth.userForToken(token) : null
+  }
+
+  server.post('/api/upload', async (req, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in to upload' })
+    const file = await req.file()
+    if (!file) return reply.code(400).send({ error: 'no file' })
+    const data = await file.toBuffer()
+    const attachment = await attachments.upload(user, {
+      filename: file.filename,
+      mime: file.mimetype,
+      data,
+    })
+    return {
+      id: attachment.id,
+      url: `/api/files/${attachment.id}`,
+      thumbUrl: attachment.mime.startsWith('image/') ? `/api/files/${attachment.id}/thumb` : null,
+      mime: attachment.mime,
+      size: attachment.size,
+    }
+  })
+
+  const serveFile = async (req: any, reply: any, thumb: boolean) => {
+    const id = String(req.params.id ?? '')
+    const attachment = await repo.getAttachment(id)
+    if (!attachment) return reply.code(404).send({ error: 'not found' })
+    const user = await userFromRequest(req)
+    if (!user && !(await publishing.publicAttachmentIds()).has(id)) {
+      // same shape as a missing file: existence of private uploads is private
+      return reply.code(404).send({ error: 'not found' })
+    }
+    const key =
+      thumb && blobs.exists(thumbKey(attachment.hash)) ? thumbKey(attachment.hash) : attachment.hash
+    if (!blobs.exists(key)) return reply.code(404).send({ error: 'not found' })
+    reply.header('cache-control', 'private, max-age=31536000, immutable')
+    reply.type(attachment.mime)
+    return reply.send(blobs.getStream(key))
+  }
+  server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
+  server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))
 
   // Host-header routing for published sites. Any GET whose Host matches a
   // publicEnabled space is answered from published snapshots and never reaches
@@ -35,6 +86,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const appHost = new URL(config.BASE_URL).host
   server.addHook('onRequest', async (req, reply) => {
     if (req.method !== 'GET') return
+    // /api/* (including public file serving) resolves by its own access rules
+    if (req.url.startsWith('/api/') || req.url.startsWith('/s/')) return
     const host = (req.headers.host ?? '').toLowerCase()
     if (!host || host === appHost) return
     const url = new URL(req.url, 'http://placeholder')
@@ -68,11 +121,24 @@ export async function buildServer(config: Config, appDb: AppDb) {
     prefix: '/api/trpc',
     trpcOptions: {
       router: appRouter,
-      createContext: makeCreateContext({ config, repo, auth, pages, daily, tasks, publishing }),
+      createContext: makeCreateContext({
+        config,
+        repo,
+        auth,
+        pages,
+        daily,
+        tasks,
+        publishing,
+        attachments,
+      }),
     },
   })
 
   server.get('/healthz', async () => ({ ok: true, dialect: appDb.dialect }))
+
+  // the one in-process set of services (caches included) — tests must mutate
+  // publish state through these, not through parallel instances
+  server.decorate('bnServices', { repo, auth, pages, daily, tasks, publishing, attachments })
 
   // Serve the built SPA when present (production); in dev, Vite serves the web app.
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : ''

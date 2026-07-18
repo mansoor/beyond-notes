@@ -38,7 +38,7 @@ export type PageRow = {
   title: string
   position: number
   dateKey: string | null
-  pageType: 'doc' | 'blog'
+  pageType: 'doc' | 'blog' | 'gallery'
   slug: string | null
   liveVersionId: string | null
   createdAt: Date
@@ -54,8 +54,29 @@ export type PageVersionRow = {
   content: string
   html: string
   textPlain: string
+  attachmentIds: string
   createdBy: string
   createdAt: Date
+}
+
+export type AttachmentRow = {
+  id: string
+  hash: string
+  filename: string
+  mime: string
+  size: number
+  width: number | null
+  height: number | null
+  createdBy: string
+  createdAt: Date
+}
+
+export type GalleryItemRow = {
+  id: string
+  pageId: string
+  attachmentId: string
+  position: number
+  caption: string
 }
 
 export type MemoRow = {
@@ -358,6 +379,33 @@ export function createRepo(appDb: AppDb) {
 
     async setPageSlug(pageId: string, slug: string): Promise<void> {
       await db.update(t.pages).set({ slug }).where(eq(t.pages.id, pageId))
+    },
+
+    // ---- attachments & galleries ----
+
+    async insertAttachment(row: AttachmentRow): Promise<void> {
+      await db.insert(t.attachments).values(row)
+    },
+
+    async getAttachment(id: string): Promise<AttachmentRow | null> {
+      const rows = await db.select().from(t.attachments).where(eq(t.attachments.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async insertGalleryItem(row: GalleryItemRow): Promise<void> {
+      await db.insert(t.galleryItems).values(row)
+    },
+
+    async listGalleryItems(pageId: string): Promise<GalleryItemRow[]> {
+      return db.select().from(t.galleryItems).where(eq(t.galleryItems.pageId, pageId))
+    },
+
+    async updateGalleryItemCaption(id: string, caption: string): Promise<void> {
+      await db.update(t.galleryItems).set({ caption }).where(eq(t.galleryItems.id, id))
+    },
+
+    async deleteGalleryItem(id: string): Promise<void> {
+      await db.delete(t.galleryItems).where(eq(t.galleryItems.id, id))
     },
   }
 }

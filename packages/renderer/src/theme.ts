@@ -63,6 +63,13 @@ text-decoration:none;color:var(--text2);flex:1}
 footer{border-top:1px solid var(--border);padding:14px 28px;font-size:12px;color:var(--text3);
 display:flex;justify-content:space-between}
 .results li{margin:10px 0}
+main figure{margin:14px 0}
+main figure img{max-width:100%;border-radius:8px}
+main figcaption{font-size:12px;color:var(--text3);margin-top:4px}
+main .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:16px 0}
+main .gallery .cell{display:block;text-decoration:none}
+main .gallery img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block}
+main .gallery .cap{font-size:12px;color:var(--text3)}
 `
 
 function navHtml(nodes: NavNode[], basePath: string): string {

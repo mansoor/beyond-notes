@@ -6,6 +6,7 @@ const envSchema = z.object({
   BASE_URL: z.string().url().default('http://127.0.0.1:3800'),
   WEB_DIST: z.string().default(''),
   MIGRATIONS_DIR: z.string().default('./drizzle'),
+  UPLOADS_DIR: z.string().default('./data/uploads'),
   NODE_ENV: z.string().default('development'),
 })
 

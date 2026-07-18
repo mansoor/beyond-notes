@@ -1,6 +1,7 @@
-import { blocknoteToHtml, plainText, slugify } from '@bn/renderer'
+import { blocknoteToHtml, galleryHtml, plainText, slugify } from '@bn/renderer'
 import type { NavNode } from '@bn/renderer'
 import { nanoid } from 'nanoid'
+import { extractAttachmentIds } from './attachments'
 import { PagesError } from './pages'
 import type { PageRow, PageVersionRow, Repo, SpaceRow, UserRow } from './repo'
 
@@ -12,6 +13,13 @@ import type { PageRow, PageVersionRow, Repo, SpaceRow, UserRow } from './repo'
  */
 export function createPublishingService(repo: Repo, opts: { now?: () => Date } = {}) {
   const now = opts.now ?? (() => new Date())
+
+  // public-attachment cache: recomputed after any publish-state mutation
+  // (and on a slow TTL as a safety net), so going live is instant
+  let attachmentCache: { ids: Set<string>; at: number } | null = null
+  const invalidateAttachmentCache = () => {
+    attachmentCache = null
+  }
 
   async function requirePage(
     pageId: string,
@@ -55,6 +63,28 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       const existing = await repo.listVersionsForPage(pageId)
       const versionNumber = existing.reduce((max, v) => Math.max(max, v.version), 0) + 1
 
+      // snapshot which attachments this version references — the public file
+      // route serves exactly the union of live versions' attachment ids
+      const attachmentIds = new Set(extractAttachmentIds(doc.content))
+      let html = blocknoteToHtml(doc.content)
+      let textPlain = plainText(doc.content)
+
+      if (page.pageType === 'gallery') {
+        const items = (await repo.listGalleryItems(pageId)).sort((a, b) => a.position - b.position)
+        html += galleryHtml(
+          items.map((i) => ({
+            url: `/api/files/${i.attachmentId}`,
+            thumbUrl: `/api/files/${i.attachmentId}/thumb`,
+            caption: i.caption,
+          })),
+        )
+        for (const i of items) attachmentIds.add(i.attachmentId)
+        textPlain += `\n${items
+          .map((i) => i.caption)
+          .filter(Boolean)
+          .join('\n')}`
+      }
+
       const version: PageVersionRow = {
         id: nanoid(),
         pageId,
@@ -62,13 +92,15 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         title: page.title,
         slug,
         content: doc.content,
-        html: blocknoteToHtml(doc.content),
-        textPlain: plainText(doc.content),
+        html,
+        textPlain,
+        attachmentIds: JSON.stringify([...attachmentIds]),
         createdBy: user.id,
         createdAt: now(),
       }
       await repo.insertPageVersion(version)
       await repo.setLivePointer(pageId, version.id)
+      invalidateAttachmentCache()
       return version
     },
 
@@ -76,6 +108,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
     async retire(user: UserRow, pageId: string): Promise<void> {
       await requirePage(pageId, user)
       await repo.setLivePointer(pageId, null)
+      invalidateAttachmentCache()
     },
 
     /** Rollback = move the live pointer to an older version. */
@@ -86,6 +119,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         throw new PagesError('NOT_FOUND', 'Version not found.')
       }
       await repo.setLivePointer(pageId, versionId)
+      invalidateAttachmentCache()
     },
 
     async versions(user: UserRow, pageId: string) {
@@ -125,6 +159,28 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicFooter: input.footer,
         publicTheme: input.theme,
       })
+      invalidateAttachmentCache()
+    },
+
+    /** Attachment ids visible to the public: union over live versions of enabled spaces. */
+    async publicAttachmentIds(): Promise<Set<string>> {
+      if (attachmentCache && Date.now() - attachmentCache.at < 60_000) {
+        return attachmentCache.ids
+      }
+      const ids = new Set<string>()
+      const spaces = await repo.listSpaces()
+      for (const space of spaces.filter((s) => s.publicEnabled)) {
+        const entries = await this.liveTree(space.id)
+        for (const e of entries) {
+          try {
+            for (const id of JSON.parse(e.version.attachmentIds) as string[]) ids.add(id)
+          } catch {
+            // pre-attachment versions have no ids
+          }
+        }
+      }
+      attachmentCache = { ids, at: Date.now() }
+      return ids
     },
 
     /** First-publish dates for a set of pages (post dates, RSS pubDates). */

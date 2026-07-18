@@ -57,8 +57,8 @@ export const pages = pgTable('pages', {
   // journal day pages carry 'YYYY-MM-DD'; the per-user tasks-inbox page carries
   // the sentinel 'inbox'; ordinary tree pages carry null
   dateKey: text('date_key'),
-  // 'blog' pages render their live children as dated posts on public sites
-  pageType: text('page_type', { enum: ['doc', 'blog'] })
+  // 'blog' renders live children as dated posts; 'gallery' renders its image grid
+  pageType: text('page_type', { enum: ['doc', 'blog', 'gallery'] })
     .notNull()
     .default('doc'),
   // public path segment; set at first publish, then stable
@@ -81,8 +81,36 @@ export const pageVersions = pgTable('page_versions', {
   content: text('content').notNull(),
   html: text('html').notNull(),
   textPlain: text('text_plain').notNull(),
+  // JSON array of attachment ids referenced by this snapshot — the public
+  // file route only serves attachments that appear in some live version
+  attachmentIds: text('attachment_ids').notNull().default('[]'),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const attachments = pgTable('attachments', {
+  id: text('id').primaryKey(),
+  // sha256 of the processed bytes; the blob store key (content-addressed, deduped)
+  hash: text('hash').notNull(),
+  filename: text('filename').notNull(),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const galleryItems = pgTable('gallery_items', {
+  id: text('id').primaryKey(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  attachmentId: text('attachment_id')
+    .notNull()
+    .references(() => attachments.id),
+  position: integer('position').notNull().default(0),
+  caption: text('caption').notNull().default(''),
 })
 
 export const documents = pgTable('documents', {

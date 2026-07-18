@@ -72,7 +72,101 @@ function PageView(props: {
         onStateChange={setState}
         onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
       />
+      {props.page.pageType === 'gallery' && <GalleryManager pageId={props.page.id} />}
     </div>
+  )
+}
+
+function GalleryManager(props: { pageId: string }) {
+  const utils = trpc.useUtils()
+  const items = trpc.gallery.list.useQuery({ pageId: props.pageId })
+  const invalidate = () => utils.gallery.list.invalidate({ pageId: props.pageId })
+  const add = trpc.gallery.add.useMutation({ onSuccess: invalidate })
+  const remove = trpc.gallery.remove.useMutation({ onSuccess: invalidate })
+  const caption = trpc.gallery.caption.useMutation({ onSuccess: invalidate })
+  const [busy, setBusy] = useState(false)
+
+  const onFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setBusy(true)
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData()
+        form.append('file', file)
+        const res = await fetch('/api/upload', { method: 'POST', body: form })
+        if (!res.ok) continue
+        const json = (await res.json()) as { id: string }
+        await add.mutateAsync({ pageId: props.pageId, attachmentId: json.id })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-center justify-between mb-3">
+        <h3
+          className="text-xs uppercase tracking-wide font-semibold"
+          style={{ color: 'var(--text-3)' }}
+        >
+          Gallery — {items.data?.length ?? 0} images
+        </h3>
+        <label
+          className="rounded-md px-3 py-1 text-xs font-medium text-white cursor-pointer"
+          style={{ background: 'var(--accent)', opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? 'Uploading…' : '+ Add images'}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => onFiles(e.target.files)}
+          />
+        </label>
+      </div>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
+      >
+        {items.data?.map((item) => (
+          <figure key={item.id} className="group relative">
+            <img
+              src={item.thumbUrl}
+              alt={item.caption}
+              className="w-full rounded-lg object-cover"
+              style={{ aspectRatio: '1' }}
+            />
+            <button
+              type="button"
+              title="Remove from gallery"
+              className="absolute top-1 right-1 hidden group-hover:block rounded px-1.5 text-xs text-white"
+              style={{ background: 'rgba(0,0,0,0.6)' }}
+              onClick={() => remove.mutate({ pageId: props.pageId, itemId: item.id })}
+            >
+              ✕
+            </button>
+            <input
+              className="w-full mt-1 bg-transparent text-xs outline-none"
+              style={{ color: 'var(--text-2)' }}
+              placeholder="caption…"
+              defaultValue={item.caption}
+              onBlur={(e) => {
+                if (e.target.value !== item.caption) {
+                  caption.mutate({ pageId: props.pageId, itemId: item.id, caption: e.target.value })
+                }
+              }}
+            />
+          </figure>
+        ))}
+      </div>
+      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+        Images are recompressed on upload and GPS metadata is stripped. The grid publishes with the
+        page.
+      </p>
+    </section>
   )
 }
 

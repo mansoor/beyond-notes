@@ -8,6 +8,15 @@ import { trpc } from './trpc'
 
 export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
 
+export async function uploadFile(file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch('/api/upload', { method: 'POST', body: form })
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+  const json = (await res.json()) as { url: string }
+  return json.url
+}
+
 /**
  * BlockNote + debounced autosave behind the optimistic lock. Mount with a key
  * that includes doc.updatedAt so a reload replaces the editor instance.
@@ -37,7 +46,7 @@ export function DocumentEditor(props: {
     }
   })()
 
-  const editor = useCreateBlockNote({ initialContent: parsed })
+  const editor = useCreateBlockNote({ initialContent: parsed, uploadFile })
 
   // clear any pending save only on unmount — an empty deps array is load-bearing
   // (without it, every render clears the debounce timer and saves never fire)

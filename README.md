@@ -3,16 +3,19 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M4 (website renderer) built and verified 2026-07-18. Site-category
-spaces publish as websites: top nav from root live pages, home at `/`, blog
-page type rendering live children as dated posts (newest first, snippets),
-post pages with backlinks, RSS + sitemap, and four token-only theme presets
-(paper/ink/mist/sand, each light+dark). Note→post promotion works: cross-space
-subtree move (colliding slugs reset and regenerate at next publish) — move a
-note under a blog page, hit Publish, it's a post in the feed. Galleries are
-deliberately deferred to the attachments milestone (BlobStore + sharp + EXIF
-stripping deserve their own pass). M0–M3 landed the same day.
-`mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
+**Status:** M4.5 (attachments + galleries) built and verified 2026-07-18.
+Uploads flow through the four-method BlobStore (fs driver, content-addressed
+sha256 keys, two-level fanout; the S3-compatible driver plugs in behind the
+same seam later). Images are re-encoded at ingest — max edge 2560, WebP,
+orientation applied, EXIF/GPS stripped — with 480px thumbs; non-images stored
+as-is. Editor gets image blocks (BlockNote uploadFile); 'gallery' page type
+gets a grid manager (multi-upload, captions, remove) and publishes its grid
+into the snapshot. The privacy rule extends to files: each version records
+its attachment ids, and the public file route serves exactly the union over
+live versions of enabled spaces (cache invalidated on publish/retire) —
+anonymous access is 404 before publish, 200 after, 404 again on retire.
+M4 (website renderer, blog, RSS, themes, note→post) and M0–M3 landed the
+same day. `mockup.html` is the UI direction; `TECH-PLAN.md` is the plan.
 
 ## Develop
 

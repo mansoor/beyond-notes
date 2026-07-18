@@ -137,7 +137,11 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
      * Reparent/reorder within one space. Rejects moves that would create a
      * cycle (a page under its own descendant) — the classic tree corruption.
      */
-    async setPageType(user: UserRow, pageId: string, pageType: 'doc' | 'blog'): Promise<void> {
+    async setPageType(
+      user: UserRow,
+      pageId: string,
+      pageType: 'doc' | 'blog' | 'gallery',
+    ): Promise<void> {
       const { space } = await requirePage(pageId, user)
       if (space.kind !== 'tree')
         throw new PagesError('BAD_MOVE', 'Journal pages have no page type.')

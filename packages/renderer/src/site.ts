@@ -34,6 +34,13 @@ padding:13px 0;border-top:1px solid var(--border)}
 .postlist .date{color:var(--text3);font-size:13px;white-space:nowrap;font-family:ui-monospace,Consolas,monospace}
 .postlist .snippet{color:var(--text2);font-size:14px;margin:2px 0 0}
 .backlink{display:inline-block;margin-bottom:14px;font-size:13px;color:var(--text3);text-decoration:none}
+main figure{margin:14px 0}
+main figure img{max-width:100%;border-radius:10px}
+main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
+main .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:18px 0}
+main .gallery .cell{display:block;text-decoration:none}
+main .gallery img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block}
+main .gallery .cap{font-size:12px;color:var(--text3)}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
 display:flex;justify-content:space-between;max-width:820px;margin:0 auto}
 `

@@ -2,6 +2,7 @@ import '@fastify/cookie'
 import type {
   AuthStatus,
   DocumentView,
+  GalleryItemView,
   InviteView,
   MemoView,
   PageMeta,
@@ -526,12 +527,70 @@ const tasksRouter = router({
   }),
 })
 
+const galleryRouter = router({
+  list: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<GalleryItemView[]> => {
+      try {
+        await ctx.pages.getPage(ctx.user, input.pageId) // access check
+        const items = await ctx.attachments.listGallery(input.pageId)
+        return items.map((i) => ({
+          id: i.id,
+          attachmentId: i.attachmentId,
+          caption: i.caption,
+          position: i.position,
+          url: `/api/files/${i.attachmentId}`,
+          thumbUrl: `/api/files/${i.attachmentId}/thumb`,
+        }))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  add: authedProcedure
+    .input(z.object({ pageId: z.string(), attachmentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.attachments.addToGallery(input.pageId, input.attachmentId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  caption: authedProcedure
+    .input(z.object({ pageId: z.string(), itemId: z.string(), caption: z.string().max(300) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.attachments.setCaption(input.itemId, input.caption)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  remove: authedProcedure
+    .input(z.object({ pageId: z.string(), itemId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.attachments.removeFromGallery(input.itemId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
   spaces: spacesRouter,
   pages: pagesRouter,
   publish: publishRouter,
+  gallery: galleryRouter,
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,

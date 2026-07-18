@@ -111,6 +111,15 @@ function renderBlocks(blocks: Block[]): string {
       case 'quote':
         out += `<blockquote>${renderInline(block.content)}</blockquote>`
         break
+      case 'image': {
+        const url = safeHref(block.props?.url)
+        if (!url) break
+        const caption = typeof block.props?.caption === 'string' ? block.props.caption : ''
+        out += `<figure><img src="${escapeHtml(url)}" alt="${escapeHtml(caption)}" loading="lazy">${
+          caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''
+        }</figure>`
+        break
+      }
       default:
         out += `<p>${renderInline(block.content)}</p>`
     }
@@ -139,6 +148,22 @@ export function blocknoteToHtml(contentJson: string): string {
     return ''
   }
   return renderBlocks(blocks)
+}
+
+export type GalleryRenderItem = { url: string; thumbUrl: string; caption: string }
+
+/** The gallery grid appended to a gallery page's rendered HTML at publish time. */
+export function galleryHtml(items: GalleryRenderItem[]): string {
+  if (items.length === 0) return ''
+  const cells = items
+    .map(
+      (i) =>
+        `<a class="cell" href="${escapeHtml(i.url)}"><img src="${escapeHtml(i.thumbUrl)}" alt="${escapeHtml(i.caption)}" loading="lazy">${
+          i.caption ? `<span class="cap">${escapeHtml(i.caption)}</span>` : ''
+        }</a>`,
+    )
+    .join('')
+  return `<div class="gallery">${cells}</div>`
 }
 
 export function plainText(contentJson: string): string {

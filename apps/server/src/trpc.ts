@@ -1,6 +1,7 @@
 import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
+import type { AttachmentsService } from './attachments'
 import type { AuthService } from './auth'
 import type { Config } from './config'
 import type { DailyService } from './daily'
@@ -21,6 +22,7 @@ export type Context = {
   daily: DailyService
   tasks: TasksService
   publishing: PublishingService
+  attachments: AttachmentsService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -33,6 +35,7 @@ export function makeCreateContext(deps: {
   daily: DailyService
   tasks: TasksService
   publishing: PublishingService
+  attachments: AttachmentsService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

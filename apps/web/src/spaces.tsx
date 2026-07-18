@@ -277,7 +277,7 @@ function PageTreeLevel(props: {
               className="truncate flex-1"
               title={page.title}
             >
-              {page.pageType === 'blog' ? '📰 ' : ''}
+              {page.pageType === 'blog' ? '📰 ' : page.pageType === 'gallery' ? '🖼 ' : ''}
               {page.title}
             </Link>
             <span className="hidden group-hover:flex items-center gap-0.5">
@@ -314,7 +314,6 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
       utils.pages.get.invalidate({ pageId: props.page.id })
     },
   })
-  const isBlog = props.page.pageType === 'blog'
   return (
     <span className="relative">
       <button
@@ -345,17 +344,26 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
               {kind}
             </button>
           ))}
-          <button
-            type="button"
-            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
-            style={{ color: 'var(--text)' }}
-            onClick={() => {
-              setOpen(false)
-              setType.mutate({ pageId: props.page.id, pageType: isBlog ? 'doc' : 'blog' })
-            }}
-          >
-            {isBlog ? 'Make normal page' : 'Make blog page'}
-          </button>
+          {(['doc', 'blog', 'gallery'] as const)
+            .filter((t) => t !== props.page.pageType)
+            .map((t) => (
+              <button
+                key={t}
+                type="button"
+                className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+                style={{ color: 'var(--text)' }}
+                onClick={() => {
+                  setOpen(false)
+                  setType.mutate({ pageId: props.page.id, pageType: t })
+                }}
+              >
+                {t === 'doc'
+                  ? 'Make normal page'
+                  : t === 'blog'
+                    ? 'Make blog page'
+                    : 'Make gallery page'}
+              </button>
+            ))}
         </div>
       )}
     </span>

@@ -51,7 +51,7 @@ export const pages = sqliteTable('pages', {
   title: text('title').notNull().default('Untitled'),
   position: integer('position').notNull().default(0),
   dateKey: text('date_key'),
-  pageType: text('page_type', { enum: ['doc', 'blog'] })
+  pageType: text('page_type', { enum: ['doc', 'blog', 'gallery'] })
     .notNull()
     .default('doc'),
   slug: text('slug'),
@@ -71,8 +71,33 @@ export const pageVersions = sqliteTable('page_versions', {
   content: text('content').notNull(),
   html: text('html').notNull(),
   textPlain: text('text_plain').notNull(),
+  attachmentIds: text('attachment_ids').notNull().default('[]'),
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const attachments = sqliteTable('attachments', {
+  id: text('id').primaryKey(),
+  hash: text('hash').notNull(),
+  filename: text('filename').notNull(),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const galleryItems = sqliteTable('gallery_items', {
+  id: text('id').primaryKey(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  attachmentId: text('attachment_id')
+    .notNull()
+    .references(() => attachments.id),
+  position: integer('position').notNull().default(0),
+  caption: text('caption').notNull().default(''),
 })
 
 export const documents = sqliteTable('documents', {

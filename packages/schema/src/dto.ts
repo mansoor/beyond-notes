@@ -114,13 +114,22 @@ export type PageMeta = {
   parentId: string | null
   title: string
   position: number
-  pageType: 'doc' | 'blog'
+  pageType: 'doc' | 'blog' | 'gallery'
 }
 
 export const setPageTypeInput = z.object({
   pageId: z.string(),
-  pageType: z.enum(['doc', 'blog']),
+  pageType: z.enum(['doc', 'blog', 'gallery']),
 })
+
+export type GalleryItemView = {
+  id: string
+  attachmentId: string
+  caption: string
+  position: number
+  url: string
+  thumbUrl: string
+}
 
 export type DocumentView = {
   content: string
