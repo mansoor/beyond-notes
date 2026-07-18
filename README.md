@@ -3,8 +3,11 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M0 (walking skeleton) built and verified 2026-07-18 — monorepo,
-dual-dialect DB with migrations, invite-only auth, app shell, Docker, CI.
+**Status:** M1 (pages + trees) built and verified 2026-07-18. The primitive is
+real: tree spaces (notebook/wiki/site categories, personal or shared), nested
+pages with reparent/reorder (cycle-safe), BlockNote editor with debounced
+autosave behind an optimistic lock, delete-with-cascade. M0 (skeleton: dual-
+dialect DB, invite-only auth, Docker, CI) landed the same day.
 `mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
 
 ## Develop

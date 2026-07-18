@@ -72,6 +72,30 @@ export function ErrorNote(props: { message: string | null }) {
   )
 }
 
+export function Modal(props: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={props.onClose}
+      onKeyDown={(e) => e.key === 'Escape' && props.onClose()}
+      role="presentation"
+    >
+      <dialog
+        open
+        className="w-full max-w-sm rounded-xl border p-6 relative m-0"
+        style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text)' }}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        aria-label={props.title}
+      >
+        <h2 className="font-semibold mb-4">{props.title}</h2>
+        {props.children}
+      </dialog>
+    </div>
+  )
+}
+
 export function useSubmit(fn: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

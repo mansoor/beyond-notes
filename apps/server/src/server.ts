@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import { createAuthService } from './auth'
 import type { Config } from './config'
 import type { AppDb } from './db'
+import { createPagesService } from './pages'
 import { createRepo } from './repo'
 import { appRouter } from './routers'
 import { makeCreateContext } from './trpc'
@@ -18,12 +19,13 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   const repo = createRepo(appDb)
   const auth = createAuthService(repo)
+  const pages = createPagesService(repo)
 
   await server.register(fastifyTRPCPlugin, {
     prefix: '/api/trpc',
     trpcOptions: {
       router: appRouter,
-      createContext: makeCreateContext({ config, repo, auth }),
+      createContext: makeCreateContext({ config, repo, auth, pages }),
     },
   })
 
@@ -32,7 +34,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
   // Serve the built SPA when present (production); in dev, Vite serves the web app.
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : ''
   if (webDist && existsSync(webDist)) {
-    await server.register(fastifyStatic, { root: webDist, wildcard: false })
+    // wildcard mode resolves files per request (a rebuilt bundle is picked up
+    // without a restart); missing paths fall through to the SPA fallback below
+    await server.register(fastifyStatic, { root: webDist })
     server.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) {
         reply.code(404).send({ error: 'not found' })

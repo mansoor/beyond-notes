@@ -1,10 +1,28 @@
 import '@fastify/cookie'
-import type { AuthStatus, InviteView, UserView } from '@bn/schema'
-import { acceptInviteInput, createInviteInput, loginInput, setupInput } from '@bn/schema'
+import type {
+  AuthStatus,
+  DocumentView,
+  InviteView,
+  PageMeta,
+  SpaceView,
+  UserView,
+} from '@bn/schema'
+import {
+  acceptInviteInput,
+  createInviteInput,
+  createPageInput,
+  createSpaceInput,
+  loginInput,
+  movePageInput,
+  renamePageInput,
+  saveDocumentInput,
+  setupInput,
+} from '@bn/schema'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AuthError } from './auth'
-import type { InviteRow, UserRow } from './repo'
+import { PagesError } from './pages'
+import type { InviteRow, PageRow, SpaceRow, UserRow } from './repo'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
 
@@ -57,7 +75,38 @@ function rethrow(err: unknown): never {
           : 'BAD_REQUEST'
     throw new TRPCError({ code, message: err.message })
   }
+  if (err instanceof PagesError) {
+    const code =
+      err.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : err.code === 'FORBIDDEN'
+          ? 'FORBIDDEN'
+          : err.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST'
+    throw new TRPCError({ code, message: err.message })
+  }
   throw err
+}
+
+function toSpaceView(s: SpaceRow): SpaceView {
+  return {
+    id: s.id,
+    name: s.name,
+    category: s.category,
+    personal: s.ownerId !== null,
+    createdAt: s.createdAt.toISOString(),
+  }
+}
+
+function toPageMeta(p: PageRow): PageMeta {
+  return {
+    id: p.id,
+    spaceId: p.spaceId,
+    parentId: p.parentId,
+    title: p.title,
+    position: p.position,
+  }
 }
 
 const authRouter = router({
@@ -143,9 +192,123 @@ const usersRouter = router({
     }),
 })
 
+const spacesRouter = router({
+  list: authedProcedure.query(async ({ ctx }) => {
+    const spaces = await ctx.pages.listSpaces(ctx.user)
+    return spaces.map(toSpaceView)
+  }),
+
+  create: authedProcedure.input(createSpaceInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toSpaceView(await ctx.pages.createSpace(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  rename: authedProcedure
+    .input(z.object({ spaceId: z.string(), name: z.string().trim().min(1).max(80) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.renameSpace(ctx.user, input.spaceId, input.name)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  delete: authedProcedure
+    .input(z.object({ spaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.deleteSpace(ctx.user, input.spaceId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
+const pagesRouter = router({
+  tree: authedProcedure
+    .input(z.object({ spaceId: z.string() }))
+    .query(async ({ ctx, input }): Promise<PageMeta[]> => {
+      try {
+        return (await ctx.pages.tree(ctx.user, input.spaceId)).map(toPageMeta)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  create: authedProcedure.input(createPageInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toPageMeta(await ctx.pages.createPage(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  get: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<{ page: PageMeta; doc: DocumentView }> => {
+      try {
+        const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
+        return {
+          page: toPageMeta(page),
+          doc: {
+            content: doc.content,
+            schemaVersion: doc.schemaVersion,
+            updatedAt: doc.updatedAt.toISOString(),
+          },
+        }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  rename: authedProcedure.input(renamePageInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.pages.renamePage(ctx.user, input.pageId, input.title)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  move: authedProcedure.input(movePageInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.pages.movePage(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  delete: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.deletePage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  saveDoc: authedProcedure.input(saveDocumentInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.pages.saveDocument(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
+  spaces: spacesRouter,
+  pages: pagesRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

@@ -3,5 +3,11 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src", "drizzle.pg.config.ts", "drizzle.sqlite.config.ts", "tsup.config.ts"]
+  "include": [
+    "src",
+    "drizzle.pg.config.ts",
+    "drizzle.sqlite.config.ts",
+    "tsup.config.ts",
+    "vitest.config.ts"
+  ]
 }

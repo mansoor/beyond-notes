@@ -3,6 +3,7 @@ import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { AuthService } from './auth'
 import type { Config } from './config'
+import type { PagesService } from './pages'
 import type { Repo, UserRow } from './repo'
 
 export const SESSION_COOKIE = 'bn_session'
@@ -13,11 +14,17 @@ export type Context = {
   config: Config
   repo: Repo
   auth: AuthService
+  pages: PagesService
   user: UserRow | null
   sessionToken: string | null
 }
 
-export function makeCreateContext(deps: { config: Config; repo: Repo; auth: AuthService }) {
+export function makeCreateContext(deps: {
+  config: Config
+  repo: Repo
+  auth: AuthService
+  pages: PagesService
+}) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =
       (req.cookies as Record<string, string | undefined>)?.[SESSION_COOKIE] ?? null

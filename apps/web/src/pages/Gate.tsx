@@ -1,3 +1,4 @@
+import { Outlet } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CenterCard, ErrorNote, Field, SubmitButton, useSubmit } from '../components'
 import { trpc } from '../trpc'
@@ -26,7 +27,13 @@ export function Gate() {
       </div>
     )
   }
-  if (status.data?.me) return <Shell me={status.data.me} />
+  if (status.data?.me) {
+    return (
+      <Shell me={status.data.me}>
+        <Outlet />
+      </Shell>
+    )
+  }
   if (status.data?.needsSetup) return <SetupPage />
   return <LoginPage />
 }

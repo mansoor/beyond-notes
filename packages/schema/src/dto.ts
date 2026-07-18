@@ -52,3 +52,64 @@ export type AuthStatus = {
   needsSetup: boolean
   me: UserView | null
 }
+
+// ---- spaces & pages (M1) ----
+
+export const spaceCategory = z.enum(['notebook', 'wiki', 'site'])
+export type SpaceCategory = z.infer<typeof spaceCategory>
+
+export const createSpaceInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  category: spaceCategory.default('notebook'),
+  personal: z.boolean().default(false),
+})
+export type CreateSpaceInput = z.infer<typeof createSpaceInput>
+
+export type SpaceView = {
+  id: string
+  name: string
+  category: SpaceCategory
+  personal: boolean
+  createdAt: string
+}
+
+export const createPageInput = z.object({
+  spaceId: z.string(),
+  parentId: z.string().nullable().default(null),
+  title: z.string().trim().max(300).default(''),
+})
+export type CreatePageInput = z.infer<typeof createPageInput>
+
+export const renamePageInput = z.object({
+  pageId: z.string(),
+  title: z.string().trim().min(1).max(300),
+})
+
+export const movePageInput = z.object({
+  pageId: z.string(),
+  parentId: z.string().nullable(),
+  index: z.number().int().min(0),
+})
+export type MovePageInput = z.infer<typeof movePageInput>
+
+export const saveDocumentInput = z.object({
+  pageId: z.string(),
+  // BlockNote block array, JSON-stringified by the client
+  content: z.string().max(2_000_000),
+  baseUpdatedAt: z.string(),
+})
+export type SaveDocumentInput = z.infer<typeof saveDocumentInput>
+
+export type PageMeta = {
+  id: string
+  spaceId: string
+  parentId: string | null
+  title: string
+  position: number
+}
+
+export type DocumentView = {
+  content: string
+  schemaVersion: number
+  updatedAt: string
+}
