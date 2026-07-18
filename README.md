@@ -59,6 +59,12 @@ Every space = **authoring mode × visibility × public renderer**.
   serves both task reminders and standalone reminders. A separate Reminders
   app-within-the-app was considered and rejected: two things that both mean
   "nag me later" would force a taxonomy decision on every capture.
+- **Reminders carry an optional heads-up lead time, and surface on Today.**
+  Annual life-admin (car registration, tax due date, passport renewal) is the
+  primary use case, and firing on the day is useless for those — so a reminder
+  has a due date/rule plus an optional heads-up window ("30 days before").
+  The Today page shows reminders due today in "Due today" and the near horizon
+  in a "Coming up" card; birthdays/anniversaries are just yearly reminders.
 - **App theme ≠ site theme.** The app supports light/dark. Each published site
   picks from a small set of preset themes — design tokens only (fonts, colors,
   header style), never structure — each with a light and dark variant. A
