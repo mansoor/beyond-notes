@@ -29,13 +29,13 @@ what was rejected and why.
 | Runtime | Node.js 22 LTS |
 | Monorepo | pnpm workspaces |
 | Backend | Fastify 5 + tRPC 11 (app API) / plain Fastify routes (public sites) |
-| Database | PostgreSQL 16 + Drizzle ORM (drizzle-kit migrations) |
-| Search | Postgres full-text search (tsvector) |
+| Database | PostgreSQL 16 (recommended) or SQLite (light mode); Drizzle ORM |
+| Search | Postgres FTS / SQLite FTS5 behind one search interface |
 | Editor | BlockNote (TipTap/ProseMirror underneath), ProseMirror JSON storage |
 | Frontend | React 18 + Vite, TanStack Router + Query, Tailwind CSS v4 |
 | Public rendering | Render-to-HTML **at publish time**, stored snapshots |
-| Files/images | Local volume + sharp (thumbnails), EXIF-stripped on publish |
-| Auth | Cookie sessions, argon2id; users table multi-user-ready |
+| Files/images | Pluggable blob store: local volume (default) or S3-compatible (MinIO, AWS, Wasabi); sharp thumbnails, EXIF-stripped on publish |
+| Auth | Cookie sessions, argon2id, optional TOTP 2FA, email password reset + CLI rescue |
 | Jobs/scheduler | Postgres-backed job table + in-process tick loop (no Redis) |
 | Notifications | ntfy (push) + SMTP (email) |
 | Testing | Vitest, Testcontainers (integration), Playwright (E2E) |
@@ -91,24 +91,40 @@ SPA plus server-rendered *public* pages, and the public pages are rendered at
 publish time (below), so there is nothing for a meta-framework's SSR to do.
 One Fastify process serves everything.
 
-### Database: PostgreSQL 16 + Drizzle
+### Database: Postgres first, SQLite for light mode — MySQL rejected
 
-- Postgres over SQLite: the job scheduler, FTS, and concurrent publish/serve
-  paths all want a real server; the user already operates Postgres in Docker.
-  SQLite would save one container but cost migration pain the first time
-  anything concurrent happens.
-- **Drizzle ORM**: schema defined in TypeScript (single source of truth for
-  types), SQL-transparent (no query-builder mystery), first-class migrations
+- **PostgreSQL 16 is the recommended, reference deployment** — the compose
+  file ships with it, CI treats it as primary, performance work targets it.
+- **SQLite (WAL mode) is the supported light option.** It unlocks a genuinely
+  different deployment class: no database container at all, one file to back
+  up, runs on the smallest hardware. It's viable *because* the app is a single
+  process — the scheduler and publish path don't need cross-process locking
+  there.
+- **MySQL/MariaDB: rejected.** The ask was "cheap enough to support" — and it
+  isn't cheap; that's the honest answer. Every extra dialect multiplies
+  migrations, FTS implementations, CI runs, and bug surface, forever. The
+  audience that wants light wants SQLite (no DB server at all); anyone already
+  operating MariaDB can run the Postgres container with identical effort, so
+  MySQL support serves almost nobody while taxing everything. Two dialects is
+  the most this project can test honestly.
+- **Cost containment for two dialects** (this is what makes the SQLite promise
+  real rather than aspirational): portable SQL only — no JSONB operators, no
+  arrays, no PG-only tricks in shared code; the two genuine divergences live
+  behind two narrow seams — a search interface (tsvector vs. FTS5) and a
+  job-claim function (`SKIP LOCKED` vs. single-writer transaction). The
+  integration suite runs on **both** dialects in CI; a feature is not done
+  until it's green on both.
+- **Drizzle ORM** (supports both dialects): schema defined in TypeScript
+  (single source of truth for types), SQL-transparent, first-class migrations
   via drizzle-kit. Migrations are **forward-only**, run automatically on boot
-  under a Postgres advisory lock.
+  (advisory-locked on Postgres).
 - Core tables (from the concept doc): `users`, `spaces`, `pages`, `documents`
   (working copies), `page_versions` (immutable snapshots + rendered HTML),
   `tasks` (index over checkbox blocks), `reminders`, `attachments`,
   `scheduled_jobs`, `sessions`.
-- **Search: Postgres FTS.** A tsvector column on working copies (private
-  search) and one on published versions (public search, per site). Meilisearch
-  is the upgrade path if FTS relevance ever disappoints; it is not worth a
-  permanent extra container on day one.
+- Search stays in the database (private search over working copies, per-site
+  public search over published versions). Meilisearch is the upgrade path if
+  relevance ever disappoints; not worth a permanent extra container on day one.
 
 ### Frontend: React + Vite SPA
 
@@ -145,13 +161,45 @@ becomes physical here:
    pages is re-encoded on publish: thumbnails generated, **EXIF (including GPS)
    stripped** — a gallery of personal photos must not publish location data.
 
-### Auth: boring cookie sessions
+### Attachments: pluggable blob store, filesystem by default
+
+Every upload (wiki attachments, note images, gallery photos) goes through a
+deliberately tiny `BlobStore` interface — `put / getStream / delete / exists` —
+keyed by content hash (free dedupe; re-uploading the same photo costs nothing).
+
+- **Drivers: local filesystem (default, zero config)** and **S3-compatible**
+  (endpoint + bucket + keys via env — covers MinIO, AWS S3, Wasabi, R2, B2).
+  Two drivers, one interface, both in CI (S3 tested against MinIO in a
+  container). Unlike a second SQL dialect, this abstraction genuinely is
+  cheap — the interface has four methods and no query language.
+- **All access is proxied through the app** — private attachments require a
+  session; published media is served from the version-pinned public path with
+  long cache headers. No presigned URLs in v0: they'd bypass the visibility
+  boundary and make the storage backend visible to clients. Switching a
+  deployment from filesystem to S3 is an env change plus a migration command
+  (`cli blobs:migrate`), invisible to every URL.
+- Derived assets (thumbnails, EXIF-stripped publish copies) are stored through
+  the same interface. Backup story per driver: uploads volume, or the bucket's
+  own durability + versioning.
+
+### Auth: boring cookie sessions, with the safety rails
 
 Email + password, argon2id hashing, HttpOnly SameSite=Lax session cookie,
-sessions table (revocable). Rate-limited login. No OAuth providers, no auth
-SaaS — this is a self-hosted personal tool and the multi-user seam is the
-`users` table, not the login method. Passkeys are a nice later addition.
-CSRF: SameSite plus origin-check on mutations; the public surface is read-only.
+sessions table (revocable — active-sessions list with per-device revoke in
+Settings). Rate-limited login with lockout backoff. No OAuth providers, no
+auth SaaS — the multi-user seam is the `users` table, not the login method.
+Passkeys are a nice later addition. CSRF: SameSite plus origin-check on
+mutations; the public surface is read-only.
+
+- **2FA: TOTP, opt-in.** Standard authenticator-app enrolment (QR + manual
+  secret), verified before it's enabled, with one-time recovery codes shown
+  exactly once. No SMS (expensive, weaker, needs a provider).
+- **Forgot password: email reset link** — single-use token, one-hour expiry,
+  sessions invalidated on reset. This requires working SMTP, so there is also
+  a **CLI rescue**: `docker compose exec app node cli user:reset-password` —
+  a self-hoster locked out with broken SMTP must never be locked out of their
+  own notes. The CLI path requires shell access to the host, which *is* the
+  admin credential in a self-hosted deployment.
 
 ### Jobs, reminders, notifications: Postgres is the queue
 
@@ -165,6 +213,32 @@ Channels: **ntfy** first (self-hosted push, trivial API, works on both phone
 platforms), SMTP second, Web Push for the PWA later. Rejected: Redis/BullMQ —
 a second stateful service to back up and monitor, for a queue that will see
 dozens of jobs a day.
+
+**Everything is opt-in.** No channel sends anything until it is both configured
+(env) and enabled by the user (Settings → Notifications), with per-event
+toggles: task due, reminder due, heads-up notices, and an optional daily digest
+email (one morning message summarizing Today) instead of — or alongside —
+per-event pings. Default state for every toggle is off; a notes app that
+surprises you with email on day one has already broken trust.
+
+### Settings: env for infrastructure, DB for preferences, tabs for humans
+
+Two config layers with a hard line between them:
+
+- **Environment variables** — things needed *before* the app is up, or that
+  are deployment facts: DB connection, port, base URL, storage driver +
+  credentials, SMTP/ntfy endpoints. Documented in an ASCII-only `.env.example`.
+- **Database-stored settings** — everything a user can change at runtime,
+  edited in the UI, validated by per-group zod schemas (no giant settings
+  blob; each group is its own versioned object).
+
+The Settings page is **small groups in separate tabs** (per the concept
+discussion): **Account** (profile, email), **Security** (password, 2FA,
+recovery codes, active sessions), **Notifications** (channels, per-event
+toggles, digest), **Appearance** (app theme), **Storage** (backend info,
+usage), **System** (version, update check, backup guidance). Per-site settings
+(domain, theme, nav, header/footer) deliberately do *not* live here — they
+stay on each space, where the mockup already puts them.
 
 ---
 
@@ -214,9 +288,10 @@ The product's riskiest promises get the strongest tests:
    task → appears on Today; create wiki page → publish → visible on the public
    site, draft sibling absent; note → move into blog → post appears in feed.
 
-Unit tests colocate (`*.test.ts`); integration tests run against a disposable
-Postgres via Testcontainers (locally and in CI — same container image as
-production compose).
+Unit tests colocate (`*.test.ts`); integration tests run via Testcontainers —
+against disposable Postgres **and** file-backed SQLite (the same suite, both
+dialects, every CI run), plus MinIO for the S3 blob driver. A feature isn't
+done until the matrix is green.
 
 ---
 
@@ -258,7 +333,8 @@ docker compose:
   postgres   postgres:16  (volume: pgdata)
   ntfy       optional, for push notifications
 volumes:
-  pgdata, uploads
+  pgdata, uploads   (uploads absent when storage points at an S3 endpoint;
+                     pgdata absent in SQLite light mode — one app volume total)
 reverse proxy (host level, e.g. Caddy): TLS + routes
   notes.example.com     → app   (the private app)
   docs.mansoor.io       → app   (public: resolved by Host header → wiki)
@@ -311,8 +387,10 @@ Each milestone ends with something runnable — verify by running, always.
   types.
 - **M5 — reminders + notifications.** Scheduler, RRULE, heads-up windows,
   ntfy/SMTP channels, Coming-up on Today.
-- **M6 — polish to v0.1.** PWA + share target, global search UX, dark theme
-  audit, backup/restore docs, first tagged release.
+- **M6 — polish to v0.1.** Settings surface (tabbed groups), 2FA + password
+  reset flows, PWA + share target, global search UX, dark theme audit,
+  backup/restore docs, first tagged release. (M0 ships plain email+password
+  auth; the hardening lands here.)
 
 Risk watch: M1 (editor custom blocks) and M3 (publish correctness) are where
 the unknowns live; if either slips, cut scope elsewhere, not there.
