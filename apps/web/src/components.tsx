@@ -1,5 +1,5 @@
 import type { FormEvent, ReactNode } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (
@@ -72,12 +72,37 @@ export function ErrorNote(props: { message: string | null }) {
   )
 }
 
-export function Modal(props: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal(props: {
+  title: string
+  onClose: () => void
+  /**
+   * When true (the form has unsaved edits), clicking the backdrop does NOT
+   * dismiss — only an explicit action does: save, the ✕ button, or Escape.
+   */
+  dirty?: boolean
+  children: ReactNode
+}) {
+  // Escape is an explicit cancel and always closes, dirty or not
+  const closeRef = useRef(props.onClose)
+  closeRef.current = props.onClose
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        closeRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ background: 'rgba(0,0,0,0.4)' }}
-      onClick={props.onClose}
+      onClick={() => {
+        if (!props.dirty) props.onClose()
+      }}
       onKeyDown={(e) => e.key === 'Escape' && props.onClose()}
       role="presentation"
     >
@@ -86,10 +111,22 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
         className="w-full max-w-sm rounded-xl border p-6 relative m-0"
         style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text)' }}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.key === 'Escape' && props.onClose()}
         aria-label={props.title}
       >
-        <h2 className="font-semibold mb-4">{props.title}</h2>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="font-semibold">{props.title}</h2>
+          <button
+            type="button"
+            aria-label="Close"
+            title="Close (Esc)"
+            onClick={props.onClose}
+            className="rounded px-1.5 text-sm leading-6"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ✕
+          </button>
+        </div>
         {props.children}
       </dialog>
     </div>

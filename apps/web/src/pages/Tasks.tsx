@@ -181,7 +181,8 @@ function NewReminderModal(props: { onClose: () => void }) {
   const utils = trpc.useUtils()
   const create = trpc.reminders.create.useMutation()
   const [title, setTitle] = useState('')
-  const [dueDate, setDueDate] = useState(todayKey())
+  const [initialDueDate] = useState(todayKey())
+  const [dueDate, setDueDate] = useState(initialDueDate)
   const [dueTime, setDueTime] = useState('')
   const [freq, setFreq] = useState<'' | ReminderFreq>('')
   const [interval, setInterval] = useState('1')
@@ -200,9 +201,16 @@ function NewReminderModal(props: { onClose: () => void }) {
   })
 
   const selectStyle = { background: 'var(--bg)', borderColor: 'var(--border)' }
+  const dirty =
+    title.trim() !== '' ||
+    dueDate !== initialDueDate ||
+    dueTime !== '' ||
+    freq !== '' ||
+    interval !== '1' ||
+    headsUp !== ''
 
   return (
-    <Modal title="New reminder" onClose={props.onClose}>
+    <Modal title="New reminder" onClose={props.onClose} dirty={dirty}>
       <form onSubmit={onSubmit}>
         <Field label="What" value={title} onChange={setTitle} autoFocus />
         <div className="grid grid-cols-2 gap-3">

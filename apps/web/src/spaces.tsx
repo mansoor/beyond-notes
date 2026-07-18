@@ -61,9 +61,10 @@ function NewSpaceModal(props: { onClose: () => void }) {
     await utils.spaces.list.invalidate()
     props.onClose()
   })
+  const dirty = name.trim() !== '' || category !== 'notebook' || personal
 
   return (
-    <Modal title="New space" onClose={props.onClose}>
+    <Modal title="New space" onClose={props.onClose} dirty={dirty}>
       <form onSubmit={onSubmit}>
         <Field label="Name" value={name} onChange={setName} autoFocus />
         <label className="block mb-4">
@@ -210,9 +211,15 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     await utils.spaces.list.invalidate()
     props.onClose()
   })
+  const dirty =
+    enabled !== s.publicEnabled ||
+    host !== (s.publicHost ?? '') ||
+    title !== (s.publicTitle ?? '') ||
+    footer !== (s.publicFooter ?? '') ||
+    theme !== s.publicTheme
 
   return (
-    <Modal title={`Publishing — ${s.name}`} onClose={props.onClose}>
+    <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty}>
       <form onSubmit={onSubmit}>
         <label className="flex items-center gap-2 mb-4 text-sm">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -381,7 +388,7 @@ function RenamePageModal(props: { page: PageMeta; onClose: () => void }) {
     props.onClose()
   })
   return (
-    <Modal title="Rename page" onClose={props.onClose}>
+    <Modal title="Rename page" onClose={props.onClose} dirty={title !== props.page.title}>
       <form onSubmit={onSubmit}>
         <Field label="Title" value={title} onChange={setTitle} autoFocus />
         <ErrorNote message={error} />
@@ -429,9 +436,10 @@ function MovePageModal(props: { page: PageMeta; all: PageMeta[]; onClose: () => 
     await utils.pages.get.invalidate({ pageId: props.page.id })
     props.onClose()
   })
+  const dirty = targetSpaceId !== props.page.spaceId || parentId !== (props.page.parentId ?? '')
 
   return (
-    <Modal title={`Move "${props.page.title}"`} onClose={props.onClose}>
+    <Modal title={`Move "${props.page.title}"`} onClose={props.onClose} dirty={dirty}>
       <form onSubmit={onSubmit}>
         <label className="block mb-4">
           <span className="block text-sm font-medium mb-1">Space</span>
