@@ -75,10 +75,8 @@ function NewSpaceModal(props: { onClose: () => void }) {
             onChange={(e) => setCategory(e.target.value as SpaceCategory)}
           >
             <option value="notebook">Notebook — private notes tree</option>
-            <option value="wiki">Wiki — publishable later (M3)</option>
-            <option value="site" disabled>
-              Site — arrives in M4
-            </option>
+            <option value="wiki">Wiki — publishable as a docs site</option>
+            <option value="site">Site — publishable as a website (blog, pages)</option>
           </select>
         </label>
         <label className="flex items-center gap-2 mb-4 text-sm">
@@ -199,6 +197,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const [host, setHost] = useState(s.publicHost ?? '')
   const [title, setTitle] = useState(s.publicTitle ?? '')
   const [footer, setFooter] = useState(s.publicFooter ?? '')
+  const [theme, setTheme] = useState(s.publicTheme)
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
       spaceId: s.id,
@@ -206,6 +205,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
       host: host.trim() || null,
       title: title.trim() || null,
       footer: footer.trim() || null,
+      theme,
     })
     await utils.spaces.list.invalidate()
     props.onClose()
@@ -221,6 +221,20 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
         <Field label="Host (e.g. docs.example.com)" value={host} onChange={setHost} />
         <Field label="Site title (defaults to the space name)" value={title} onChange={setTitle} />
         <Field label="Footer" value={footer} onChange={setFooter} />
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Theme</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as SpaceView['publicTheme'])}
+          >
+            <option value="paper">Paper — warm light, dark variant</option>
+            <option value="ink">Ink — always dark</option>
+            <option value="mist">Mist — cool light, dark variant</option>
+            <option value="sand">Sand — warm sand, dark variant</option>
+          </select>
+        </label>
         <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
           Only pages you explicitly publish appear, and only when every parent is published too.
           Preview without DNS at /s/&lt;host&gt;/.
@@ -263,6 +277,7 @@ function PageTreeLevel(props: {
               className="truncate flex-1"
               title={page.title}
             >
+              {page.pageType === 'blog' ? '📰 ' : ''}
               {page.title}
             </Link>
             <span className="hidden group-hover:flex items-center gap-0.5">
@@ -292,6 +307,14 @@ function PageTreeLevel(props: {
 
 function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) {
   const [open, setOpen] = useState(false)
+  const utils = trpc.useUtils()
+  const setType = trpc.pages.setType.useMutation({
+    onSuccess: () => {
+      utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
+      utils.pages.get.invalidate({ pageId: props.page.id })
+    },
+  })
+  const isBlog = props.page.pageType === 'blog'
   return (
     <span className="relative">
       <button
@@ -304,7 +327,7 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
       </button>
       {open && (
         <div
-          className="absolute right-0 top-5 z-40 w-32 rounded-lg border py-1 text-sm shadow-sm"
+          className="absolute right-0 top-5 z-40 w-40 rounded-lg border py-1 text-sm shadow-sm"
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
@@ -322,6 +345,17 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
               {kind}
             </button>
           ))}
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--text)' }}
+            onClick={() => {
+              setOpen(false)
+              setType.mutate({ pageId: props.page.id, pageType: isBlog ? 'doc' : 'blog' })
+            }}
+          >
+            {isBlog ? 'Make normal page' : 'Make blog page'}
+          </button>
         </div>
       )}
     </span>
@@ -352,8 +386,13 @@ function RenamePageModal(props: { page: PageMeta; onClose: () => void }) {
 function MovePageModal(props: { page: PageMeta; all: PageMeta[]; onClose: () => void }) {
   const utils = trpc.useUtils()
   const move = trpc.pages.move.useMutation()
+  const spaces = trpc.spaces.list.useQuery()
 
-  // a page cannot move under itself or its own descendants
+  const [targetSpaceId, setTargetSpaceId] = useState(props.page.spaceId)
+  const crossSpace = targetSpaceId !== props.page.spaceId
+  const targetTree = trpc.pages.tree.useQuery({ spaceId: targetSpaceId }, { enabled: crossSpace })
+
+  // same-space: a page cannot move under itself or its own descendants
   const blocked = new Set<string>([props.page.id])
   let grew = true
   while (grew) {
@@ -365,18 +404,46 @@ function MovePageModal(props: { page: PageMeta; all: PageMeta[]; onClose: () => 
       }
     }
   }
-  const candidates = props.all.filter((p) => !blocked.has(p.id))
+  const candidates = crossSpace
+    ? (targetTree.data ?? [])
+    : props.all.filter((p) => !blocked.has(p.id))
 
   const [parentId, setParentId] = useState<string | ''>(props.page.parentId ?? '')
   const { busy, error, onSubmit } = useSubmit(async () => {
-    await move.mutateAsync({ pageId: props.page.id, parentId: parentId || null, index: 9999 })
+    await move.mutateAsync({
+      pageId: props.page.id,
+      parentId: parentId || null,
+      index: 9999,
+      spaceId: crossSpace ? targetSpaceId : undefined,
+    })
     await utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
+    await utils.pages.tree.invalidate({ spaceId: targetSpaceId })
+    await utils.pages.get.invalidate({ pageId: props.page.id })
     props.onClose()
   })
 
   return (
     <Modal title={`Move "${props.page.title}"`} onClose={props.onClose}>
       <form onSubmit={onSubmit}>
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Space</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={targetSpaceId}
+            onChange={(e) => {
+              setTargetSpaceId(e.target.value)
+              setParentId('')
+            }}
+          >
+            {spaces.data?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.id === props.page.spaceId ? ' (current)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block mb-4">
           <span className="block text-sm font-medium mb-1">New parent</span>
           <select
@@ -388,11 +455,18 @@ function MovePageModal(props: { page: PageMeta; all: PageMeta[]; onClose: () => 
             <option value="">— space root —</option>
             {candidates.map((p) => (
               <option key={p.id} value={p.id}>
+                {p.pageType === 'blog' ? '📰 ' : ''}
                 {p.title}
               </option>
             ))}
           </select>
         </label>
+        {crossSpace && (
+          <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+            Moves the page and all its subpages. Move under a 📰 blog page to turn a note into a
+            post.
+          </p>
+        )}
         <ErrorNote message={error} />
         <SubmitButton label="Move" busy={busy} />
       </form>

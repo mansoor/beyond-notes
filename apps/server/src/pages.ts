@@ -59,6 +59,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicHost: null,
         publicTitle: null,
         publicFooter: null,
+        publicTheme: 'paper',
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -104,6 +105,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         title: input.title || 'Untitled',
         position: siblings.length,
         dateKey: null,
+        pageType: 'doc',
         slug: null,
         liveVersionId: null,
         createdAt: now(),
@@ -135,11 +137,68 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
      * Reparent/reorder within one space. Rejects moves that would create a
      * cycle (a page under its own descendant) — the classic tree corruption.
      */
+    async setPageType(user: UserRow, pageId: string, pageType: 'doc' | 'blog'): Promise<void> {
+      const { space } = await requirePage(pageId, user)
+      if (space.kind !== 'tree')
+        throw new PagesError('BAD_MOVE', 'Journal pages have no page type.')
+      await repo.updatePage(pageId, { pageType, updatedAt: now() })
+    },
+
     async movePage(
       user: UserRow,
-      input: { pageId: string; parentId: string | null; index: number },
+      input: { pageId: string; parentId: string | null; index: number; spaceId?: string },
     ): Promise<void> {
       const { page } = await requirePage(input.pageId, user)
+
+      // cross-space subtree move (how a note becomes a blog post)
+      if (input.spaceId && input.spaceId !== page.spaceId) {
+        const target = await repo.getSpace(input.spaceId)
+        if (
+          !target ||
+          target.kind !== 'tree' ||
+          (target.ownerId !== null && target.ownerId !== user.id)
+        ) {
+          throw new PagesError('NOT_FOUND', 'Target space not found.')
+        }
+        const targetPages = await repo.listPagesInSpace(target.id)
+        if (input.parentId) {
+          const parent = targetPages.find((p) => p.id === input.parentId)
+          if (!parent) throw new PagesError('BAD_MOVE', 'Target parent is not in that space.')
+        }
+
+        // collect the whole subtree in the source space
+        const sourcePages = await repo.listPagesInSpace(page.spaceId)
+        const subtree = [page]
+        let frontier = [page.id]
+        while (frontier.length > 0) {
+          const next = sourcePages.filter((p) => p.parentId && frontier.includes(p.parentId))
+          subtree.push(...next)
+          frontier = next.map((p) => p.id)
+        }
+
+        const takenSlugs = new Set(targetPages.map((p) => p.slug).filter(Boolean))
+        for (const p of subtree) {
+          const patch: Parameters<Repo['updatePage']>[1] = { spaceId: target.id }
+          // colliding slugs reset and regenerate at the next publish
+          if (p.slug && takenSlugs.has(p.slug)) patch.slug = null
+          await repo.updatePage(p.id, patch)
+        }
+        const siblings = targetPages.filter((p) => p.parentId === input.parentId)
+        await repo.updatePage(page.id, {
+          parentId: input.parentId,
+          position: siblings.length,
+          updatedAt: now(),
+        })
+        // compact the source sibling group left behind
+        const oldSiblings = sourcePages
+          .filter((p) => p.parentId === page.parentId && p.id !== page.id)
+          .sort((a, b) => a.position - b.position)
+        for (let i = 0; i < oldSiblings.length; i++) {
+          const sibling = oldSiblings[i]
+          if (sibling && sibling.position !== i) await repo.updatePage(sibling.id, { position: i })
+        }
+        return
+      }
 
       if (input.parentId) {
         const newParent = await repo.getPage(input.parentId)

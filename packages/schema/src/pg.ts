@@ -39,6 +39,9 @@ export const spaces = pgTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+    .notNull()
+    .default('paper'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -54,6 +57,10 @@ export const pages = pgTable('pages', {
   // journal day pages carry 'YYYY-MM-DD'; the per-user tasks-inbox page carries
   // the sentinel 'inbox'; ordinary tree pages carry null
   dateKey: text('date_key'),
+  // 'blog' pages render their live children as dated posts on public sites
+  pageType: text('page_type', { enum: ['doc', 'blog'] })
+    .notNull()
+    .default('doc'),
   // public path segment; set at first publish, then stable
   slug: text('slug'),
   // page-level "is this live right now" — soft ref into page_versions

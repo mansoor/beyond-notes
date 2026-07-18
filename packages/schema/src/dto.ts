@@ -74,6 +74,7 @@ export type SpaceView = {
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
+  publicTheme: SiteTheme
   createdAt: string
 }
 
@@ -93,6 +94,9 @@ export const movePageInput = z.object({
   pageId: z.string(),
   parentId: z.string().nullable(),
   index: z.number().int().min(0),
+  // set to another tree space to move the whole subtree across spaces
+  // (this is how a note becomes a blog post)
+  spaceId: z.string().optional(),
 })
 export type MovePageInput = z.infer<typeof movePageInput>
 
@@ -110,7 +114,13 @@ export type PageMeta = {
   parentId: string | null
   title: string
   position: number
+  pageType: 'doc' | 'blog'
 }
+
+export const setPageTypeInput = z.object({
+  pageId: z.string(),
+  pageType: z.enum(['doc', 'blog']),
+})
 
 export type DocumentView = {
   content: string
@@ -171,12 +181,16 @@ export const hostSchema = z
   .regex(/^[a-z0-9.-]+(:\d+)?$/, 'Host names only, e.g. docs.example.com')
   .max(255)
 
+export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand'])
+export type SiteTheme = z.infer<typeof siteTheme>
+
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
   enabled: z.boolean(),
   host: hostSchema.nullable(),
   title: z.string().trim().max(120).nullable(),
   footer: z.string().trim().max(300).nullable(),
+  theme: siteTheme.default('paper'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

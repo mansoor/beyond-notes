@@ -36,6 +36,9 @@ export const spaces = sqliteTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+    .notNull()
+    .default('paper'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -48,6 +51,9 @@ export const pages = sqliteTable('pages', {
   title: text('title').notNull().default('Untitled'),
   position: integer('position').notNull().default(0),
   dateKey: text('date_key'),
+  pageType: text('page_type', { enum: ['doc', 'blog'] })
+    .notNull()
+    .default('doc'),
   slug: text('slug'),
   liveVersionId: text('live_version_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),

@@ -27,6 +27,7 @@ import {
   quickAddTaskInput,
   renamePageInput,
   saveDocumentInput,
+  setPageTypeInput,
   setupInput,
   toggleTaskInput,
   updatePublishingInput,
@@ -112,6 +113,7 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicHost: s.publicHost,
     publicTitle: s.publicTitle,
     publicFooter: s.publicFooter,
+    publicTheme: s.publicTheme,
     createdAt: s.createdAt.toISOString(),
   }
 }
@@ -123,6 +125,7 @@ function toPageMeta(p: PageRow): PageMeta {
     parentId: p.parentId,
     title: p.title,
     position: p.position,
+    pageType: p.pageType,
   }
 }
 
@@ -307,6 +310,15 @@ const pagesRouter = router({
   move: authedProcedure.input(movePageInput).mutation(async ({ ctx, input }) => {
     try {
       await ctx.pages.movePage(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  setType: authedProcedure.input(setPageTypeInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.pages.setPageType(ctx.user, input.pageId, input.pageType)
       return { ok: true }
     } catch (err) {
       rethrow(err)

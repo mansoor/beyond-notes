@@ -1,7 +1,18 @@
-import { docs404, docsSearchResults, docsShell } from '@bn/renderer'
+import {
+  buildRss,
+  buildSitemap,
+  docs404,
+  docsSearchResults,
+  docsShell,
+  site404,
+  siteBlogIndex,
+  sitePage,
+  sitePost,
+} from '@bn/renderer'
+import type { SiteNavItem } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
-import type { Repo } from './repo'
+import type { Repo, SpaceRow } from './repo'
 
 /**
  * The unauthenticated read path. It can only reach spaces flagged
@@ -27,9 +38,23 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     if (!space) return false
 
     const path = rawPath === '' ? '/' : rawPath
+
+    // 'site' category spaces render with the website theme; everything else
+    // gets the docs renderer. Same read model underneath.
+    if (space.category === 'site') {
+      await serveWebsite(space, host, path, basePath, reply)
+      return true
+    }
+
     const site = await publishing.publicSite(space, path)
 
     reply.type('text/html; charset=utf-8')
+
+    if (path === '/sitemap.xml') {
+      reply.type('application/xml; charset=utf-8')
+      reply.send(buildSitemap(site.flat.map((f) => `https://${host}${f.path}`)))
+      return true
+    }
 
     if (path === '/_search') {
       const q = typeof query.q === 'string' ? query.q.trim().slice(0, 100) : ''
@@ -95,6 +120,149 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       }),
     )
     return true
+  }
+
+  async function serveWebsite(
+    space: SpaceRow,
+    host: string,
+    path: string,
+    basePath: string,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const site = await publishing.publicSite(space, path)
+    const theme = space.publicTheme
+    const siteTitle = site.siteTitle
+    const footer = site.footer
+
+    // top nav = root-level live pages, in order
+    const roots = site.flat.filter((f) => f.entry.page.parentId === null)
+    const nav: SiteNavItem[] = roots.map((r) => ({
+      title: r.title,
+      path: r.path,
+      active: path === r.path || path.startsWith(`${r.path}/`),
+    }))
+    const blogEntries = site.flat.filter((f) => f.entry.page.pageType === 'blog')
+    const rssPath = blogEntries.length > 0 ? '/rss.xml' : undefined
+
+    const postsOfBlog = async (blogPageId: string, blogPath: string) => {
+      const children = site.flat.filter((f) => f.entry.page.parentId === blogPageId)
+      const dates = await publishing.firstPublishedAt(children.map((c) => c.entry.page.id))
+      return children
+        .map((c) => ({
+          title: c.title,
+          path: c.path,
+          date: dates.get(c.entry.page.id) ?? c.entry.version.createdAt,
+          snippet: c.entry.version.textPlain.slice(0, 160),
+          blogPath,
+        }))
+        .sort((a, b) => b.date.getTime() - a.date.getTime())
+    }
+
+    reply.type('text/html; charset=utf-8')
+
+    if (path === '/sitemap.xml') {
+      reply.type('application/xml; charset=utf-8')
+      reply.send(buildSitemap(site.flat.map((f) => `https://${host}${f.path}`)))
+      return
+    }
+
+    if (path === '/rss.xml') {
+      const items = []
+      for (const blog of blogEntries) {
+        items.push(...(await postsOfBlog(blog.entry.page.id, blog.path)))
+      }
+      items.sort((a, b) => b.date.getTime() - a.date.getTime())
+      reply.type('application/rss+xml; charset=utf-8')
+      reply.send(
+        buildRss({
+          siteTitle,
+          siteUrl: `https://${host}`,
+          description: footer || siteTitle,
+          items: items.map((i) => ({
+            title: i.title,
+            path: i.path,
+            date: i.date,
+            snippet: i.snippet,
+          })),
+        }),
+      )
+      return
+    }
+
+    // '/' renders the first root page as the home page
+    const hit = path === '/' ? roots[0] : site.byPath.get(path)
+    if (!hit) {
+      reply.code(404).send(site404({ siteTitle, footer, theme, basePath }))
+      return
+    }
+    if (path === '/' && roots[0]) {
+      nav[0] = { ...nav[0], title: nav[0]?.title ?? '', path: nav[0]?.path ?? '/', active: true }
+    }
+
+    reply.header('etag', `W/"${hit.entry.version.id}"`)
+
+    // blog index page: own content + dated post list
+    if (hit.entry.page.pageType === 'blog') {
+      const posts = await postsOfBlog(hit.entry.page.id, hit.path)
+      reply.send(
+        siteBlogIndex({
+          siteTitle,
+          footer,
+          theme,
+          nav,
+          basePath,
+          title: hit.entry.version.title,
+          introHtml: hit.entry.version.html,
+          posts: posts.map((p) => ({
+            title: p.title,
+            path: p.path,
+            date: p.date.toISOString().slice(0, 10),
+            snippet: p.snippet,
+          })),
+          rssPath: '/rss.xml',
+        }),
+      )
+      return
+    }
+
+    // post page: a live child of a blog page
+    const parentEntry = hit.entry.page.parentId
+      ? site.flat.find((f) => f.entry.page.id === hit.entry.page.parentId)
+      : undefined
+    if (parentEntry && parentEntry.entry.page.pageType === 'blog') {
+      const dates = await publishing.firstPublishedAt([hit.entry.page.id])
+      const date = dates.get(hit.entry.page.id) ?? hit.entry.version.createdAt
+      reply.send(
+        sitePost({
+          siteTitle,
+          footer,
+          theme,
+          nav,
+          basePath,
+          title: hit.entry.version.title,
+          date: date.toISOString().slice(0, 10),
+          contentHtml: hit.entry.version.html,
+          blogPath: parentEntry.path,
+          blogTitle: parentEntry.title,
+          rssPath,
+        }),
+      )
+      return
+    }
+
+    // standard page (home, about, contact, ...)
+    reply.send(
+      sitePage({
+        siteTitle,
+        footer,
+        theme,
+        nav,
+        basePath,
+        title: hit.entry.version.title,
+        contentHtml: hit.entry.version.html,
+        rssPath,
+      }),
+    )
   }
 
   return { serve, resolveSpace }

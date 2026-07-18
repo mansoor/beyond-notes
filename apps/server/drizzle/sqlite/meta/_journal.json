@@ -29,6 +29,13 @@
       "when": 1784397016567,
       "tag": "0003_goofy_mystique",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784398590809,
+      "tag": "0004_careless_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

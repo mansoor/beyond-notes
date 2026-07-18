@@ -3,14 +3,15 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M3 (publish pipeline + docs renderer) built and verified
-2026-07-18. The moat exists: immutable pre-rendered `page_versions` with live
-pointers, publish / retire / republish, render-at-publish via the pure
-`@bn/renderer` package (escaped, href-allowlisted), Host-header routing plus a
-`/s/<host>` dev escape, the docs theme (nav from the live tree, prev/next,
-per-site search), and the adversarial visibility suite proving drafts, pending
-edits, and retired subtrees never leak — on both dialects. M0–M2 (skeleton,
-pages + editor, journal/inbox/tasks) landed the same day.
+**Status:** M4 (website renderer) built and verified 2026-07-18. Site-category
+spaces publish as websites: top nav from root live pages, home at `/`, blog
+page type rendering live children as dated posts (newest first, snippets),
+post pages with backlinks, RSS + sitemap, and four token-only theme presets
+(paper/ink/mist/sand, each light+dark). Note→post promotion works: cross-space
+subtree move (colliding slugs reset and regenerate at next publish) — move a
+note under a blog page, hit Publish, it's a post in the feed. Galleries are
+deliberately deferred to the attachments milestone (BlobStore + sharp + EXIF
+stripping deserve their own pass). M0–M3 landed the same day.
 `mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
 
 ## Develop

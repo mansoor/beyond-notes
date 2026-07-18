@@ -23,6 +23,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       publicHost: null,
       publicTitle: null,
       publicFooter: null,
+      publicTheme: 'paper',
       createdAt: now(),
     }
     await repo.insertSpace(space)
@@ -39,6 +40,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       title,
       position: 0,
       dateKey,
+      pageType: 'doc',
       slug: null,
       liveVersionId: null,
       createdAt: now(),
@@ -145,6 +147,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         title: title.split('\n')[0] ?? 'Untitled',
         position: siblings.length,
         dateKey: null,
+        pageType: 'doc',
         slug: null,
         liveVersionId: null,
         createdAt: now(),

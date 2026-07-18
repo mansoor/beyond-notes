@@ -102,6 +102,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         host: string | null
         title: string | null
         footer: string | null
+        theme: 'paper' | 'ink' | 'mist' | 'sand'
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
@@ -122,7 +123,22 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicHost: input.host,
         publicTitle: input.title,
         publicFooter: input.footer,
+        publicTheme: input.theme,
       })
+    },
+
+    /** First-publish dates for a set of pages (post dates, RSS pubDates). */
+    async firstPublishedAt(pageIds: string[]): Promise<Map<string, Date>> {
+      const result = new Map<string, Date>()
+      for (const pageId of pageIds) {
+        const versions = await repo.listVersionsForPage(pageId)
+        const first = versions.reduce<Date | null>(
+          (min, v) => (min === null || v.createdAt < min ? v.createdAt : min),
+          null,
+        )
+        if (first) result.set(pageId, first)
+      }
+      return result
     },
 
     /** Editor rail data: live status, pending edits, public path. */

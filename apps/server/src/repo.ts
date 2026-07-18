@@ -27,6 +27,7 @@ export type SpaceRow = {
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
+  publicTheme: 'paper' | 'ink' | 'mist' | 'sand'
   createdAt: Date
 }
 
@@ -37,6 +38,7 @@ export type PageRow = {
   title: string
   position: number
   dateKey: string | null
+  pageType: 'doc' | 'blog'
   slug: string | null
   liveVersionId: string | null
   createdAt: Date
@@ -211,7 +213,12 @@ export function createRepo(appDb: AppDb) {
 
     async updatePage(
       id: string,
-      patch: Partial<Pick<PageRow, 'title' | 'parentId' | 'position' | 'updatedAt'>>,
+      patch: Partial<
+        Pick<
+          PageRow,
+          'title' | 'parentId' | 'position' | 'updatedAt' | 'spaceId' | 'pageType' | 'slug'
+        >
+      >,
     ): Promise<void> {
       await db.update(t.pages).set(patch).where(eq(t.pages.id, id))
     },
@@ -318,7 +325,10 @@ export function createRepo(appDb: AppDb) {
     async updateSpacePublishing(
       spaceId: string,
       patch: Partial<
-        Pick<SpaceRow, 'publicEnabled' | 'publicHost' | 'publicTitle' | 'publicFooter'>
+        Pick<
+          SpaceRow,
+          'publicEnabled' | 'publicHost' | 'publicTitle' | 'publicFooter' | 'publicTheme'
+        >
       >,
     ): Promise<void> {
       await db.update(t.spaces).set(patch).where(eq(t.spaces.id, spaceId))
