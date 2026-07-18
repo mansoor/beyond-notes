@@ -178,9 +178,16 @@ keyed by content hash (free dedupe; re-uploading the same photo costs nothing).
   boundary and make the storage backend visible to clients. Switching a
   deployment from filesystem to S3 is an env change plus a migration command
   (`cli blobs:migrate`), invisible to every URL.
-- Derived assets (thumbnails, EXIF-stripped publish copies) are stored through
-  the same interface. Backup story per driver: uploads volume, or the bucket's
-  own durability + versioning.
+- **Images are recompressed on upload (decided 2026-07-18):** this is a
+  sharing copy, not anyone's primary photo storage. Ingest re-encodes to a
+  capped long edge (~2560 px) at tuned quality, applies orientation, and
+  strips GPS EXIF **immediately at upload** (not just at publish — a private
+  note shared with a household member shouldn't carry location data either).
+  Originals are not retained; per-upload size cap configurable. Non-image
+  attachments (PDFs etc.) are stored as-is.
+- Derived assets (thumbnails, publish copies) are stored through the same
+  interface. Backup story per driver: uploads volume, or the bucket's own
+  durability + versioning.
 
 ### Auth: boring cookie sessions, with the safety rails
 
@@ -190,6 +197,29 @@ Settings). Rate-limited login with lockout backoff. No OAuth providers, no
 auth SaaS — the multi-user seam is the `users` table, not the login method.
 Passkeys are a nice later addition. CSRF: SameSite plus origin-check on
 mutations; the public surface is read-only.
+
+### Multi-user: flat household model, no ACLs (decided 2026-07-18)
+
+Multiple accounts on one instance, with the complexity ceiling set explicitly:
+
+- **Two roles only**: admin (instance settings, user management) and member.
+  No groups, no custom roles.
+- **Space-level ownership only**: a space is **personal** (owner alone sees
+  it) or **shared** (every member reads and writes). No per-page permissions,
+  no read-only shares, no invite links — deferred until real friction, and the
+  seam for adding them later is exactly this space-level ownership column
+  (same philosophy as source-level visibility in the command center).
+- **Journal, Inbox, Tasks, and Reminders are per-user singletons.** Your Today
+  page is yours alone; shared tree spaces are the collaboration surface. Tasks
+  in a shared space are visible to all members but belong to whoever's page
+  tree they live in — assignment/mentions are a post-v1 idea, not a schema
+  problem.
+- Honest framing: without ACLs, "shared" means trusted-household semantics.
+  That is the product's actual audience; enterprise-grade permission systems
+  are how wiki products drown.
+- Concurrent edits on a shared page: optimistic locking with a conflict prompt
+  (no real-time collab — unchanged; the Yjs revisit trigger now reads "two
+  *household members* routinely edit the same page simultaneously").
 
 - **2FA: TOTP, opt-in.** Standard authenticator-app enrolment (QR + manual
   secret), verified before it's enabled, with one-time recovery codes shown
@@ -395,11 +425,13 @@ Each milestone ends with something runnable — verify by running, always.
 Risk watch: M1 (editor custom blocks) and M3 (publish correctness) are where
 the unknowns live; if either slips, cut scope elsewhere, not there.
 
-## Open questions (carried forward)
+- **v0.2 — portability.** Full-instance export (JSON + blobs, restorable via
+  `cli import`), per-space Markdown export, Markdown-folder import.
+  Notion/Obsidian importers as demand appears. Data captivity in a
+  personal-notes tool is a trust failure — this ships early, not eventually.
 
-- Single-user vs. household multi-user: the schema seam exists (`users`,
-  per-user task/reminder ownership); the *decision* is still open and should be
-  made before M2 (tasks belong to someone).
-- Image originals: keep forever vs. recompress — decide before galleries (M4).
-- Export: PM JSON + Markdown export ships no later than v0.2 — data captivity
-  in a personal-notes tool is a trust failure.
+## Open questions
+
+None — the last three (multi-user shape, image originals, export) were
+resolved 2026-07-18 and folded into the sections above. New questions get ADRs
+in `docs/`.

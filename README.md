@@ -72,9 +72,13 @@ Every space = **authoring mode × visibility × public renderer**.
   WordPress-style theming engine is explicitly out of scope: the renderer owns
   structure, the theme owns skin, so every theme works with every space forever.
 
-## Open questions
+## Formerly open, now settled (see TECH-PLAN.md)
 
-- Single-user or household/multi-user (decide before the schema exists)
-- Mobile capture (PWA + share target?) — the inbox lives or dies on this
-- Editor foundation (TipTap/ProseMirror is the leading candidate)
-- Hosting shape for the public renders (static snapshot serving)
+- Multi-user: yes — flat household model. Space-level personal/shared only,
+  two roles (admin/member), no ACLs or groups in this version.
+  Journal/Inbox/Tasks/Reminders are per-user singletons.
+- Mobile capture: PWA + Web Share Target.
+- Editor: BlockNote (TipTap/ProseMirror), ProseMirror JSON storage.
+- Public hosting: render-to-HTML at publish time, served from snapshots.
+- Images: recompressed on upload — sharing copies, not primary photo storage.
+- Export/import: full-instance export + Markdown both ways, ships v0.2.
