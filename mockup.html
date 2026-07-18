@@ -198,6 +198,9 @@
   .trow input { accent-color: var(--accent); }
   .trow .tdue { font-size: 12px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
   .trow .tdue.hot { color: var(--danger); font-weight: 600; }
+  .rpill { font-size: 11.5px; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+  .rico { font-size: 13px; width: 16px; text-align: center; }
+  .gnote { font-size: 12.5px; color: var(--text-3); margin: -2px 0 6px; }
 
   /* ============ Public previews ============ */
   .preview-shell { flex: 1; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
@@ -277,10 +280,10 @@
       <div class="navsec">
         <div class="navitem" data-v="journal" onclick="show('journal')"><span class="ico">📅</span> Today <span class="cnt">Jul 18</span></div>
         <div class="navitem" data-v="inbox" onclick="show('inbox')"><span class="ico">📥</span> Inbox <span class="cnt">4</span></div>
-        <div class="navitem" data-v="tasks" onclick="show('tasks')"><span class="ico">☑</span> Tasks <span class="cnt">6</span></div>
+        <div class="navitem" data-v="tasks" onclick="show('tasks')"><span class="ico">☑</span> Tasks <span class="cnt">7</span></div>
       </div>
       <div class="navsec">
-        <h6>Spaces</h6>
+        <h6>Wikis</h6>
         <div class="navitem active" data-v="wiki" onclick="show('wiki')"><span class="ico">📘</span> Product wiki <span class="badge-public">public</span></div>
         <div class="tree">
           <div class="navitem">Getting started <span class="dot live"></span></div>
@@ -294,6 +297,10 @@
             <div class="navitem">Publishing <span class="dot draft"></span></div>
           </div>
         </div>
+        <div class="navitem"><span class="ico">🏠</span> Home lab wiki</div>
+      </div>
+      <div class="navsec">
+        <h6>Notebooks</h6>
         <div class="navitem"><span class="ico">🗂</span> Personal notes</div>
         <div class="tree">
           <div class="navitem">Projects</div>
@@ -304,6 +311,9 @@
           <div class="navitem">Recipes</div>
           <div class="navitem">Finance</div>
         </div>
+      </div>
+      <div class="navsec">
+        <h6>Sites</h6>
         <div class="navitem" data-v="site" onclick="show('site')"><span class="ico">🌐</span> mansoor.io <span class="badge-public">public</span></div>
       </div>
       <div class="navsec">
@@ -352,6 +362,7 @@ open http://localhost:3800</div>
         <h4>Publishing</h4>
         <div class="rail-card">
           <div class="rail-row"><span class="k">Status</span> <span class="pill live"><span class="pd"></span> Live · v3</span></div>
+          <div class="rail-row"><span class="k">Wiki site</span> <span style="font-family:var(--mono); font-size:12px">docs.mansoor.io</span></div>
           <div class="rail-row"><span class="k">Published</span> <span>Jul 12, 2026</span></div>
           <div class="rail-row"><span class="k">Working copy</span> <span>edited 2 h ago</span></div>
           <div class="btnrow">
@@ -525,13 +536,14 @@ open http://localhost:3800</div>
     <div class="view-inner">
       <div class="content-col">
         <div class="viewtitle">Tasks</div>
-        <div class="viewsub">Every checkbox block, everywhere — one agenda. Checking here checks the block in its page.</div>
+        <div class="viewsub">Tasks are checkbox blocks — written in any page, promoted from a memo, or quick-added here (those live in the built-in Tasks inbox note). One agenda; checking here checks the block in its page.</div>
         <div class="tgroup">
           <h3 class="overdue">Overdue <span class="gcnt">1</span></h3>
           <div class="trow"><input type="checkbox"> Send the strata form back <span class="srcchip">Notes / Finance</span> <span class="tdue hot">Jul 16 · 🔔</span></div>
         </div>
         <div class="tgroup">
-          <h3>Today <span class="gcnt">3</span></h3>
+          <h3>Today <span class="gcnt">4</span></h3>
+          <div class="trow"><input type="checkbox"> Pick up the parcel from the locker <span class="srcchip">Tasks inbox</span> <span class="tdue">today</span></div>
           <div class="trow"><input type="checkbox"> Renew car insurance <span class="srcchip">Notes / Finance</span> <span class="tdue">6 pm · 🔔</span></div>
           <div class="trow"><input type="checkbox"> Reply to Imran about the weekend plan <span class="srcchip">Journal / Jul 16</span> <span class="tdue">today</span></div>
           <div class="trow"><input type="checkbox"> Publish the Configuration page edits <span class="srcchip">Product wiki</span> <span class="tdue">today</span></div>
@@ -540,6 +552,13 @@ open http://localhost:3800</div>
           <h3>This week <span class="gcnt">2</span></h3>
           <div class="trow"><input type="checkbox"> Add screenshots of the space-creation flow <span class="srcchip">Product wiki / Installation</span> <span class="tdue">Jul 21</span></div>
           <div class="trow"><input type="checkbox"> Draft “On attention” outro <span class="srcchip">mansoor.io / Blog</span> <span class="tdue">Jul 24</span></div>
+        </div>
+        <div class="tgroup">
+          <h3>Reminders <span class="gcnt">3</span> <button class="btn sm" style="margin-left:auto">＋ New reminder</button></h3>
+          <div class="gnote">A reminder is a lightweight scheduled task — recurring ones re-arm when you check them off.</div>
+          <div class="trow"><span class="rico">🔔</span> Take out the bins <span class="rpill">⟳ every Tue, 8 pm</span> <span class="tdue">next: Jul 21</span></div>
+          <div class="trow"><span class="rico">🔔</span> Water the plants <span class="rpill">⟳ every 3 days</span> <span class="tdue">next: tomorrow, 9 am</span></div>
+          <div class="trow"><span class="rico">🔔</span> Renew passport <span class="rpill">one-time</span> <span class="tdue">Mar 3, 2027</span></div>
         </div>
       </div>
     </div>

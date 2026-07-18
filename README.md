@@ -43,6 +43,22 @@ Every space = **authoring mode × visibility × public renderer**.
   creating a page tree (notebook, wiki, or site). One workspace total — no
   Notion-style multi-workspace, which would mean multiple inboxes and journals
   and defeat frictionless capture.
+- **Sidebar containers (Wikis / Notebooks / Sites) are UI grouping only.** They
+  hold no settings and no data. The publishable unit is the individual wiki
+  (tree space): each wiki carries its own visibility and its own domain or
+  path (`docs.mansoor.io`, or `mansoor.io/recipes`). Never give the container
+  a visibility switch — that reintroduces per-item classification ambiguity.
+- **Tasks are never generated — the checkbox block is the only source.** They
+  come from three doors, all producing the same block: written inline in any
+  page, promoted from a memo, or quick-added in the Tasks view (those land in a
+  built-in "Tasks inbox" note). The Tasks view is an index over blocks, not a
+  store; checking off in either place is the same edit.
+- **Reminders live inside the Tasks surface, not as a separate subsystem.** A
+  reminder is a lightweight task with a schedule; recurring ones carry an
+  RRULE and re-arm on completion. One notification channel (push/email/ntfy)
+  serves both task reminders and standalone reminders. A separate Reminders
+  app-within-the-app was considered and rejected: two things that both mean
+  "nag me later" would force a taxonomy decision on every capture.
 - **App theme ≠ site theme.** The app supports light/dark. Each published site
   picks from a small set of preset themes — design tokens only (fonts, colors,
   header style), never structure — each with a light and dark variant. A
