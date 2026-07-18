@@ -3,7 +3,16 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M4.5 (attachments + galleries) built and verified 2026-07-18.
+**Status:** M5 (reminders + notifications) built and verified 2026-07-18.
+Reminders are lightweight scheduled tasks: one-time or recurring (freq ×
+interval in pure date math — RRULE upgrade path open), optional heads-up
+lead time, per-user. The scheduler is the plan's Postgres-as-queue design:
+scheduled_jobs + a 30s tick with a portable compare-and-set claim (single
+process by design), stale-job guards, 3-attempt retry, and boot-time
+catch-up. Channels are opt-in: ntfy when configured (env), log otherwise;
+SMTP arrives with M6 settings. Due reminders join Today's due list
+(complete = re-arm), upcoming ones fill the Coming-up rail. Earlier:
+M4.5 (attachments + galleries) —
 Uploads flow through the four-method BlobStore (fs driver, content-addressed
 sha256 keys, two-level fanout; the S3-compatible driver plugs in behind the
 same seam later). Images are re-encoded at ingest — max edge 2560, WebP,

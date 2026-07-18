@@ -11,7 +11,7 @@ import {
   todayKey,
 } from '../editor'
 import { trpc } from '../trpc'
-import { TaskRowItem } from './Tasks'
+import { DueReminderRow, TaskRowItem, freqLabel } from './Tasks'
 
 export function JournalPage() {
   const { date } = useParams({ from: '/app/day/$date' })
@@ -19,11 +19,16 @@ export function JournalPage() {
   const day = trpc.journal.day.useQuery({ date })
   const agenda = trpc.tasks.agenda.useQuery()
   const memos = trpc.memos.list.useQuery()
+  const reminders = trpc.reminders.list.useQuery()
   const [state, setState] = useState<SaveState>('saved')
   const utils = trpc.useUtils()
 
   const today = todayKey()
   const dueTasks = (agenda.data ?? []).filter((t) => !t.checked && t.due !== null && t.due <= date)
+  const dueReminders = (reminders.data ?? []).filter((r) => !r.completed && r.dueDate <= date)
+  const upcoming = (reminders.data ?? [])
+    .filter((r) => !r.completed && r.dueDate > today)
+    .slice(0, 5)
   const capturedThisDay = (memos.data ?? []).filter(
     (m) => toDateKey(new Date(m.createdAt)) === date,
   )
@@ -72,7 +77,7 @@ export function JournalPage() {
           </div>
         )}
 
-        {dueTasks.length > 0 && (
+        {(dueTasks.length > 0 || dueReminders.length > 0) && (
           <section className="mt-8">
             <h3
               className="text-xs uppercase tracking-wide font-semibold mb-2"
@@ -80,6 +85,9 @@ export function JournalPage() {
             >
               {date === today ? 'Due today & overdue' : 'Due by this day'}
             </h3>
+            {dueReminders.map((r) => (
+              <DueReminderRow key={r.id} reminder={r} />
+            ))}
             {dueTasks.map((t) => (
               <TaskRowItem key={t.id} task={t} />
             ))}
@@ -133,6 +141,31 @@ export function JournalPage() {
           selected={date}
           onPick={(d) => navigate({ to: '/day/$date', params: { date: d } })}
         />
+        {upcoming.length > 0 && (
+          <div
+            className="rounded-xl border p-4 mt-4 text-sm"
+            style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+          >
+            <h4
+              className="text-xs uppercase tracking-wide font-semibold mb-2"
+              style={{ color: 'var(--text-3)' }}
+            >
+              Coming up
+            </h4>
+            {upcoming.map((r) => (
+              <div key={r.id} className="flex justify-between gap-2 py-1">
+                <span className="truncate">{r.title}</span>
+                <span
+                  className="text-xs whitespace-nowrap"
+                  style={{ color: 'var(--text-3)' }}
+                  title={freqLabel(r)}
+                >
+                  {r.dueDate.slice(5)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
     </div>
   )

@@ -7,6 +7,7 @@ import type {
   MemoView,
   PageMeta,
   PublishingView,
+  ReminderView,
   SpaceView,
   TaskView,
   UserView,
@@ -17,6 +18,7 @@ import {
   captureMemoInput,
   createInviteInput,
   createPageInput,
+  createReminderInput,
   createSpaceInput,
   journalDayInput,
   journalMonthInput,
@@ -527,6 +529,49 @@ const tasksRouter = router({
   }),
 })
 
+const remindersRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<ReminderView[]> => {
+    const rows = await ctx.reminders.list(ctx.user)
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      dueDate: r.dueDate,
+      dueTime: r.dueTime,
+      freq: r.freq,
+      interval: r.interval,
+      headsUpDays: r.headsUpDays,
+      completed: r.completedAt !== null,
+    }))
+  }),
+
+  create: authedProcedure.input(createReminderInput).mutation(async ({ ctx, input }) => {
+    try {
+      const reminder = await ctx.reminders.create(ctx.user, input)
+      return { id: reminder.id }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  complete: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.reminders.complete(ctx.user, input.id)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  delete: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.reminders.remove(ctx.user, input.id)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
 const galleryRouter = router({
   list: authedProcedure
     .input(z.object({ pageId: z.string() }))
@@ -591,6 +636,7 @@ export const appRouter = router({
   pages: pagesRouter,
   publish: publishRouter,
   gallery: galleryRouter,
+  reminders: remindersRouter,
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,

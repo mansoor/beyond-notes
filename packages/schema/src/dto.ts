@@ -219,6 +219,36 @@ export type VersionView = {
   isLive: boolean
 }
 
+// ---- reminders (M5) ----
+
+export const reminderFreq = z.enum(['daily', 'weekly', 'monthly', 'yearly'])
+export type ReminderFreq = z.infer<typeof reminderFreq>
+
+export const createReminderInput = z.object({
+  title: z.string().trim().min(1).max(200),
+  dueDate: dateKey,
+  dueTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .nullable()
+    .default(null),
+  freq: reminderFreq.nullable().default(null),
+  interval: z.number().int().min(1).max(365).default(1),
+  headsUpDays: z.number().int().min(1).max(365).nullable().default(null),
+})
+export type CreateReminderInput = z.infer<typeof createReminderInput>
+
+export type ReminderView = {
+  id: string
+  title: string
+  dueDate: string
+  dueTime: string | null
+  freq: ReminderFreq | null
+  interval: number
+  headsUpDays: number | null
+  completed: boolean
+}
+
 export type TaskView = {
   id: string
   pageId: string

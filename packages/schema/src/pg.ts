@@ -149,6 +149,36 @@ export const tasks = pgTable('tasks', {
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
+export const reminders = pgTable('reminders', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  // date-only scheduling (local dates); dueTime is display + notification time
+  dueDate: text('due_date').notNull(),
+  dueTime: text('due_time'),
+  freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }),
+  interval: integer('interval').notNull().default(1),
+  headsUpDays: integer('heads_up_days'),
+  completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const scheduledJobs = pgTable('scheduled_jobs', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  refId: text('ref_id').notNull(),
+  payload: text('payload').notNull(),
+  runAt: timestamp('run_at', { withTimezone: true, mode: 'date' }).notNull(),
+  status: text('status', { enum: ['pending', 'running', 'done', 'failed'] })
+    .notNull()
+    .default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
 export const invites = pgTable('invites', {
   id: text('id').primaryKey(),
   tokenHash: text('token_hash').notNull().unique(),

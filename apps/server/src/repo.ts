@@ -79,6 +79,31 @@ export type GalleryItemRow = {
   caption: string
 }
 
+export type ReminderRow = {
+  id: string
+  userId: string
+  title: string
+  dueDate: string
+  dueTime: string | null
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | null
+  interval: number
+  headsUpDays: number | null
+  completedAt: Date | null
+  createdAt: Date
+}
+
+export type JobRow = {
+  id: string
+  type: string
+  refId: string
+  payload: string
+  runAt: Date
+  status: 'pending' | 'running' | 'done' | 'failed'
+  attempts: number
+  lastError: string | null
+  createdAt: Date
+}
+
 export type MemoRow = {
   id: string
   userId: string
@@ -406,6 +431,76 @@ export function createRepo(appDb: AppDb) {
 
     async deleteGalleryItem(id: string): Promise<void> {
       await db.delete(t.galleryItems).where(eq(t.galleryItems.id, id))
+    },
+
+    // ---- reminders & jobs ----
+
+    async insertReminder(row: ReminderRow): Promise<void> {
+      await db.insert(t.reminders).values(row)
+    },
+
+    async getReminder(id: string): Promise<ReminderRow | null> {
+      const rows = await db.select().from(t.reminders).where(eq(t.reminders.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async listReminders(userId: string): Promise<ReminderRow[]> {
+      return db.select().from(t.reminders).where(eq(t.reminders.userId, userId))
+    },
+
+    async updateReminder(
+      id: string,
+      patch: Partial<Pick<ReminderRow, 'dueDate' | 'completedAt'>>,
+    ): Promise<void> {
+      await db.update(t.reminders).set(patch).where(eq(t.reminders.id, id))
+    },
+
+    async deleteReminder(id: string): Promise<void> {
+      await db.delete(t.reminders).where(eq(t.reminders.id, id))
+    },
+
+    async insertJob(row: JobRow): Promise<void> {
+      await db.insert(t.scheduledJobs).values(row)
+    },
+
+    async listDueJobs(now: Date): Promise<JobRow[]> {
+      const rows = (await db
+        .select()
+        .from(t.scheduledJobs)
+        .where(eq(t.scheduledJobs.status, 'pending'))) as JobRow[]
+      return rows.filter((j) => j.runAt.getTime() <= now.getTime())
+    },
+
+    /**
+     * Compare-and-set claim: portable across both dialects. Correct because
+     * the app is a single process by design — the CAS guards against
+     * overlapping ticks, not other machines.
+     */
+    async claimJob(id: string): Promise<boolean> {
+      const rows = await db
+        .update(t.scheduledJobs)
+        .set({ status: 'running' })
+        .where(and(eq(t.scheduledJobs.id, id), eq(t.scheduledJobs.status, 'pending')))
+        .returning({ id: t.scheduledJobs.id })
+      return rows.length === 1
+    },
+
+    async finishJob(
+      id: string,
+      status: 'done' | 'failed' | 'pending',
+      attempts: number,
+      lastError: string | null,
+    ): Promise<void> {
+      await db
+        .update(t.scheduledJobs)
+        .set({ status, attempts, lastError })
+        .where(eq(t.scheduledJobs.id, id))
+    },
+
+    async cancelPendingJobsForRef(refId: string): Promise<void> {
+      await db
+        .delete(t.scheduledJobs)
+        .where(and(eq(t.scheduledJobs.refId, refId), eq(t.scheduledJobs.status, 'pending')))
     },
   }
 }

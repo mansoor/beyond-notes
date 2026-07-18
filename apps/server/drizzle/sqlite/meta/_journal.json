@@ -43,6 +43,13 @@
       "when": 1784401431345,
       "tag": "0005_graceful_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784403888081,
+      "tag": "0006_lumpy_sauron",
+      "breakpoints": true
     }
   ]
 }

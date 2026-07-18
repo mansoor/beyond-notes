@@ -7,6 +7,9 @@ const envSchema = z.object({
   WEB_DIST: z.string().default(''),
   MIGRATIONS_DIR: z.string().default('./drizzle'),
   UPLOADS_DIR: z.string().default('./data/uploads'),
+  // notifications are opt-in: nothing sends unless a channel is configured
+  NTFY_URL: z.string().default(''),
+  NTFY_TOPIC: z.string().default(''),
   NODE_ENV: z.string().default('development'),
 })
 

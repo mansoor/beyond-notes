@@ -133,6 +133,35 @@ export const tasks = sqliteTable('tasks', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
+export const reminders = sqliteTable('reminders', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  dueDate: text('due_date').notNull(),
+  dueTime: text('due_time'),
+  freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }),
+  interval: integer('interval').notNull().default(1),
+  headsUpDays: integer('heads_up_days'),
+  completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const scheduledJobs = sqliteTable('scheduled_jobs', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  refId: text('ref_id').notNull(),
+  payload: text('payload').notNull(),
+  runAt: integer('run_at', { mode: 'timestamp_ms' }).notNull(),
+  status: text('status', { enum: ['pending', 'running', 'done', 'failed'] })
+    .notNull()
+    .default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 export const invites = sqliteTable('invites', {
   id: text('id').primaryKey(),
   tokenHash: text('token_hash').notNull().unique(),

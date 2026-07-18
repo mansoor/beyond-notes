@@ -14,8 +14,10 @@ import type { AppDb } from './db'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
+import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
 import { appRouter } from './routers'
+import { type Notifier, createLogNotifier, createNtfyNotifier, createScheduler } from './scheduler'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 
@@ -33,6 +35,14 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const publicSrv = createPublicServer(repo, publishing)
   const blobs = createFsBlobStore(config.UPLOADS_DIR)
   const attachments = createAttachmentsService(repo, blobs)
+  const reminders = createRemindersService(repo)
+
+  const notifiers: Notifier[] = []
+  if (config.NTFY_URL && config.NTFY_TOPIC) {
+    notifiers.push(createNtfyNotifier(config.NTFY_URL, config.NTFY_TOPIC))
+  }
+  notifiers.push(createLogNotifier((msg) => server.log.info(msg)))
+  const scheduler = createScheduler(repo, notifiers)
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
 
@@ -130,6 +140,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         tasks,
         publishing,
         attachments,
+        reminders,
       }),
     },
   })
@@ -138,7 +149,29 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   // the one in-process set of services (caches included) — tests must mutate
   // publish state through these, not through parallel instances
-  server.decorate('bnServices', { repo, auth, pages, daily, tasks, publishing, attachments })
+  server.decorate('bnServices', {
+    repo,
+    auth,
+    pages,
+    daily,
+    tasks,
+    publishing,
+    attachments,
+    reminders,
+    scheduler,
+  })
+
+  // the scheduler tick lives with the server lifecycle; runOnce on boot
+  // catches up anything that came due while the app was down
+  if (config.NODE_ENV !== 'test') {
+    server.addHook('onReady', async () => {
+      await scheduler.runOnce()
+      scheduler.start()
+    })
+    server.addHook('onClose', async () => {
+      scheduler.stop()
+    })
+  }
 
   // Serve the built SPA when present (production); in dev, Vite serves the web app.
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : ''
