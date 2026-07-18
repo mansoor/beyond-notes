@@ -3,7 +3,8 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** concept. `mockup.html` is the UI direction — open it in a browser.
+**Status:** concept settled. `mockup.html` is the UI direction — open it in a
+browser. `TECH-PLAN.md` is the stack, testing, deployment, and release plan.
 
 ## The model
 
