@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql as sqlOp } from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -7,6 +7,9 @@ export type UserRow = {
   name: string
   passwordHash: string
   role: 'admin' | 'member'
+  totpSecret: string | null
+  totpEnabled: boolean
+  recoveryCodes: string | null
   createdAt: Date
 }
 
@@ -175,8 +178,21 @@ export function createRepo(appDb: AppDb) {
       return db.select().from(t.users)
     },
 
+    async updateUser(
+      id: string,
+      patch: Partial<
+        Pick<UserRow, 'passwordHash' | 'totpSecret' | 'totpEnabled' | 'recoveryCodes' | 'name'>
+      >,
+    ): Promise<void> {
+      await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
     async insertSession(session: SessionRow): Promise<void> {
       await db.insert(t.sessions).values(session)
+    },
+
+    async listSessionsForUser(userId: string): Promise<SessionRow[]> {
+      return db.select().from(t.sessions).where(eq(t.sessions.userId, userId))
     },
 
     async getSession(id: string): Promise<SessionRow | null> {
@@ -495,6 +511,30 @@ export function createRepo(appDb: AppDb) {
         .update(t.scheduledJobs)
         .set({ status, attempts, lastError })
         .where(eq(t.scheduledJobs.id, id))
+    },
+
+    /** Portable case-insensitive search over titles + working-copy content. */
+    async searchPages(pattern: string): Promise<Array<{ page: PageRow; content: string }>> {
+      const lowered = `%${pattern.toLowerCase()}%`
+      const rows = await db
+        .select({ page: t.pages, content: t.documents.content })
+        .from(t.pages)
+        .innerJoin(t.documents, eq(t.documents.pageId, t.pages.id))
+        .where(
+          sqlOp`lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}`,
+        )
+        .limit(50)
+      return rows as Array<{ page: PageRow; content: string }>
+    },
+
+    async searchMemos(userId: string, pattern: string): Promise<MemoRow[]> {
+      const lowered = `%${pattern.toLowerCase()}%`
+      const rows = await db
+        .select()
+        .from(t.memos)
+        .where(and(eq(t.memos.userId, userId), sqlOp`lower(${t.memos.content}) like ${lowered}`))
+        .limit(20)
+      return rows as MemoRow[]
     },
 
     async cancelPendingJobsForRef(refId: string): Promise<void> {

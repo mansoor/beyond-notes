@@ -14,7 +14,30 @@ export type SetupInput = z.infer<typeof setupInput>
 export const loginInput = z.object({
   email: emailSchema,
   password: z.string().min(1).max(200),
+  totpCode: z.string().trim().max(20).optional(),
 })
+
+export const changePasswordInput = z.object({
+  current: z.string().min(1).max(200),
+  next: passwordSchema,
+})
+
+export const totpConfirmInput = z.object({ code: z.string().trim().min(6).max(20) })
+
+export type SessionView = {
+  id: string
+  createdAt: string
+  expiresAt: string
+  current: boolean
+}
+
+export type SearchResult = {
+  kind: 'page' | 'memo'
+  id: string
+  title: string
+  context: string
+  snippet: string
+}
 export type LoginInput = z.infer<typeof loginInput>
 
 export const createInviteInput = z.object({

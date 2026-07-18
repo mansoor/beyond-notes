@@ -8,6 +8,11 @@ export const users = pgTable('users', {
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
+  // TOTP 2FA: secret exists once enrollment starts; enabled only after a
+  // verified code; recovery codes stored as sha256 hashes, JSON array
+  totpSecret: text('totp_secret'),
+  totpEnabled: boolean('totp_enabled').notNull().default(false),
+  recoveryCodes: text('recovery_codes'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 

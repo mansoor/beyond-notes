@@ -10,6 +10,9 @@ export const users = sqliteTable('users', {
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
+  totpSecret: text('totp_secret'),
+  totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
+  recoveryCodes: text('recovery_codes'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2'
 import { nanoid } from 'nanoid'
 import type { InviteRow, Repo, UserRow } from './repo'
+import { generateRecoveryCodes, generateTotpSecret, otpauthUrl, verifyTotp } from './totp'
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
@@ -13,7 +14,9 @@ export class AuthError extends Error {
       | 'BAD_CREDENTIALS'
       | 'RATE_LIMITED'
       | 'EMAIL_TAKEN'
-      | 'INVITE_INVALID',
+      | 'INVITE_INVALID'
+      | 'TOTP_REQUIRED'
+      | 'TOTP_INVALID',
     message: string,
   ) {
     super(message)
@@ -63,6 +66,18 @@ export function createAuthService(
   const now = opts.now ?? (() => new Date())
   const limiter = opts.limiter ?? new LoginLimiter()
 
+  async function consumeRecoveryCode(user: UserRow, code: string): Promise<boolean> {
+    const fresh = await repo.getUserById(user.id)
+    if (!fresh?.recoveryCodes) return false
+    const hashes = JSON.parse(fresh.recoveryCodes) as string[]
+    const candidate = hashToken(code.trim().toLowerCase())
+    const idx = hashes.indexOf(candidate)
+    if (idx < 0) return false
+    hashes.splice(idx, 1) // single use
+    await repo.updateUser(user.id, { recoveryCodes: JSON.stringify(hashes) })
+    return true
+  }
+
   async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
     const token = randomBytes(32).toString('hex')
     const expiresAt = new Date(now().getTime() + SESSION_TTL_MS)
@@ -86,13 +101,16 @@ export function createAuthService(
         name: input.name,
         passwordHash: await argonHash(input.password),
         role: 'admin',
+        totpSecret: null,
+        totpEnabled: false,
+        recoveryCodes: null,
         createdAt: now(),
       }
       await repo.insertUser(user)
       return { user, session: await createSession(user.id) }
     },
 
-    async login(input: { email: string; password: string }) {
+    async login(input: { email: string; password: string; totpCode?: string }) {
       limiter.check(input.email)
       const user = await repo.getUserByEmail(input.email)
       const ok = user ? await argonVerify(user.passwordHash, input.password) : false
@@ -100,8 +118,92 @@ export function createAuthService(
         limiter.recordFailure(input.email)
         throw new AuthError('BAD_CREDENTIALS', 'Wrong email or password.')
       }
+      if (user.totpEnabled && user.totpSecret) {
+        if (!input.totpCode) {
+          // password was right; don't count this as a failed attempt
+          throw new AuthError('TOTP_REQUIRED', 'Enter your authenticator code.')
+        }
+        const codeOk =
+          verifyTotp(user.totpSecret, input.totpCode, now().getTime()) ||
+          (await consumeRecoveryCode(user, input.totpCode))
+        if (!codeOk) {
+          limiter.recordFailure(input.email)
+          throw new AuthError('TOTP_INVALID', 'That code is not valid.')
+        }
+      }
       limiter.clear(input.email)
       return { user, session: await createSession(user.id) }
+    },
+
+    /** Begin 2FA enrollment: store a secret (not yet enabled), return it for the QR. */
+    async totpStart(user: UserRow) {
+      if (user.totpEnabled) throw new AuthError('SETUP_ALREADY_DONE', '2FA is already enabled.')
+      const secret = generateTotpSecret()
+      await repo.updateUser(user.id, { totpSecret: secret, totpEnabled: false })
+      return { secret, url: otpauthUrl(secret, user.email) }
+    },
+
+    /** Verify one code against the pending secret; on success enable + return recovery codes (once). */
+    async totpConfirm(user: UserRow, code: string) {
+      const fresh = await repo.getUserById(user.id)
+      if (!fresh?.totpSecret) throw new AuthError('TOTP_INVALID', 'Start enrollment first.')
+      if (!verifyTotp(fresh.totpSecret, code, now().getTime())) {
+        throw new AuthError('TOTP_INVALID', 'That code is not valid — try the next one.')
+      }
+      const codes = generateRecoveryCodes()
+      await repo.updateUser(user.id, {
+        totpEnabled: true,
+        recoveryCodes: JSON.stringify(codes.map((c) => hashToken(c))),
+      })
+      return { recoveryCodes: codes }
+    },
+
+    async totpDisable(user: UserRow, password: string) {
+      if (!(await argonVerify(user.passwordHash, password))) {
+        throw new AuthError('BAD_CREDENTIALS', 'Wrong password.')
+      }
+      await repo.updateUser(user.id, { totpSecret: null, totpEnabled: false, recoveryCodes: null })
+    },
+
+    async changePassword(user: UserRow, current: string, next: string) {
+      if (!(await argonVerify(user.passwordHash, current))) {
+        throw new AuthError('BAD_CREDENTIALS', 'Current password is wrong.')
+      }
+      await repo.updateUser(user.id, { passwordHash: await argonHash(next) })
+    },
+
+    /** CLI rescue path: no current password needed; requires shell access to the host. */
+    async forceResetPassword(email: string, next: string): Promise<boolean> {
+      const user = await repo.getUserByEmail(email)
+      if (!user) return false
+      await repo.updateUser(user.id, {
+        passwordHash: await argonHash(next),
+        totpSecret: null,
+        totpEnabled: false,
+        recoveryCodes: null,
+      })
+      for (const session of await repo.listSessionsForUser(user.id)) {
+        await repo.deleteSession(session.id)
+      }
+      return true
+    },
+
+    async listSessions(user: UserRow, currentToken: string | null) {
+      const sessions = await repo.listSessionsForUser(user.id)
+      const currentId = currentToken ? hashToken(currentToken) : null
+      return sessions
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((s) => ({
+          id: s.id,
+          createdAt: s.createdAt,
+          expiresAt: s.expiresAt,
+          current: s.id === currentId,
+        }))
+    },
+
+    async revokeSession(user: UserRow, sessionId: string) {
+      const sessions = await repo.listSessionsForUser(user.id)
+      if (sessions.some((s) => s.id === sessionId)) await repo.deleteSession(sessionId)
     },
 
     async logout(rawToken: string): Promise<void> {
@@ -160,6 +262,9 @@ export function createAuthService(
         name: input.name,
         passwordHash: await argonHash(input.password),
         role: invite.role,
+        totpSecret: null,
+        totpEnabled: false,
+        recoveryCodes: null,
         createdAt: now(),
       }
       await repo.insertUser(user)

@@ -5,6 +5,7 @@ import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
 import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
+import { SettingsPage } from './pages/Settings'
 import { TasksPage } from './pages/Tasks'
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> })
@@ -52,10 +53,16 @@ const tasksRoute = createRoute({
   component: TasksPage,
 })
 
+const settingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings',
+  component: SettingsPage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
-    appRoute.addChildren([indexRoute, pageRoute, dayRoute, inboxRoute, tasksRoute]),
+    appRoute.addChildren([indexRoute, pageRoute, dayRoute, inboxRoute, tasksRoute, settingsRoute]),
   ]),
 })
 

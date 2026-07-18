@@ -50,6 +50,13 @@
       "when": 1784403884708,
       "tag": "0006_fantastic_lady_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784404928604,
+      "tag": "0007_wild_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

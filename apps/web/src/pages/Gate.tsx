@@ -75,9 +75,17 @@ function LoginPage() {
   const login = trpc.auth.login.useMutation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [totpCode, setTotpCode] = useState('')
+  const [needsTotp, setNeedsTotp] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
-    await login.mutateAsync({ email, password })
-    await utils.auth.status.invalidate()
+    try {
+      await login.mutateAsync({ email, password, totpCode: totpCode || undefined })
+      await utils.auth.status.invalidate()
+    } catch (err) {
+      // the password was right; the account wants a second factor
+      if (err instanceof Error && err.message.includes('authenticator code')) setNeedsTotp(true)
+      throw err
+    }
   })
 
   return (
@@ -85,6 +93,13 @@ function LoginPage() {
       <form onSubmit={onSubmit}>
         <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus />
         <Field label="Password" type="password" value={password} onChange={setPassword} />
+        {needsTotp && (
+          <Field
+            label="Authenticator code (or a recovery code)"
+            value={totpCode}
+            onChange={setTotpCode}
+          />
+        )}
         <ErrorNote message={error} />
         <SubmitButton label="Sign in" busy={busy} />
       </form>

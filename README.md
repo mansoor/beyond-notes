@@ -3,7 +3,16 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M5 (reminders + notifications) built and verified 2026-07-18.
+**Status: v0.1.0** — all six milestones landed 2026-07-18. M6 closed it out:
+settings (Account / Security / Notifications / admin Users tabs), TOTP 2FA
+(hand-rolled RFC 6238, verified against published vectors; recovery codes
+shown once, single-use), session list/revoke, password change, the CLI
+rescue (`node dist/cli.js user:reset-password` — resets password, clears
+2FA, revokes sessions), global search (Ctrl+K, portable LIKE over titles/
+content/memos, access-filtered), PWA (installable, share-target → Inbox
+prefill), and backup/restore docs below. Deferred to v0.2: email
+forgot-password + SMTP channel, S3 blob driver, full export/import.
+Earlier: M5 (reminders + notifications) —
 Reminders are lightweight scheduled tasks: one-time or recurring (freq ×
 interval in pure date math — RRULE upgrade path open), optional heads-up
 lead time, per-user. The scheduler is the plan's Postgres-as-queue design:
@@ -44,6 +53,27 @@ Production-style run: `pnpm build`, then from `apps/server`:
 `WEB_DIST=../web/dist node dist/index.js`. Docker: `docker compose up -d`
 (Postgres) after setting `POSTGRES_PASSWORD` in `.env`. Reset a dev instance
 by deleting `apps/server/data/`.
+
+## Backup & restore (the database IS the product)
+
+**SQLite light mode:** everything lives in two places — the DB file
+(`DATABASE_URL` path, plus its `-wal`/`-shm` siblings) and the uploads dir
+(`UPLOADS_DIR`). Stop the app (or use `sqlite3 db ".backup backup.db"` for a
+hot copy), copy both, done. Restore = put them back, start the app.
+
+**Postgres:** nightly `docker compose exec postgres pg_dump -U beyond
+beyond_notes > backup.sql` plus a copy of the uploads volume. Restore into a
+fresh instance: `docker compose up -d postgres`, `psql < backup.sql`, restore
+uploads, `docker compose up -d app`. Migrations are forward-only and run on
+boot, so restoring an older dump into a newer app version is safe.
+
+Test the restore once before trusting it — a backup that has never been
+restored is a hope, not a backup.
+
+**Locked out?** (lost password, lost 2FA device, broken everything):
+`docker compose exec app node dist/cli.js user:reset-password <email> <new>`
+— resets the password, disables 2FA, revokes all sessions. Shell access to
+the host is the credential.
 
 ## The model
 

@@ -10,7 +10,14 @@ export function InboxPage() {
   const capture = trpc.memos.capture.useMutation({
     onSuccess: () => utils.memos.list.invalidate(),
   })
-  const [text, setText] = useState('')
+  // PWA share target lands here as /inbox?title=&text=&url= — prefill capture
+  const [text, setText] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const shared = [params.get('title'), params.get('text'), params.get('url')]
+      .filter(Boolean)
+      .join('\n')
+    return shared
+  })
 
   const submit = async () => {
     const value = text.trim()

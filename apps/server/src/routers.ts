@@ -1,4 +1,5 @@
 import '@fastify/cookie'
+import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   AuthStatus,
   DocumentView,
@@ -8,6 +9,8 @@ import type {
   PageMeta,
   PublishingView,
   ReminderView,
+  SearchResult,
+  SessionView,
   SpaceView,
   TaskView,
   UserView,
@@ -16,6 +19,7 @@ import type {
 import {
   acceptInviteInput,
   captureMemoInput,
+  changePasswordInput,
   createInviteInput,
   createPageInput,
   createReminderInput,
@@ -33,6 +37,7 @@ import {
   setPageTypeInput,
   setupInput,
   toggleTaskInput,
+  totpConfirmInput,
   updatePublishingInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
@@ -184,6 +189,99 @@ const authRouter = router({
       rethrow(err)
     }
   }),
+
+  changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.auth.changePassword(ctx.user, input.current, input.next)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  totpStart: authedProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.auth.totpStart(ctx.user)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  totpConfirm: authedProcedure.input(totpConfirmInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.auth.totpConfirm(ctx.user, input.code)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  totpDisable: authedProcedure
+    .input(z.object({ password: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.auth.totpDisable(ctx.user, input.password)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  sessions: authedProcedure.query(async ({ ctx }): Promise<SessionView[]> => {
+    const sessions = await ctx.auth.listSessions(ctx.user, ctx.sessionToken)
+    return sessions.map((s) => ({
+      id: s.id,
+      createdAt: s.createdAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      current: s.current,
+    }))
+  }),
+
+  revokeSession: authedProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.auth.revokeSession(ctx.user, input.sessionId)
+      return { ok: true }
+    }),
+})
+
+const searchRouter = router({
+  all: authedProcedure
+    .input(z.object({ q: z.string().trim().min(2).max(100) }))
+    .query(async ({ ctx, input }): Promise<SearchResult[]> => {
+      const [pages, memos, spaces] = await Promise.all([
+        ctx.repo.searchPages(input.q),
+        ctx.repo.searchMemos(ctx.user.id, input.q),
+        ctx.repo.listSpaces(),
+      ])
+      const accessible = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+      )
+      const results: SearchResult[] = []
+      const needle = input.q.toLowerCase()
+      for (const { page, content } of pages) {
+        const space = accessible.get(page.spaceId)
+        if (!space) continue
+        const text = plainTextOf(content)
+        const idx = text.toLowerCase().indexOf(needle)
+        results.push({
+          kind: 'page',
+          id: page.id,
+          title: page.title,
+          context: space.kind === 'journal' ? 'Journal' : space.name,
+          snippet: idx >= 0 ? text.slice(Math.max(0, idx - 40), idx + 80) : text.slice(0, 100),
+        })
+      }
+      for (const memo of memos) {
+        results.push({
+          kind: 'memo',
+          id: memo.id,
+          title: memo.content.slice(0, 80),
+          context: 'Inbox',
+          snippet: memo.createdAt.toLocaleDateString(),
+        })
+      }
+      return results.slice(0, 30)
+    }),
 })
 
 const usersRouter = router({
@@ -637,6 +735,7 @@ export const appRouter = router({
   publish: publishRouter,
   gallery: galleryRouter,
   reminders: remindersRouter,
+  search: searchRouter,
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,
