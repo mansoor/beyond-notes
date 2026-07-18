@@ -70,6 +70,10 @@ export type SpaceView = {
   name: string
   category: SpaceCategory
   personal: boolean
+  publicEnabled: boolean
+  publicHost: string | null
+  publicTitle: string | null
+  publicFooter: string | null
   createdAt: string
 }
 
@@ -156,6 +160,40 @@ export type MemoView = {
   content: string
   createdAt: string
   promotedTo: 'note' | 'journal' | 'task' | null
+}
+
+// ---- publishing (M3) ----
+
+export const hostSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9.-]+(:\d+)?$/, 'Host names only, e.g. docs.example.com')
+  .max(255)
+
+export const updatePublishingInput = z.object({
+  spaceId: z.string(),
+  enabled: z.boolean(),
+  host: hostSchema.nullable(),
+  title: z.string().trim().max(120).nullable(),
+  footer: z.string().trim().max(300).nullable(),
+})
+export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
+
+export type PublishingView = {
+  spaceEnabled: boolean
+  host: string | null
+  live: { versionId: string; version: number; publishedAt: string } | null
+  pending: boolean
+  slugPath: string | null
+}
+
+export type VersionView = {
+  id: string
+  version: number
+  title: string
+  createdAt: string
+  isLive: boolean
 }
 
 export type TaskView = {

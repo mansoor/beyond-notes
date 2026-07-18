@@ -23,6 +23,10 @@ export type SpaceRow = {
   category: 'notebook' | 'wiki' | 'site'
   kind: 'tree' | 'journal'
   ownerId: string | null
+  publicEnabled: boolean
+  publicHost: string | null
+  publicTitle: string | null
+  publicFooter: string | null
   createdAt: Date
 }
 
@@ -33,8 +37,23 @@ export type PageRow = {
   title: string
   position: number
   dateKey: string | null
+  slug: string | null
+  liveVersionId: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+export type PageVersionRow = {
+  id: string
+  pageId: string
+  version: number
+  title: string
+  slug: string
+  content: string
+  html: string
+  textPlain: string
+  createdBy: string
+  createdAt: Date
 }
 
 export type MemoRow = {
@@ -292,6 +311,43 @@ export function createRepo(appDb: AppDb) {
 
     async deleteTask(id: string): Promise<void> {
       await db.delete(t.tasks).where(eq(t.tasks.id, id))
+    },
+
+    // ---- publishing ----
+
+    async updateSpacePublishing(
+      spaceId: string,
+      patch: Partial<
+        Pick<SpaceRow, 'publicEnabled' | 'publicHost' | 'publicTitle' | 'publicFooter'>
+      >,
+    ): Promise<void> {
+      await db.update(t.spaces).set(patch).where(eq(t.spaces.id, spaceId))
+    },
+
+    async getSpaceByPublicHost(host: string): Promise<SpaceRow | null> {
+      const rows = await db.select().from(t.spaces).where(eq(t.spaces.publicHost, host)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async insertPageVersion(version: PageVersionRow): Promise<void> {
+      await db.insert(t.pageVersions).values(version)
+    },
+
+    async listVersionsForPage(pageId: string): Promise<PageVersionRow[]> {
+      return db.select().from(t.pageVersions).where(eq(t.pageVersions.pageId, pageId))
+    },
+
+    async getVersion(id: string): Promise<PageVersionRow | null> {
+      const rows = await db.select().from(t.pageVersions).where(eq(t.pageVersions.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async setLivePointer(pageId: string, versionId: string | null): Promise<void> {
+      await db.update(t.pages).set({ liveVersionId: versionId }).where(eq(t.pages.id, pageId))
+    },
+
+    async setPageSlug(pageId: string, slug: string): Promise<void> {
+      await db.update(t.pages).set({ slug }).where(eq(t.pages.id, pageId))
     },
   }
 }

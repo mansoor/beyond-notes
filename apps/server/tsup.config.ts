@@ -6,5 +6,5 @@ export default defineConfig({
   target: 'node20',
   clean: true,
   sourcemap: true,
-  noExternal: ['@bn/schema'],
+  noExternal: ['@bn/schema', '@bn/renderer'],
 })

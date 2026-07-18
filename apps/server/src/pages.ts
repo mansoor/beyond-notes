@@ -55,6 +55,10 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         category: input.category,
         kind: 'tree',
         ownerId: input.personal ? user.id : null,
+        publicEnabled: false,
+        publicHost: null,
+        publicTitle: null,
+        publicFooter: null,
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -100,6 +104,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         title: input.title || 'Untitled',
         position: siblings.length,
         dateKey: null,
+        slug: null,
+        liveVersionId: null,
         createdAt: now(),
         updatedAt: now(),
       }

@@ -22,6 +22,13 @@
       "when": 1784395109511,
       "tag": "0002_tricky_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784397016567,
+      "tag": "0003_goofy_mystique",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import type { AuthService } from './auth'
 import type { Config } from './config'
 import type { DailyService } from './daily'
 import type { PagesService } from './pages'
+import type { PublishingService } from './publishing'
 import type { Repo, UserRow } from './repo'
 import type { TasksService } from './tasks'
 
@@ -19,6 +20,7 @@ export type Context = {
   pages: PagesService
   daily: DailyService
   tasks: TasksService
+  publishing: PublishingService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -30,6 +32,7 @@ export function makeCreateContext(deps: {
   pages: PagesService
   daily: DailyService
   tasks: TasksService
+  publishing: PublishingService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

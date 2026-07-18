@@ -34,6 +34,11 @@ export const spaces = pgTable('spaces', {
     .default('tree'),
   // null = shared with every member; set = personal to that user (flat model, no ACLs)
   ownerId: text('owner_id').references(() => users.id),
+  // publishing config: space-level "can this appear on the web"
+  publicEnabled: boolean('public_enabled').notNull().default(false),
+  publicHost: text('public_host').unique(),
+  publicTitle: text('public_title'),
+  publicFooter: text('public_footer'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -49,8 +54,28 @@ export const pages = pgTable('pages', {
   // journal day pages carry 'YYYY-MM-DD'; the per-user tasks-inbox page carries
   // the sentinel 'inbox'; ordinary tree pages carry null
   dateKey: text('date_key'),
+  // public path segment; set at first publish, then stable
+  slug: text('slug'),
+  // page-level "is this live right now" — soft ref into page_versions
+  liveVersionId: text('live_version_id'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const pageVersions = pgTable('page_versions', {
+  // immutable published snapshots: content frozen AND pre-rendered at publish
+  id: text('id').primaryKey(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  title: text('title').notNull(),
+  slug: text('slug').notNull(),
+  content: text('content').notNull(),
+  html: text('html').notNull(),
+  textPlain: text('text_plain').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
 export const documents = pgTable('documents', {

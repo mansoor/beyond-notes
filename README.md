@@ -3,13 +3,14 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status:** M2 (journal + inbox + tasks) built and verified 2026-07-18. The
-daily surfaces are live: per-user journal with date-keyed pages and calendar,
-Memos-style capture with all three promote paths (note / journal / task), and
-the tasks index — checkbox blocks anywhere, reconciled on every save, one
-agenda, `@YYYY-MM-DD` due tokens, toggle-writes-through-to-the-block. Today
-aggregates the journal page, due tasks, and the day's captures. M0 (skeleton)
-and M1 (pages + trees + editor) landed the same day.
+**Status:** M3 (publish pipeline + docs renderer) built and verified
+2026-07-18. The moat exists: immutable pre-rendered `page_versions` with live
+pointers, publish / retire / republish, render-at-publish via the pure
+`@bn/renderer` package (escaped, href-allowlisted), Host-header routing plus a
+`/s/<host>` dev escape, the docs theme (nav from the live tree, prev/next,
+per-site search), and the adversarial visibility suite proving drafts, pending
+edits, and retired subtrees never leak — on both dialects. M0–M2 (skeleton,
+pages + editor, journal/inbox/tasks) landed the same day.
 `mockup.html` is the UI direction; `TECH-PLAN.md` is the stack and process.
 
 ## Develop

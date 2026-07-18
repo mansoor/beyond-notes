@@ -5,9 +5,11 @@ import type {
   InviteView,
   MemoView,
   PageMeta,
+  PublishingView,
   SpaceView,
   TaskView,
   UserView,
+  VersionView,
 } from '@bn/schema'
 import {
   acceptInviteInput,
@@ -27,6 +29,7 @@ import {
   saveDocumentInput,
   setupInput,
   toggleTaskInput,
+  updatePublishingInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -105,6 +108,10 @@ function toSpaceView(s: SpaceRow): SpaceView {
     name: s.name,
     category: s.category,
     personal: s.ownerId !== null,
+    publicEnabled: s.publicEnabled,
+    publicHost: s.publicHost,
+    publicTitle: s.publicTitle,
+    publicFooter: s.publicFooter,
     createdAt: s.createdAt.toISOString(),
   }
 }
@@ -260,21 +267,33 @@ const pagesRouter = router({
 
   get: authedProcedure
     .input(z.object({ pageId: z.string() }))
-    .query(async ({ ctx, input }): Promise<{ page: PageMeta; doc: DocumentView }> => {
-      try {
-        const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
-        return {
-          page: toPageMeta(page),
-          doc: {
-            content: doc.content,
-            schemaVersion: doc.schemaVersion,
-            updatedAt: doc.updatedAt.toISOString(),
-          },
+    .query(
+      async ({
+        ctx,
+        input,
+      }): Promise<{ page: PageMeta; doc: DocumentView; publishing: PublishingView }> => {
+        try {
+          const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
+          const space = await ctx.repo.getSpace(page.spaceId)
+          if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
+          const publishing =
+            space.kind === 'tree'
+              ? await ctx.publishing.status(page, space)
+              : { spaceEnabled: false, host: null, live: null, pending: false, slugPath: null }
+          return {
+            page: toPageMeta(page),
+            doc: {
+              content: doc.content,
+              schemaVersion: doc.schemaVersion,
+              updatedAt: doc.updatedAt.toISOString(),
+            },
+            publishing,
+          }
+        } catch (err) {
+          rethrow(err)
         }
-      } catch (err) {
-        rethrow(err)
-      }
-    }),
+      },
+    ),
 
   rename: authedProcedure.input(renamePageInput).mutation(async ({ ctx, input }) => {
     try {
@@ -308,6 +327,67 @@ const pagesRouter = router({
   saveDoc: authedProcedure.input(saveDocumentInput).mutation(async ({ ctx, input }) => {
     try {
       return await ctx.pages.saveDocument(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
+const publishRouter = router({
+  publish: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const version = await ctx.publishing.publish(ctx.user, input.pageId)
+        return { versionId: version.id, version: version.version }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  retire: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.publishing.retire(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  republish: authedProcedure
+    .input(z.object({ pageId: z.string(), versionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.publishing.republish(ctx.user, input.pageId, input.versionId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  versions: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<VersionView[]> => {
+      try {
+        const { page, versions } = await ctx.publishing.versions(ctx.user, input.pageId)
+        return versions.map((v) => ({
+          id: v.id,
+          version: v.version,
+          title: v.title,
+          createdAt: v.createdAt.toISOString(),
+          isLive: page.liveVersionId === v.id,
+        }))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  updateSpace: authedProcedure.input(updatePublishingInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.publishing.updateSpacePublishing(ctx.user, input)
+      return { ok: true }
     } catch (err) {
       rethrow(err)
     }
@@ -439,6 +519,7 @@ export const appRouter = router({
   users: usersRouter,
   spaces: spacesRouter,
   pages: pagesRouter,
+  publish: publishRouter,
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,

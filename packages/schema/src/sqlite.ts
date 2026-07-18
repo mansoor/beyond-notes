@@ -32,6 +32,10 @@ export const spaces = sqliteTable('spaces', {
     .notNull()
     .default('tree'),
   ownerId: text('owner_id').references(() => users.id),
+  publicEnabled: integer('public_enabled', { mode: 'boolean' }).notNull().default(false),
+  publicHost: text('public_host').unique(),
+  publicTitle: text('public_title'),
+  publicFooter: text('public_footer'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -44,8 +48,25 @@ export const pages = sqliteTable('pages', {
   title: text('title').notNull().default('Untitled'),
   position: integer('position').notNull().default(0),
   dateKey: text('date_key'),
+  slug: text('slug'),
+  liveVersionId: text('live_version_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const pageVersions = sqliteTable('page_versions', {
+  id: text('id').primaryKey(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  title: text('title').notNull(),
+  slug: text('slug').notNull(),
+  content: text('content').notNull(),
+  html: text('html').notNull(),
+  textPlain: text('text_plain').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
 export const documents = sqliteTable('documents', {

@@ -103,6 +103,7 @@ function SpaceItem(props: { space: SpaceView }) {
   const createPage = trpc.pages.create.useMutation()
   const navigate = useNavigate()
   const [action, setAction] = useState<PageAction>(null)
+  const [publishingOpen, setPublishingOpen] = useState(false)
 
   const addPage = async (parentId: string | null) => {
     const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
@@ -127,16 +128,42 @@ function SpaceItem(props: { space: SpaceView }) {
             ⛭
           </span>
         )}
-        <button
-          type="button"
-          title="New page"
-          onClick={() => addPage(null)}
-          className="ml-auto opacity-0 group-hover:opacity-100 text-xs px-1"
-          style={{ color: 'var(--text-3)' }}
-        >
-          ＋
-        </button>
+        {props.space.publicEnabled && (
+          <span
+            className="text-[10px] font-semibold uppercase rounded px-1"
+            style={{
+              color: 'var(--live)',
+              background: 'color-mix(in srgb, var(--live) 12%, transparent)',
+            }}
+            title={`Published at ${props.space.publicHost}`}
+          >
+            public
+          </span>
+        )}
+        <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
+          <button
+            type="button"
+            title="Publishing settings"
+            onClick={() => setPublishingOpen(true)}
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
+            title="New page"
+            onClick={() => addPage(null)}
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ＋
+          </button>
+        </span>
       </div>
+      {publishingOpen && (
+        <SpacePublishingModal space={props.space} onClose={() => setPublishingOpen(false)} />
+      )}
       {expanded && tree.data && (
         <PageTreeLevel
           pages={tree.data}
@@ -161,6 +188,47 @@ function SpaceItem(props: { space: SpaceView }) {
         <DeletePageModal page={action.page} onClose={() => setAction(null)} />
       )}
     </div>
+  )
+}
+
+function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) {
+  const utils = trpc.useUtils()
+  const update = trpc.publish.updateSpace.useMutation()
+  const s = props.space
+  const [enabled, setEnabled] = useState(s.publicEnabled)
+  const [host, setHost] = useState(s.publicHost ?? '')
+  const [title, setTitle] = useState(s.publicTitle ?? '')
+  const [footer, setFooter] = useState(s.publicFooter ?? '')
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await update.mutateAsync({
+      spaceId: s.id,
+      enabled,
+      host: host.trim() || null,
+      title: title.trim() || null,
+      footer: footer.trim() || null,
+    })
+    await utils.spaces.list.invalidate()
+    props.onClose()
+  })
+
+  return (
+    <Modal title={`Publishing — ${s.name}`} onClose={props.onClose}>
+      <form onSubmit={onSubmit}>
+        <label className="flex items-center gap-2 mb-4 text-sm">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Publish this space as a docs site
+        </label>
+        <Field label="Host (e.g. docs.example.com)" value={host} onChange={setHost} />
+        <Field label="Site title (defaults to the space name)" value={title} onChange={setTitle} />
+        <Field label="Footer" value={footer} onChange={setFooter} />
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          Only pages you explicitly publish appear, and only when every parent is published too.
+          Preview without DNS at /s/&lt;host&gt;/.
+        </p>
+        <ErrorNote message={error} />
+        <SubmitButton label="Save" busy={busy} />
+      </form>
+    </Modal>
   )
 }
 

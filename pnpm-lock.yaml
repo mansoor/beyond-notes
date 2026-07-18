@@ -17,6 +17,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@bn/renderer':
+        specifier: workspace:^
+        version: link:../../packages/renderer
       '@bn/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -130,6 +133,15 @@ importers:
       vite:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)
+
+  packages/renderer:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
   packages/schema:
     dependencies:
