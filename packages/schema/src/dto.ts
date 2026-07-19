@@ -374,6 +374,20 @@ export type WebhookView = {
   revoked: boolean
 }
 
+// ---- tags ----
+
+export type TagCount = { tag: string; count: number }
+
+export type TagItem = {
+  kind: 'page' | 'memo'
+  id: string
+  title: string
+  // where it lives: space name, 'Journal', or 'Inbox'
+  context: string
+  // set for journal day pages so the UI can link to /day/<date>
+  dateKey: string | null
+}
+
 // ---- journal day notes ----
 
 export const createDayNoteInput = z.object({

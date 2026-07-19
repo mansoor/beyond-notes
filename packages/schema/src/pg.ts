@@ -4,6 +4,7 @@ import {
   customType,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
 } from 'drizzle-orm/pg-core'
@@ -268,3 +269,16 @@ export const webhooks = pgTable('webhooks', {
   lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
   revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
 })
+
+// tag index over page content: #tags are extracted from documents on every
+// save (same pattern as the tasks index) — the text is the source of truth
+export const pageTags = pgTable(
+  'page_tags',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)

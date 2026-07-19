@@ -8,6 +8,7 @@ import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
 import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
+import { TagsPage } from './pages/Tags'
 import { TasksPage } from './pages/Tasks'
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> })
@@ -73,6 +74,12 @@ const archiveRoute = createRoute({
   component: ArchivePage,
 })
 
+const tagsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/tags',
+  component: TagsPage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
@@ -85,6 +92,7 @@ export const router = createRouter({
       tasksRoute,
       settingsRoute,
       archiveRoute,
+      tagsRoute,
     ]),
   ]),
 })

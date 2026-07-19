@@ -699,6 +699,27 @@ export function createRepo(appDb: AppDb) {
       await db.update(t.webhooks).set({ revokedAt: when }).where(eq(t.webhooks.id, id))
     },
 
+    // ---- tag index ----
+
+    async setPageTags(pageId: string, tags: string[]): Promise<void> {
+      await db.delete(t.pageTags).where(eq(t.pageTags.pageId, pageId))
+      if (tags.length > 0) {
+        await db.insert(t.pageTags).values(tags.map((tag) => ({ pageId, tag })))
+      }
+    },
+
+    async listAllPageTags(): Promise<Array<{ pageId: string; tag: string }>> {
+      return db.select().from(t.pageTags)
+    },
+
+    async listPageIdsByTag(tag: string): Promise<string[]> {
+      const rows = await db
+        .select({ pageId: t.pageTags.pageId })
+        .from(t.pageTags)
+        .where(eq(t.pageTags.tag, tag))
+      return rows.map((r: { pageId: string }) => r.pageId)
+    },
+
     // ---- journal day notes ----
 
     async listPagesByDateKey(spaceId: string, dateKey: string): Promise<PageRow[]> {

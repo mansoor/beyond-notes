@@ -1,4 +1,11 @@
-import { type AnySQLiteColumn, blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  type AnySQLiteColumn,
+  blob,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core'
 
 // Mirrors pg.ts exactly; dates are stored as integer epoch-ms and surfaced as Date.
 
@@ -222,3 +229,14 @@ export const webhooks = sqliteTable('webhooks', {
   lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
   revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
 })
+
+export const pageTags = sqliteTable(
+  'page_tags',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)

@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
+import { reconcileTags } from './tags'
 import { reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
@@ -344,6 +345,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       await repo.updatePage(input.pageId, { updatedAt: when })
       // keep the tasks index true to the blocks on every save
       await reconcileTasks(repo, input.pageId, input.content, when)
+      await reconcileTags(repo, input.pageId, input.content)
       return { updatedAt: when.toISOString() }
     },
   }

@@ -13,6 +13,8 @@ import type {
   SearchResult,
   SessionView,
   SpaceView,
+  TagCount,
+  TagItem,
   TaskView,
   UserView,
   VersionView,
@@ -57,6 +59,7 @@ import { createS3BlobStore } from './blobstore-s3'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
 import type { InviteRow, PageRow, SpaceRow, UserRow, WebhookRow } from './repo'
+import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
 
@@ -671,6 +674,80 @@ const journalRouter = router({
     }),
 })
 
+const tagsRouter = router({
+  /** Every tag visible to this user, with counts (pages + own memos). */
+  all: authedProcedure.query(async ({ ctx }): Promise<TagCount[]> => {
+    const [tagRows, pages, spaces, memos] = await Promise.all([
+      ctx.repo.listAllPageTags(),
+      ctx.repo.listAllPages(),
+      ctx.repo.listSpaces(),
+      ctx.repo.listMemos(ctx.user.id),
+    ])
+    const accessible = new Set(
+      spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => s.id),
+    )
+    const visible = new Map(
+      pages.filter((p) => accessible.has(p.spaceId) && !p.archivedAt).map((p) => [p.id, p]),
+    )
+    const counts = new Map<string, number>()
+    for (const row of tagRows) {
+      if (!visible.has(row.pageId)) continue
+      counts.set(row.tag, (counts.get(row.tag) ?? 0) + 1)
+    }
+    for (const memo of memos) {
+      for (const tag of extractTagsFromText(memo.content)) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  }),
+
+  /** Everything carrying one tag: accessible pages plus the user's memos. */
+  items: authedProcedure
+    .input(z.object({ tag: z.string().trim().min(1).max(50) }))
+    .query(async ({ ctx, input }): Promise<TagItem[]> => {
+      const tag = input.tag.toLowerCase()
+      const [pageIds, pages, spaces, memos] = await Promise.all([
+        ctx.repo.listPageIdsByTag(tag),
+        ctx.repo.listAllPages(),
+        ctx.repo.listSpaces(),
+        ctx.repo.listMemos(ctx.user.id),
+      ])
+      const spaceById = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+      )
+      const byId = new Map(pages.map((p) => [p.id, p]))
+      const items: TagItem[] = []
+      for (const id of pageIds) {
+        const page = byId.get(id)
+        const space = page ? spaceById.get(page.spaceId) : undefined
+        if (!page || !space || page.archivedAt) continue
+        // the user's own journal only; other users' journals are not accessible anyway
+        const isJournal = space.kind === 'journal'
+        items.push({
+          kind: 'page',
+          id: page.id,
+          title: page.title,
+          context: isJournal ? 'Journal' : space.name,
+          dateKey: isJournal ? page.dateKey : null,
+        })
+      }
+      for (const memo of memos) {
+        if (!extractTagsFromText(memo.content).includes(tag)) continue
+        items.push({
+          kind: 'memo',
+          id: memo.id,
+          title: memo.content.slice(0, 100),
+          context: 'Inbox',
+          dateKey: null,
+        })
+      }
+      return items
+    }),
+})
+
 const settingsRouter = router({
   get: adminProcedure.query(async ({ ctx }) => ctx.settings.view()),
 
@@ -956,6 +1033,7 @@ export const appRouter = router({
   tasks: tasksRouter,
   settings: settingsRouter,
   webhooks: webhooksRouter,
+  tags: tagsRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

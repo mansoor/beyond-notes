@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { PagesError } from './pages'
 import type { MemoRow, PageRow, Repo, SpaceRow, UserRow } from './repo'
+import { reconcileTags } from './tags'
 import { appendBlocksToContent, makeCheckBlock, makeParagraphBlock, reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
@@ -70,6 +71,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
     await repo.updateDocument(pageId, next, when)
     await repo.updatePage(pageId, { updatedAt: when })
     await reconcileTasks(repo, pageId, next, when)
+    await reconcileTags(repo, pageId, next)
   }
 
   return {

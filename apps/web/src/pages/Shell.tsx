@@ -227,6 +227,7 @@ function DailyNav() {
     { label: 'Today', to: '/day/$date', params: { date: today }, count: null as number | null },
     { label: 'Inbox', to: '/inbox', params: {}, count: inboxCount },
     { label: 'Tasks', to: '/tasks', params: {}, count: dueCount },
+    { label: 'Tags', to: '/tags', params: {}, count: null as number | null },
   ]
 
   return (

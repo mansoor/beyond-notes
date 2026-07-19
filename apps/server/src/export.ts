@@ -15,6 +15,7 @@ import type { BlobStore } from './blobstore'
 import type { PagesService } from './pages'
 import type { AttachmentRow, PageRow, Repo, UserRow } from './repo'
 import { decryptGroup, encryptGroup } from './secrets'
+import { reconcileTags } from './tags'
 import { reconcileTasks } from './tasks'
 
 const EXPORT_VERSION = 1
@@ -313,6 +314,7 @@ export async function importMarkdownDir(
       const content = JSON.stringify(markdownToBlocks(markdown))
       await repo.updateDocument(page.id, content, now())
       await reconcileTasks(repo, page.id, content, now())
+      await reconcileTags(repo, page.id, content)
       count++
     }
   }
