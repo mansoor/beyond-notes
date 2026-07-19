@@ -12,6 +12,7 @@ import { createDb } from './db'
 import { exportInstance, importInstance, importMarkdownDir } from './export'
 import { createPagesService } from './pages'
 import { createRepo } from './repo'
+import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
 
 async function main() {
@@ -54,7 +55,9 @@ async function main() {
         return
       }
       const repo = createRepo(appDb)
-      const cliSettings = createSettingsService(repo, config)
+      const cliSettings = createSettingsService(repo, config, {
+        secretsKey: loadOrCreateSecretsKey(config),
+      })
       await cliSettings.load()
       const storageCfg = cliSettings.effectiveStorage()
       if ((from === 's3' || to === 's3') && !storageCfg.s3Bucket) {
@@ -104,7 +107,8 @@ async function main() {
       return
     }
     const repo = createRepo(appDb)
-    const settings = createSettingsService(repo, config)
+    const secretsKey = loadOrCreateSecretsKey(config)
+    const settings = createSettingsService(repo, config, { secretsKey })
     await settings.load()
     // reads fall back across every driver; writes go to the active one
     const blobs = createDynamicBlobStore(settings, config, repo)
@@ -116,7 +120,7 @@ async function main() {
         process.exitCode = 1
         return
       }
-      const res = await exportInstance(repo, blobs, dir)
+      const res = await exportInstance(repo, blobs, dir, { secretsKey })
       console.log(`Exported ${res.tables} tables and ${res.blobs} blobs to ${dir}`)
       return
     }
@@ -128,7 +132,7 @@ async function main() {
         process.exitCode = 1
         return
       }
-      const res = await importInstance(repo, blobs, dir)
+      const res = await importInstance(repo, blobs, dir, { secretsKey })
       console.log(`Imported ${res.users} users, ${res.pages} pages, ${res.blobs} blobs.`)
       console.log('Sessions were not carried over — everyone signs in fresh.')
       return

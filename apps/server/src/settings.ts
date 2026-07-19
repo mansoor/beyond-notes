@@ -9,6 +9,7 @@ import {
 } from '@bn/schema'
 import type { Config } from './config'
 import type { Repo } from './repo'
+import { decryptGroup, encryptGroup } from './secrets'
 
 /**
  * Runtime-editable server settings (TECH-PLAN's second config bucket). The
@@ -19,9 +20,18 @@ import type { Repo } from './repo'
  *
  * Precedence: a DB group that is actually filled in wins over env vars; env
  * remains the bootstrap/deployment path and the fallback.
+ *
+ * Secrets (see SECRET_FIELDS) are AES-256-GCM encrypted before they touch the
+ * database; the in-memory snapshot holds plaintext. Legacy plaintext rows are
+ * re-encrypted on the first load after a key exists.
  */
-export function createSettingsService(repo: Repo, config: Config, opts: { now?: () => Date } = {}) {
+export function createSettingsService(
+  repo: Repo,
+  config: Config,
+  opts: { now?: () => Date; secretsKey?: Buffer } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const secretsKey = opts.secretsKey
   const snapshot = new Map<string, unknown>()
 
   function parse<T>(key: string, schema: { parse: (v: unknown) => T }): T | null {
@@ -39,7 +49,17 @@ export function createSettingsService(repo: Repo, config: Config, opts: { now?: 
       snapshot.clear()
       for (const row of await repo.listSettings()) {
         try {
-          snapshot.set(row.key, JSON.parse(row.value))
+          const parsed = JSON.parse(row.value) as Record<string, unknown>
+          const { value, hadPlaintextSecret } = decryptGroup(secretsKey, row.key, parsed)
+          snapshot.set(row.key, value)
+          if (hadPlaintextSecret && secretsKey) {
+            // upgrade pre-encryption rows in place
+            await repo.putSetting(
+              row.key,
+              JSON.stringify(encryptGroup(secretsKey, row.key, value)),
+              now(),
+            )
+          }
         } catch {
           // skip corrupt rows
         }
@@ -47,7 +67,8 @@ export function createSettingsService(repo: Repo, config: Config, opts: { now?: 
     },
 
     async put(key: string, value: unknown): Promise<void> {
-      await repo.putSetting(key, JSON.stringify(value), now())
+      const persisted = encryptGroup(secretsKey, key, value as Record<string, unknown>)
+      await repo.putSetting(key, JSON.stringify(persisted), now())
       snapshot.set(key, value)
     },
 

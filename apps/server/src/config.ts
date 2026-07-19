@@ -32,6 +32,10 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // encryption-at-rest key for secrets in the settings table. Unset = a key
+  // is generated once and kept at SECRETS_KEY_FILE (outside the database).
+  SECRETS_KEY: z.string().default(''),
+  SECRETS_KEY_FILE: z.string().default('./data/secrets.key'),
   NODE_ENV: z.string().default('development'),
 })
 

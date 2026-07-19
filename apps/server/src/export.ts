@@ -14,6 +14,7 @@ import { extractAttachmentIds, thumbKey } from './attachments'
 import type { BlobStore } from './blobstore'
 import type { PagesService } from './pages'
 import type { AttachmentRow, PageRow, Repo, UserRow } from './repo'
+import { decryptGroup, encryptGroup } from './secrets'
 import { reconcileTasks } from './tasks'
 
 const EXPORT_VERSION = 1
@@ -44,7 +45,12 @@ type Dump = {
 
 // ---- 1. full instance ----
 
-export async function exportInstance(repo: Repo, blobs: BlobStore, outDir: string) {
+export async function exportInstance(
+  repo: Repo,
+  blobs: BlobStore,
+  outDir: string,
+  opts: { secretsKey?: Buffer } = {},
+) {
   mkdirSync(join(outDir, 'blobs'), { recursive: true })
 
   // sessions and reset tokens are deliberately absent: ephemeral by design
@@ -61,7 +67,18 @@ export async function exportInstance(repo: Repo, blobs: BlobStore, outDir: strin
     tasks: await repo.listAllTasks(),
     reminders: await repo.listAllReminders(),
     scheduledJobs: await repo.listAllJobs(),
-    settings: await repo.listSettings(),
+    // secrets are decrypted into the dump so it restores on an instance with
+    // a different key — an export dir already holds everything and must be
+    // guarded like a backup either way
+    settings: (await repo.listSettings()).map((row) => {
+      try {
+        const parsed = JSON.parse(row.value) as Record<string, unknown>
+        const { value } = decryptGroup(opts.secretsKey, row.key, parsed)
+        return { ...row, value: JSON.stringify(value) }
+      } catch {
+        return row
+      }
+    }),
     webhooks: await repo.listAllWebhooks(),
   } as unknown as Dump['tables']
 
@@ -113,7 +130,12 @@ function topoSortPages(pages: Record<string, unknown>[]): Record<string, unknown
   return ordered
 }
 
-export async function importInstance(repo: Repo, blobs: BlobStore, inDir: string) {
+export async function importInstance(
+  repo: Repo,
+  blobs: BlobStore,
+  inDir: string,
+  opts: { secretsKey?: Buffer } = {},
+) {
   if ((await repo.countUsers()) > 0) {
     throw new Error('this instance already has data — import only into a fresh database')
   }
@@ -139,7 +161,15 @@ export async function importInstance(repo: Repo, blobs: BlobStore, inDir: string
   for (const row of rows('reminders')) await repo.insertReminder(row as never)
   for (const row of rows('scheduledJobs')) await repo.insertJob(row as never)
   for (const row of rows('settings') as Array<{ key: string; value: string; updatedAt: Date }>) {
-    await repo.putSetting(row.key, row.value, row.updatedAt)
+    let value = row.value
+    try {
+      // re-encrypt secrets under the importing instance's key
+      const parsed = JSON.parse(row.value) as Record<string, unknown>
+      value = JSON.stringify(encryptGroup(opts.secretsKey, row.key, parsed))
+    } catch {
+      // keep unparseable rows verbatim
+    }
+    await repo.putSetting(row.key, value, row.updatedAt)
   }
   for (const row of rows('webhooks')) await repo.insertWebhook(row as never)
 

@@ -1,14 +1,17 @@
-import { mkdtempSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
+import { createFsBlobStore } from './blobstore'
 import { createDbBlobStore } from './blobstore-db'
 import { createDynamicBlobStore } from './blobstore-dynamic'
 import { loadConfig } from './config'
 import { createDailyService } from './daily'
 import { type AppDb, createDb } from './db'
+import { exportInstance, importInstance } from './export'
 import { createDynamicMailer } from './mailer'
 import { createRepo } from './repo'
 import { createSettingsService } from './settings'
@@ -114,6 +117,103 @@ for (const dialect of dialects) {
       })
       expect(mailer.configured).toBe(true)
       await appDb.close()
+    })
+  })
+
+  describe(`secrets at rest (${dialect.name})`, () => {
+    it('secret fields are encrypted in the database and legacy plaintext upgrades on load', async () => {
+      const appDb = await dialect.make()
+      const repo = createRepo(appDb)
+      const config = loadConfig({ DATABASE_URL: 'unused' } as never)
+      const key = randomBytes(32)
+      const settings = createSettingsService(repo, config, { secretsKey: key })
+      await settings.load()
+
+      await settings.saveSmtp({
+        host: 'mail.example.com',
+        port: 587,
+        secure: false,
+        user: 'u',
+        pass: 'super-secret-password',
+        from: 'n@example.com',
+      })
+      // at rest: ciphertext only
+      const raw = await repo.getSetting('smtp')
+      expect(raw).toContain('enc:v1:')
+      expect(raw).not.toContain('super-secret-password')
+      // in use: plaintext
+      expect(settings.effectiveSmtp()?.pass).toBe('super-secret-password')
+
+      // legacy plaintext row (pre-encryption) upgrades on the next load
+      await repo.putSetting(
+        'storage',
+        JSON.stringify({
+          driver: 's3',
+          s3Bucket: 'b',
+          s3Endpoint: '',
+          s3Region: 'us-east-1',
+          s3AccessKey: 'ak',
+          s3SecretKey: 'legacy-plain-secret',
+          s3ForcePathStyle: true,
+        }),
+        new Date(),
+      )
+      const fresh = createSettingsService(repo, config, { secretsKey: key })
+      await fresh.load()
+      expect(fresh.storage()?.s3SecretKey).toBe('legacy-plain-secret')
+      const upgraded = await repo.getSetting('storage')
+      expect(upgraded).toContain('enc:v1:')
+      expect(upgraded).not.toContain('legacy-plain-secret')
+      await appDb.close()
+    })
+
+    it('exports decrypt and imports re-encrypt, so dumps restore under a different key', async () => {
+      const src = await dialect.make()
+      const srcRepo = createRepo(src)
+      const config = loadConfig({ DATABASE_URL: 'unused' } as never)
+      const keyA = randomBytes(32)
+      const srcSettings = createSettingsService(srcRepo, config, { secretsKey: keyA })
+      await srcSettings.load()
+      const srcAuth = createAuthService(srcRepo)
+      await srcAuth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
+      await srcSettings.saveSmtp({
+        host: 'mail.example.com',
+        port: 587,
+        secure: false,
+        user: 'u',
+        pass: 'travels-across-keys',
+        from: 'n@example.com',
+      })
+
+      const dir = mkdtempSync(join(tmpdir(), 'bn-secexp-'))
+      const uploads = mkdtempSync(join(tmpdir(), 'bn-secup-'))
+      const store = createFsBlobStore(uploads)
+      await exportInstance(srcRepo, store, dir, { secretsKey: keyA })
+      // the dump itself is portable plaintext (guard it like any backup)
+      const dumped = JSON.parse(readFileSync(join(dir, 'data.json'), 'utf8'))
+      const settingsRow = dumped.tables.settings.find((r: { key: string }) => r.key === 'smtp')
+      expect(settingsRow.value).toContain('travels-across-keys')
+
+      const dest = await dialect.make()
+      const destRepo = createRepo(dest)
+      const keyB = randomBytes(32)
+      await importInstance(
+        destRepo,
+        createFsBlobStore(mkdtempSync(join(tmpdir(), 'bn-secim-'))),
+        dir,
+        {
+          secretsKey: keyB,
+        },
+      )
+      // encrypted at rest under key B, decryptable by the new instance
+      const rawB = await destRepo.getSetting('smtp')
+      expect(rawB).toContain('enc:v1:')
+      expect(rawB).not.toContain('travels-across-keys')
+      const destSettings = createSettingsService(destRepo, config, { secretsKey: keyB })
+      await destSettings.load()
+      expect(destSettings.effectiveSmtp()?.pass).toBe('travels-across-keys')
+      await src.close()
+      await dest.close()
     })
   })
 

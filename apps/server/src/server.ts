@@ -26,6 +26,7 @@ import {
   createNtfyNotifier,
   createScheduler,
 } from './scheduler'
+import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
@@ -37,7 +38,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
   await server.register(fastifyCookie)
 
   const repo = createRepo(appDb)
-  const settings = createSettingsService(repo, config)
+  const secretsKey = loadOrCreateSecretsKey(config)
+  const settings = createSettingsService(repo, config, { secretsKey })
   await settings.load()
   const auth = createAuthService(repo)
   const pages = createPagesService(repo)
