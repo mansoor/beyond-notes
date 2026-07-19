@@ -14,6 +14,20 @@ export class PagesError extends Error {
   }
 }
 
+/** A page id plus every descendant's, walked over one space's page list. */
+function subtreeIds(all: PageRow[], rootId: string): string[] {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parentId = queue.shift()
+    for (const child of all.filter((p) => p.parentId === parentId)) {
+      ids.push(child.id)
+      queue.push(child.id)
+    }
+  }
+  return ids
+}
+
 function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space is SpaceRow {
   if (!space) throw new PagesError('NOT_FOUND', 'Space not found.')
   if (space.ownerId !== null && space.ownerId !== user.id) {
@@ -81,7 +95,52 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
     async tree(user: UserRow, spaceId: string): Promise<PageRow[]> {
       assertSpaceAccess(await repo.getSpace(spaceId), user)
       const pages = await repo.listPagesInSpace(spaceId)
-      return pages.sort((a, b) => a.position - b.position)
+      return pages.filter((p) => p.archivedAt === null).sort((a, b) => a.position - b.position)
+    },
+
+    // ---- archive ----
+
+    /** Archive a page and its whole subtree. Publish state is untouched. */
+    async archivePage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      const all = await repo.listPagesInSpace(page.spaceId)
+      const ids = subtreeIds(all, pageId)
+      await repo.setPagesArchived(ids, now(), user.id)
+    },
+
+    /**
+     * Restore a page and its subtree to where they were. If the original
+     * parent is itself still archived (or gone), the page surfaces at the
+     * space root rather than staying invisible under an archived ancestor.
+     */
+    async restorePage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      if (!page.archivedAt) return
+      const all = await repo.listPagesInSpace(page.spaceId)
+      const ids = subtreeIds(all, pageId)
+      await repo.setPagesArchived(ids, null, null)
+      const parent = page.parentId ? all.find((p) => p.id === page.parentId) : null
+      if (page.parentId && (!parent || (parent.archivedAt && !ids.includes(parent.id)))) {
+        const rootCount = all.filter((p) => p.parentId === null && !p.archivedAt).length
+        await repo.updatePage(pageId, { parentId: null, position: rootCount, updatedAt: now() })
+      }
+    },
+
+    /**
+     * Archive roots visible to this user: archived pages whose parent is not
+     * itself archived — the units that were archived, not every descendant.
+     */
+    async listArchived(user: UserRow): Promise<Array<{ page: PageRow; space: SpaceRow }>> {
+      const [archived, spaces] = await Promise.all([repo.listArchivedPages(), repo.listSpaces()])
+      const accessible = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
+      )
+      const archivedIds = new Set(archived.map((p) => p.id))
+      return archived
+        .filter((p) => accessible.has(p.spaceId))
+        .filter((p) => p.parentId === null || !archivedIds.has(p.parentId))
+        .sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0))
+        .map((p) => ({ page: p, space: accessible.get(p.spaceId) as SpaceRow }))
     },
 
     async createPage(
@@ -108,6 +167,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageType: 'doc',
         slug: null,
         liveVersionId: null,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }

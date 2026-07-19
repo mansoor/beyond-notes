@@ -208,6 +208,16 @@ export function createAuthService(
       }
     },
 
+    async updateProfile(user: UserRow, input: { name: string; email: string }) {
+      if (input.email !== user.email) {
+        const existing = await repo.getUserByEmail(input.email)
+        if (existing && existing.id !== user.id) {
+          throw new AuthError('EMAIL_TAKEN', 'An account with this email already exists.')
+        }
+      }
+      await repo.updateUser(user.id, { name: input.name, email: input.email })
+    },
+
     async changePassword(user: UserRow, current: string, next: string) {
       if (!(await argonVerify(user.passwordHash, current))) {
         throw new AuthError('BAD_CREDENTIALS', 'Current password is wrong.')

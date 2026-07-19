@@ -43,6 +43,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       pageType: 'doc',
       slug: null,
       liveVersionId: null,
+      archivedAt: null,
+      archivedBy: null,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -150,6 +152,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageType: 'doc',
         slug: null,
         liveVersionId: null,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }

@@ -1,6 +1,7 @@
 import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
+  ArchivedPageView,
   AuthStatus,
   DocumentView,
   GalleryItemView,
@@ -40,6 +41,7 @@ import {
   setupInput,
   toggleTaskInput,
   totpConfirmInput,
+  updateProfileInput,
   updatePublishingInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
@@ -230,6 +232,15 @@ const authRouter = router({
   changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
     try {
       await ctx.auth.changePassword(ctx.user, input.current, input.next)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  updateProfile: authedProcedure.input(updateProfileInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.auth.updateProfile(ctx.user, input)
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -480,6 +491,41 @@ const pagesRouter = router({
         rethrow(err)
       }
     }),
+
+  archive: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.archivePage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  restore: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.restorePage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  archived: authedProcedure.query(async ({ ctx }): Promise<ArchivedPageView[]> => {
+    const items = await ctx.pages.listArchived(ctx.user)
+    const users = new Map((await ctx.repo.listUsers()).map((u) => [u.id, u.name]))
+    return items.map(({ page, space }) => ({
+      id: page.id,
+      title: page.title,
+      pageType: page.pageType,
+      spaceName: space.name,
+      archivedAt: (page.archivedAt as Date).toISOString(),
+      archivedByName: (page.archivedBy && users.get(page.archivedBy)) || 'unknown',
+    }))
+  }),
 
   saveDoc: authedProcedure.input(saveDocumentInput).mutation(async ({ ctx, input }) => {
     try {

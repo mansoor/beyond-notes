@@ -1,5 +1,6 @@
 import { Outlet, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { AcceptInvitePage } from './pages/AcceptInvite'
+import { ArchivePage } from './pages/Archive'
 import { EditorPage } from './pages/Editor'
 import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
@@ -66,11 +67,25 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 })
 
+const archiveRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/archive',
+  component: ArchivePage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
     resetRoute,
-    appRoute.addChildren([indexRoute, pageRoute, dayRoute, inboxRoute, tasksRoute, settingsRoute]),
+    appRoute.addChildren([
+      indexRoute,
+      pageRoute,
+      dayRoute,
+      inboxRoute,
+      tasksRoute,
+      settingsRoute,
+      archiveRoute,
+    ]),
   ]),
 })
 

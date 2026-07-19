@@ -53,6 +53,8 @@ export type PageRow = {
   pageType: 'doc' | 'blog' | 'gallery'
   slug: string | null
   liveVersionId: string | null
+  archivedAt: Date | null
+  archivedBy: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -197,6 +199,7 @@ export function createRepo(appDb: AppDb) {
           | 'totpEnabled'
           | 'recoveryCodes'
           | 'name'
+          | 'email'
           | 'emailNotifications'
         >
       >,
@@ -332,6 +335,20 @@ export function createRepo(appDb: AppDb) {
     async deletePage(id: string): Promise<void> {
       // FK cascade removes the subtree and documents on both dialects
       await db.delete(t.pages).where(eq(t.pages.id, id))
+    },
+
+    async setPagesArchived(
+      ids: string[],
+      archivedAt: Date | null,
+      archivedBy: string | null,
+    ): Promise<void> {
+      for (const id of ids) {
+        await db.update(t.pages).set({ archivedAt, archivedBy }).where(eq(t.pages.id, id))
+      }
+    },
+
+    async listArchivedPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages).where(sqlOp`${t.pages.archivedAt} is not null`)
     },
 
     // ---- documents ----
@@ -569,7 +586,7 @@ export function createRepo(appDb: AppDb) {
         .from(t.pages)
         .innerJoin(t.documents, eq(t.documents.pageId, t.pages.id))
         .where(
-          sqlOp`lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}`,
+          sqlOp`(lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}) and ${t.pages.archivedAt} is null`,
         )
         .limit(50)
       return rows as Array<{ page: PageRow; content: string }>

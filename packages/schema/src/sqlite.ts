@@ -70,6 +70,8 @@ export const pages = sqliteTable('pages', {
     .default('doc'),
   slug: text('slug'),
   liveVersionId: text('live_version_id'),
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  archivedBy: text('archived_by'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

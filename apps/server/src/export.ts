@@ -23,7 +23,7 @@ const DATE_COLUMNS: Record<string, string[]> = {
   users: ['createdAt'],
   invites: ['createdAt', 'expiresAt', 'usedAt', 'revokedAt'],
   spaces: ['createdAt'],
-  pages: ['createdAt', 'updatedAt'],
+  pages: ['createdAt', 'updatedAt', 'archivedAt'],
   documents: ['updatedAt'],
   pageVersions: ['createdAt'],
   attachments: ['createdAt'],

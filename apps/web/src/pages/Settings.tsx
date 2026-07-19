@@ -52,44 +52,96 @@ function Card(props: { title: string; children: React.ReactNode }) {
 }
 
 function AccountTab() {
+  return (
+    <>
+      <ProfileCard />
+      <ChangePasswordCard />
+    </>
+  )
+}
+
+function ProfileCard() {
+  const utils = trpc.useUtils()
   const status = trpc.auth.status.useQuery()
+  const update = trpc.auth.updateProfile.useMutation()
+  const me = status.data?.me
+  const [name, setName] = useState(me?.name ?? '')
+  const [email, setEmail] = useState(me?.email ?? '')
+  const [loaded, setLoaded] = useState(Boolean(me))
+  const [done, setDone] = useState(false)
+  if (me && !loaded) {
+    setName(me.name)
+    setEmail(me.email)
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await update.mutateAsync({ name, email })
+    await utils.auth.status.invalidate()
+    setDone(true)
+  })
+  const dirty = me ? name !== me.name || email !== me.email : false
+
+  return (
+    <Card title="Profile">
+      <form onSubmit={onSubmit}>
+        <Field label="Name" value={name} onChange={setName} />
+        <Field label="Email (used to sign in)" type="email" value={email} onChange={setEmail} />
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          Role: {me?.role}
+        </p>
+        <ErrorNote message={error} />
+        {done && !dirty && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Profile saved.
+          </p>
+        )}
+        <SubmitButton label="Save profile" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+function ChangePasswordCard() {
   const change = trpc.auth.changePassword.useMutation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [done, setDone] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
+    if (next !== confirm) throw new Error('New passwords do not match.')
     await change.mutateAsync({ current, next })
     setCurrent('')
     setNext('')
+    setConfirm('')
     setDone(true)
   })
+  const mismatch = confirm !== '' && next !== confirm
 
   return (
-    <>
-      <Card title="Profile">
-        <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-          {status.data?.me?.name} · {status.data?.me?.email} · {status.data?.me?.role}
-        </p>
-      </Card>
-      <Card title="Change password">
-        <form onSubmit={onSubmit}>
-          <Field label="Current password" type="password" value={current} onChange={setCurrent} />
-          <Field
-            label="New password (10+ characters)"
-            type="password"
-            value={next}
-            onChange={setNext}
-          />
-          <ErrorNote message={error} />
-          {done && (
-            <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
-              Password changed.
-            </p>
-          )}
-          <SubmitButton label="Change password" busy={busy} />
-        </form>
-      </Card>
-    </>
+    <Card title="Change password">
+      <form onSubmit={onSubmit}>
+        <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        <Field
+          label="New password (10+ characters)"
+          type="password"
+          value={next}
+          onChange={setNext}
+        />
+        <Field label="Confirm new password" type="password" value={confirm} onChange={setConfirm} />
+        {mismatch && (
+          <p className="text-sm mb-3" style={{ color: 'var(--danger)' }}>
+            Passwords do not match yet.
+          </p>
+        )}
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Password changed.
+          </p>
+        )}
+        <SubmitButton label="Change password" busy={busy} />
+      </form>
+    </Card>
   )
 }
 

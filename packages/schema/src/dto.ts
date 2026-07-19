@@ -26,6 +26,8 @@ export const totpConfirmInput = z.object({ code: z.string().trim().min(6).max(20
 
 export const requestPasswordResetInput = z.object({ email: emailSchema })
 
+export const updateProfileInput = z.object({ name: nameSchema, email: emailSchema })
+
 export const resetPasswordInput = z.object({
   token: z.string().min(20).max(200),
   password: passwordSchema,
@@ -150,6 +152,15 @@ export type PageMeta = {
   title: string
   position: number
   pageType: 'doc' | 'blog' | 'gallery'
+}
+
+export type ArchivedPageView = {
+  id: string
+  title: string
+  pageType: 'doc' | 'blog' | 'gallery'
+  spaceName: string
+  archivedAt: string
+  archivedByName: string
 }
 
 export const setPageTypeInput = z.object({

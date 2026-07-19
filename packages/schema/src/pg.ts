@@ -83,6 +83,11 @@ export const pages = pgTable('pages', {
   slug: text('slug'),
   // page-level "is this live right now" — soft ref into page_versions
   liveVersionId: text('live_version_id'),
+  // archive: soft-removal from the app surfaces; restore puts it back where it
+  // was. Set on the whole subtree at once. Publish state is deliberately
+  // untouched — retiring is its own explicit act.
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
+  archivedBy: text('archived_by'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

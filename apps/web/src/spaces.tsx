@@ -330,6 +330,14 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
       utils.pages.get.invalidate({ pageId: props.page.id })
     },
   })
+  const archive = trpc.pages.archive.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.pages.tree.invalidate({ spaceId: props.page.spaceId }),
+        utils.pages.archived.invalidate(),
+        utils.tasks.agenda.invalidate(),
+      ]),
+  })
   return (
     <span className="relative">
       <button
@@ -346,12 +354,12 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
-          {(['rename', 'move', 'delete'] as const).map((kind) => (
+          {(['rename', 'move'] as const).map((kind) => (
             <button
               key={kind}
               type="button"
               className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5 capitalize"
-              style={{ color: kind === 'delete' ? 'var(--danger)' : 'var(--text)' }}
+              style={{ color: 'var(--text)' }}
               onClick={() => {
                 setOpen(false)
                 props.onAction({ kind, page: props.page })
@@ -360,6 +368,29 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
               {kind}
             </button>
           ))}
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--text)' }}
+            title="Hide from the sidebar, search, and tasks; restore any time from Archive"
+            onClick={() => {
+              setOpen(false)
+              archive.mutate({ pageId: props.page.id })
+            }}
+          >
+            Archive
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => {
+              setOpen(false)
+              props.onAction({ kind: 'delete', page: props.page })
+            }}
+          >
+            Delete
+          </button>
           {(['doc', 'blog', 'gallery'] as const)
             .filter((t) => t !== props.page.pageType)
             .map((t) => (
