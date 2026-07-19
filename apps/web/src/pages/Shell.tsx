@@ -36,7 +36,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   return (
     <div className="min-h-screen flex">
       <aside
-        className="w-64 shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0 overflow-y-auto"
+        className="w-64 shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0"
         style={{ background: 'var(--sidebar)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 px-1">
@@ -77,9 +77,11 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           </kbd>
         </button>
 
-        <DailyNav />
-
-        <SpacesNav />
+        {/* only this region scrolls; logo, search, and the user menu stay put */}
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
+          <DailyNav />
+          <SpacesNav />
+        </div>
 
         <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
       </aside>
@@ -115,7 +117,7 @@ function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: bool
   const itemClass = 'block w-full text-left px-3 py-1.5 text-sm rounded hover:bg-black/5'
 
   return (
-    <div ref={rootRef} className="mt-auto relative pt-3">
+    <div ref={rootRef} className="relative pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
       {open && (
         <div
           className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border py-1 shadow-lg z-40"
