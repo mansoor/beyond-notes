@@ -590,6 +590,36 @@ export function createRepo(appDb: AppDb) {
         .delete(t.scheduledJobs)
         .where(and(eq(t.scheduledJobs.refId, refId), eq(t.scheduledJobs.status, 'pending')))
     },
+
+    // ---- whole-table reads for export (export.ts is the only caller) ----
+
+    async listAllPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages)
+    },
+
+    async listAllDocuments(): Promise<DocumentRow[]> {
+      return db.select().from(t.documents)
+    },
+
+    async listAllVersions(): Promise<PageVersionRow[]> {
+      return db.select().from(t.pageVersions)
+    },
+
+    async listAllMemos(): Promise<MemoRow[]> {
+      return db.select().from(t.memos)
+    },
+
+    async listAllGalleryItems(): Promise<GalleryItemRow[]> {
+      return db.select().from(t.galleryItems)
+    },
+
+    async listAllReminders(): Promise<ReminderRow[]> {
+      return db.select().from(t.reminders)
+    },
+
+    async listAllJobs(): Promise<JobRow[]> {
+      return db.select().from(t.scheduledJobs)
+    },
   }
 }
 

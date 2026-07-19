@@ -7,6 +7,8 @@ import { createFsBlobStore } from './blobstore'
 import { createS3BlobStore, s3Configured } from './blobstore-s3'
 import { loadConfig } from './config'
 import { createDb } from './db'
+import { exportInstance, importInstance, importMarkdownDir } from './export'
+import { createPagesService } from './pages'
 import { createRepo } from './repo'
 
 async function main() {
@@ -87,7 +89,58 @@ async function main() {
       if (missing > 0) process.exitCode = 1
       return
     }
-    console.error(`Unknown command '${cmd ?? ''}'. Available: user:reset-password, blobs:migrate`)
+    const repo = createRepo(appDb)
+    const blobs = s3Configured(config)
+      ? createS3BlobStore(config)
+      : createFsBlobStore(config.UPLOADS_DIR)
+
+    if (cmd === 'export') {
+      const [dir] = args
+      if (!dir) {
+        console.error('usage: cli export <directory>')
+        process.exitCode = 1
+        return
+      }
+      const res = await exportInstance(repo, blobs, dir)
+      console.log(`Exported ${res.tables} tables and ${res.blobs} blobs to ${dir}`)
+      return
+    }
+
+    if (cmd === 'import') {
+      const [dir] = args
+      if (!dir) {
+        console.error('usage: cli import <directory>   (target database must be empty)')
+        process.exitCode = 1
+        return
+      }
+      const res = await importInstance(repo, blobs, dir)
+      console.log(`Imported ${res.users} users, ${res.pages} pages, ${res.blobs} blobs.`)
+      console.log('Sessions were not carried over — everyone signs in fresh.')
+      return
+    }
+
+    if (cmd === 'import:markdown') {
+      const [dir, spaceName, email] = args
+      if (!dir || !spaceName || !email) {
+        console.error('usage: cli import:markdown <directory> <space-name> <owner-email>')
+        process.exitCode = 1
+        return
+      }
+      const user = await repo.getUserByEmail(email.toLowerCase())
+      if (!user) {
+        console.error('No user with that email.')
+        process.exitCode = 1
+        return
+      }
+      const pages = createPagesService(repo)
+      const res = await importMarkdownDir(repo, pages, user, dir, spaceName)
+      console.log(`Imported ${res.pages} pages into new space '${spaceName}'.`)
+      return
+    }
+
+    console.error(
+      `Unknown command '${cmd ?? ''}'. Available: user:reset-password, blobs:migrate, export, import, import:markdown`,
+    )
     process.exitCode = 1
   } finally {
     await appDb.close()

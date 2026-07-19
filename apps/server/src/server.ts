@@ -12,6 +12,7 @@ import { createS3BlobStore, s3Configured } from './blobstore-s3'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { exportSpaceZip } from './export'
 import { createLogMailer, createSmtpMailer, mailConfigured } from './mailer'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
@@ -106,6 +107,20 @@ export async function buildServer(config: Config, appDb: AppDb) {
   }
   server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
   server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))
+
+  // one space as a Markdown+images zip — the UI's download-your-data button
+  server.get('/api/export/space/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    const space = await repo.getSpace(String(req.params.id ?? ''))
+    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      return reply.code(404).send({ error: 'not found' })
+    }
+    const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
+    reply.header('content-disposition', `attachment; filename="${filename}"`)
+    reply.type('application/zip')
+    return reply.send(data)
+  })
 
   // Host-header routing for published sites. Any GET whose Host matches a
   // publicEnabled space is answered from published snapshots and never reaches

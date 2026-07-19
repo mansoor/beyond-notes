@@ -149,6 +149,15 @@ function SpaceItem(props: { space: SpaceView }) {
           >
             ⚙
           </button>
+          <a
+            title="Export as Markdown (.zip)"
+            href={`/api/export/space/${props.space.id}`}
+            download
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ⤓
+          </a>
           <button
             type="button"
             title="New page"

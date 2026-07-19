@@ -1,4 +1,5 @@
 export { blocknoteToHtml, plainText, galleryHtml } from './render'
+export { blocknoteToMarkdown, markdownToBlocks } from './markdown'
 export type { GalleryRenderItem } from './render'
 export { slugify } from './slug'
 export { docsShell, docsSearchResults, docs404 } from './theme'
