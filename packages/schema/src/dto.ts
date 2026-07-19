@@ -112,6 +112,7 @@ export type SpaceView = {
   publicTitle: string | null
   publicFooter: string | null
   publicTheme: SiteTheme
+  publicAppearance: SiteAppearance
   createdAt: string
 }
 
@@ -236,8 +237,11 @@ export const hostSchema = z
   .regex(/^[a-z0-9.-]+(:\d+)?$/, 'Host names only, e.g. docs.example.com')
   .max(255)
 
-export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand'])
+export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand', 'bloom'])
 export type SiteTheme = z.infer<typeof siteTheme>
+
+export const siteAppearance = z.enum(['auto', 'light', 'dark'])
+export type SiteAppearance = z.infer<typeof siteAppearance>
 
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
@@ -246,6 +250,7 @@ export const updatePublishingInput = z.object({
   title: z.string().trim().max(120).nullable(),
   footer: z.string().trim().max(300).nullable(),
   theme: siteTheme.default('paper'),
+  appearance: siteAppearance.default('auto'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

@@ -39,7 +39,8 @@ export type SpaceRow = {
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
-  publicTheme: 'paper' | 'ink' | 'mist' | 'sand'
+  publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
+  publicAppearance: 'auto' | 'light' | 'dark'
   createdAt: Date
 }
 
@@ -450,7 +451,12 @@ export function createRepo(appDb: AppDb) {
       patch: Partial<
         Pick<
           SpaceRow,
-          'publicEnabled' | 'publicHost' | 'publicTitle' | 'publicFooter' | 'publicTheme'
+          | 'publicEnabled'
+          | 'publicHost'
+          | 'publicTitle'
+          | 'publicFooter'
+          | 'publicTheme'
+          | 'publicAppearance'
         >
       >,
     ): Promise<void> {

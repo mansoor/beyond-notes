@@ -208,6 +208,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const [title, setTitle] = useState(s.publicTitle ?? '')
   const [footer, setFooter] = useState(s.publicFooter ?? '')
   const [theme, setTheme] = useState(s.publicTheme)
+  const [appearance, setAppearance] = useState(s.publicAppearance)
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
       spaceId: s.id,
@@ -216,6 +217,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
       title: title.trim() || null,
       footer: footer.trim() || null,
       theme,
+      appearance,
     })
     await utils.spaces.list.invalidate()
     props.onClose()
@@ -225,7 +227,8 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     host !== (s.publicHost ?? '') ||
     title !== (s.publicTitle ?? '') ||
     footer !== (s.publicFooter ?? '') ||
-    theme !== s.publicTheme
+    theme !== s.publicTheme ||
+    appearance !== s.publicAppearance
 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty}>
@@ -245,10 +248,24 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             value={theme}
             onChange={(e) => setTheme(e.target.value as SpaceView['publicTheme'])}
           >
-            <option value="paper">Paper — warm light, dark variant</option>
-            <option value="ink">Ink — always dark</option>
-            <option value="mist">Mist — cool light, dark variant</option>
-            <option value="sand">Sand — warm sand, dark variant</option>
+            <option value="paper">Paper — warm, easy on the eyes</option>
+            <option value="ink">Ink — moody blue-gray</option>
+            <option value="mist">Mist — cool and airy</option>
+            <option value="sand">Sand — warm earth tones</option>
+            <option value="bloom">Bloom — bright white, vivid accent</option>
+          </select>
+        </label>
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Appearance</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={appearance}
+            onChange={(e) => setAppearance(e.target.value as SpaceView['publicAppearance'])}
+          >
+            <option value="auto">Auto — follow each visitor&apos;s device</option>
+            <option value="light">Always light</option>
+            <option value="dark">Always dark</option>
           </select>
         </label>
         <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>

@@ -1,5 +1,5 @@
 import { escapeHtml } from './render'
-import { type ThemeName, themeCss } from './themes'
+import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
 
 export type SiteNavItem = {
   title: string
@@ -152,6 +152,7 @@ function shell(input: {
   footer: string
   title: string
   theme: ThemeName
+  appearance?: ThemeAppearance
   nav: SiteNavItem[]
   basePath: string
   body: string
@@ -165,7 +166,7 @@ function shell(input: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(input.title)} — ${escapeHtml(input.siteTitle)}</title>
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme)}${SITE_CSS}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}</style>
 </head>
 <body>
 <header><a class="logo" href="${escapeHtml(input.basePath || '/')}">${escapeHtml(input.siteTitle)}</a><nav>${nav}</nav></header>
@@ -181,6 +182,7 @@ export function sitePage(input: {
   siteTitle: string
   footer: string
   theme: ThemeName
+  appearance?: ThemeAppearance
   nav: SiteNavItem[]
   basePath: string
   title: string
@@ -198,6 +200,7 @@ export function siteBlogIndex(input: {
   siteTitle: string
   footer: string
   theme: ThemeName
+  appearance?: ThemeAppearance
   nav: SiteNavItem[]
   basePath: string
   title: string
@@ -222,6 +225,7 @@ export function sitePost(input: {
   siteTitle: string
   footer: string
   theme: ThemeName
+  appearance?: ThemeAppearance
   nav: SiteNavItem[]
   basePath: string
   title: string
@@ -240,6 +244,7 @@ export function site404(input: {
   siteTitle: string
   footer: string
   theme: ThemeName
+  appearance?: ThemeAppearance
   basePath: string
 }): string {
   return shell({

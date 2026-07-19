@@ -133,6 +133,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
   ): Promise<void> {
     const site = await publishing.publicSite(space, path)
     const theme = space.publicTheme
+    const appearance = space.publicAppearance
     const siteTitle = site.siteTitle
     const footer = site.footer
     const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
@@ -214,7 +215,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // '/' renders the first root page as the home page
     const hit = path === '/' ? roots[0] : site.byPath.get(path)
     if (!hit) {
-      reply.code(404).send(site404({ siteTitle, footer, theme, basePath }))
+      reply.code(404).send(site404({ siteTitle, footer, theme, appearance, basePath }))
       return
     }
     if (path === '/' && roots[0]) {
@@ -231,6 +232,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           siteTitle,
           footer,
           theme,
+          appearance,
           nav,
           basePath,
           title: hit.entry.version.title,
@@ -263,6 +265,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           siteTitle,
           footer,
           theme,
+          appearance,
           nav,
           basePath,
           title: hit.entry.version.title,
@@ -317,6 +320,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         siteTitle,
         footer,
         theme,
+        appearance,
         nav,
         basePath,
         title: hit.entry.version.title,

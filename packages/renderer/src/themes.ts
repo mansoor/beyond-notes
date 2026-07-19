@@ -1,8 +1,11 @@
 // Theme presets are token sets only — never structure (settled decision).
-// 'ink' commits to a single dark look; the others provide light values plus a
-// dark variant behind prefers-color-scheme.
+// Every theme has a light and a dark palette; `appearance` decides which the
+// visitor gets: 'auto' follows their OS, 'light'/'dark' pin one look. The one
+// exception: 'ink' on auto stays dark — always-dark is that theme's identity,
+// and existing ink sites must not change under their owners.
 
-export type ThemeName = 'paper' | 'ink' | 'mist' | 'sand'
+export type ThemeName = 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
+export type ThemeAppearance = 'auto' | 'light' | 'dark'
 
 type Tokens = {
   bg: string
@@ -16,7 +19,29 @@ type Tokens = {
   code: string
 }
 
-const LIGHT: Record<Exclude<ThemeName, 'ink'>, Tokens> = {
+const LIGHT: Record<ThemeName, Tokens> = {
+  ink: {
+    bg: '#f7f8fb',
+    panel: '#ffffff',
+    text: '#1a1d24',
+    text2: '#5c6370',
+    text3: '#969db0',
+    border: '#e2e5ec',
+    accent: '#3b5fd9',
+    accentSoft: '#e8edfb',
+    code: '#eef0f5',
+  },
+  bloom: {
+    bg: '#ffffff',
+    panel: '#ffffff',
+    text: '#201a24',
+    text2: '#6d6377',
+    text3: '#a89fb3',
+    border: '#ece5f0',
+    accent: '#c2318c',
+    accentSoft: '#fbe7f3',
+    code: '#f7f2f9',
+  },
   paper: {
     bg: '#faf9f7',
     panel: '#ffffff',
@@ -53,6 +78,17 @@ const LIGHT: Record<Exclude<ThemeName, 'ink'>, Tokens> = {
 }
 
 const DARK: Record<ThemeName, Tokens> = {
+  bloom: {
+    bg: '#1b161d',
+    panel: '#221c26',
+    text: '#ece4f0',
+    text2: '#a795b3',
+    text3: '#71627e',
+    border: '#372e3e',
+    accent: '#e26ab4',
+    accentSoft: '#3a2434',
+    code: '#2a2230',
+  },
   paper: {
     bg: '#191817',
     panel: '#201f1d',
@@ -103,8 +139,9 @@ function vars(t: Tokens): string {
   return `--bg:${t.bg};--panel:${t.panel};--text:${t.text};--text2:${t.text2};--text3:${t.text3};--border:${t.border};--accent:${t.accent};--accent-soft:${t.accentSoft};--code:${t.code}`
 }
 
-export function themeCss(name: ThemeName): string {
-  if (name === 'ink') return `:root{${vars(DARK.ink)}}`
-  const light = LIGHT[name]
-  return `:root{${vars(light)}}\n@media(prefers-color-scheme:dark){:root{${vars(DARK[name])}}}`
+export function themeCss(name: ThemeName, appearance: ThemeAppearance = 'auto'): string {
+  if (appearance === 'light') return `:root{${vars(LIGHT[name])}}`
+  if (appearance === 'dark') return `:root{${vars(DARK[name])}}`
+  if (name === 'ink') return `:root{${vars(DARK.ink)}}` // auto ink = always dark
+  return `:root{${vars(LIGHT[name])}}\n@media(prefers-color-scheme:dark){:root{${vars(DARK[name])}}}`
 }

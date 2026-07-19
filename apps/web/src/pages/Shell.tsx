@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
+import { THEME_LABEL, applyTheme, currentTheme, nextTheme } from '../theme'
 import { trpc } from '../trpc'
 
 export function Shell(props: { me: UserView; children: ReactNode }) {
@@ -12,7 +13,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   const logout = trpc.auth.logout.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
-  const [dark, setDark] = useState(false)
+  const [theme, setTheme] = useState(currentTheme)
   const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
@@ -26,9 +27,10 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const toggleDark = () => {
-    document.documentElement.classList.toggle('dark', !dark)
-    setDark(!dark)
+  const cycleTheme = () => {
+    const next = nextTheme(theme)
+    applyTheme(next)
+    setTheme(next)
   }
 
   return (
@@ -47,12 +49,12 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <span className="font-semibold">Beyond Notes</span>
           <button
             type="button"
-            onClick={toggleDark}
-            title="Toggle theme"
+            onClick={cycleTheme}
+            title={`Theme: ${THEME_LABEL[theme]} — click for ${THEME_LABEL[nextTheme(theme)]}`}
             className="ml-auto w-6 h-6 rounded border text-xs"
             style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
           >
-            ◐
+            {theme === 'dark' ? '☾' : theme === 'paper' ? '❧' : '☀'}
           </button>
         </div>
 

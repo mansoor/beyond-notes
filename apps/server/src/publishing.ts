@@ -136,7 +136,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         host: string | null
         title: string | null
         footer: string | null
-        theme: 'paper' | 'ink' | 'mist' | 'sand'
+        theme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
+        appearance?: 'auto' | 'light' | 'dark'
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
@@ -158,6 +159,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicTitle: input.title,
         publicFooter: input.footer,
         publicTheme: input.theme,
+        publicAppearance: input.appearance ?? 'auto',
       })
       invalidateAttachmentCache()
     },

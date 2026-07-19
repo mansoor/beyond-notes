@@ -128,6 +128,7 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicTitle: s.publicTitle,
     publicFooter: s.publicFooter,
     publicTheme: s.publicTheme,
+    publicAppearance: s.publicAppearance,
     createdAt: s.createdAt.toISOString(),
   }
 }

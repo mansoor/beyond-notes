@@ -361,5 +361,43 @@ for (const dialect of dialects) {
       const republished = await repo.getPage(clash.id)
       expect(republished?.slug).toBe('about-2')
     })
+
+    it('appearance pins a palette; bloom theme renders bright', async () => {
+      // ink on auto is always dark (its identity)
+      let home = await get('/')
+      expect(home.body).toContain('--bg:#15161a')
+      expect(home.body).not.toContain('prefers-color-scheme')
+
+      // pinning light overrides even ink with its light palette
+      const base = {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+      }
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        theme: 'ink',
+        appearance: 'light',
+      })
+      home = await get('/')
+      expect(home.body).toContain('--bg:#f7f8fb')
+      expect(home.body).not.toContain('prefers-color-scheme')
+
+      // bloom on auto: bright white light palette + a dark variant for dark-OS visitors
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        theme: 'bloom',
+        appearance: 'auto',
+      })
+      home = await get('/')
+      expect(home.body).toContain('--bg:#ffffff')
+      expect(home.body).toContain('--accent:#c2318c')
+      expect(home.body).toContain('prefers-color-scheme')
+
+      // restore for any later assertions
+      await publishing.updateSpacePublishing(user, { ...base, theme: 'ink', appearance: 'auto' })
+    })
   })
 }

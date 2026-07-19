@@ -1,16 +1,20 @@
 @import "tailwindcss";
 
+/* Three app themes: Light (neutral), Dark, Paper (warm cream).
+   The class on <html> is set from localStorage 'bn-theme' at boot (main.tsx)
+   and cycled by the sidebar toggle. No class = Light. */
+
 :root {
-  --bg: #faf9f7;
+  --bg: #f8f9fa;
   --panel: #ffffff;
-  --sidebar: #f3f1ec;
-  --text: #1f1e1b;
-  --text-2: #6f6b62;
-  --text-3: #a09a8e;
-  --border: #e7e3da;
-  --accent: #5b4fc7;
-  --accent-soft: #eeecfa;
-  --live: #1d8a66;
+  --sidebar: #f1f3f5;
+  --text: #1a1c1e;
+  --text-2: #5f6672;
+  --text-3: #9aa1ab;
+  --border: #e3e6ea;
+  --accent: #4361d0;
+  --accent-soft: #e9edfb;
+  --live: #178a5e;
   --danger: #b3402f;
 }
 
@@ -26,6 +30,20 @@ html.dark {
   --accent-soft: #2a2740;
   --live: #4cc296;
   --danger: #e07862;
+}
+
+html.paper {
+  --bg: #f9f4ea;
+  --panel: #fffdf6;
+  --sidebar: #f2ebdd;
+  --text: #2b2517;
+  --text-2: #77694f;
+  --text-3: #a8997e;
+  --border: #e8dfcc;
+  --accent: #9c6b2f;
+  --accent-soft: #f5ead6;
+  --live: #1d8a66;
+  --danger: #b3402f;
 }
 
 body {

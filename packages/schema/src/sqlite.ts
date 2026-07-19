@@ -50,9 +50,12 @@ export const spaces = sqliteTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
-  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand', 'bloom'] })
     .notNull()
     .default('paper'),
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+    .notNull()
+    .default('auto'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

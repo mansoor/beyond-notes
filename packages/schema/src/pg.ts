@@ -57,9 +57,13 @@ export const spaces = pgTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
-  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand', 'bloom'] })
     .notNull()
     .default('paper'),
+  // 'auto' follows the visitor's OS; 'light'/'dark' pin one palette
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+    .notNull()
+    .default('auto'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 

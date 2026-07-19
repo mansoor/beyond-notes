@@ -74,6 +74,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicTitle: null,
         publicFooter: null,
         publicTheme: 'paper',
+        publicAppearance: 'auto',
         createdAt: now(),
       }
       await repo.insertSpace(space)
