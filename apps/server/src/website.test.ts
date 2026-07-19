@@ -320,6 +320,27 @@ for (const dialect of dialects) {
       expect(child.body).toContain('href="/photos">Photos</a>')
     })
 
+    it('a post lists its live sub-pages below the content', async () => {
+      const post = await makePage(siteSpaceId, blogId, 'Deep dive', 'The details')
+      const appendix = await makePage(siteSpaceId, post.id, 'Appendix', 'Extra data')
+      await makePage(siteSpaceId, post.id, 'Hidden appendix', 'NOT-PUBLISHED')
+      await publishing.publish(user, post.id)
+      await publishing.publish(user, appendix.id)
+
+      const page = await get('/blog/deep-dive')
+      expect(page.body).toContain('In this section')
+      expect(page.body).toContain('/blog/deep-dive/appendix')
+      expect(page.body).not.toContain('Hidden appendix')
+
+      // the sub-page carries breadcrumbs back through the post and blog
+      const sub = await get('/blog/deep-dive/appendix')
+      expect(sub.statusCode).toBe(200)
+      expect(sub.body).toContain('href="/blog/deep-dive">Deep dive</a>')
+
+      // the nav menu still excludes the whole blog subtree
+      expect(page.body).not.toContain('class="lvl1" href="/blog/')
+    })
+
     it('cross-space move resets colliding slugs so publish stays unambiguous', async () => {
       // a note whose slug collides with the existing 'about' slug
       const clash = await makePage(notebookSpaceId, null, 'About', 'A different about note')

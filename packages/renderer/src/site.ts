@@ -17,10 +17,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
 header{display:flex;align-items:baseline;gap:22px;padding:20px 40px;max-width:820px;margin:0 auto;flex-wrap:wrap}
 header .logo{font-weight:700;font-size:17px;color:var(--text);text-decoration:none;margin-right:auto}
-header nav{display:flex;gap:16px;flex-wrap:wrap}
+header nav{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
 header nav a{color:var(--text2);text-decoration:none;font-size:14px}
 header nav a.active{color:var(--text);font-weight:600}
-.navitem{position:relative}
+.navitem{position:relative;display:inline-flex;align-items:baseline}
 .navitem>a .caret{font-size:10px;color:var(--text3);margin-left:3px}
 .dropdown{display:none;position:absolute;top:100%;left:-10px;background:var(--bg);
 border:1px solid var(--border);border-radius:10px;padding:7px;min-width:190px;z-index:20;

@@ -255,6 +255,9 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     if (parentEntry && parentEntry.entry.page.pageType === 'blog') {
       const dates = await publishing.firstPublishedAt([hit.entry.page.id])
       const date = dates.get(hit.entry.page.id) ?? hit.entry.version.createdAt
+      // a post's live sub-pages are only reachable forward from here — list
+      // them below the content (breadcrumbs cover the way back)
+      const postChildren = site.flat.filter((f) => f.entry.page.parentId === hit.entry.page.id)
       reply.send(
         sitePost({
           siteTitle,
@@ -264,7 +267,12 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
-          contentHtml: hit.entry.version.html,
+          contentHtml:
+            hit.entry.version.html +
+            sectionListHtml(
+              postChildren.map((c) => ({ title: c.title, path: c.path })),
+              basePath,
+            ),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
