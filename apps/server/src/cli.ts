@@ -61,7 +61,7 @@ async function main() {
       await cliSettings.load()
       const storageCfg = cliSettings.effectiveStorage()
       if ((from === 's3' || to === 's3') && !storageCfg.s3Bucket) {
-        console.error('S3 is not configured. Fill it in Settings > Server or set S3_BUCKET.')
+        console.error('S3 is not configured. Fill it in Settings > Storage or set S3_BUCKET.')
         process.exitCode = 1
         return
       }

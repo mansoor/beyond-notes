@@ -2,9 +2,17 @@ import { useState } from 'react'
 import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
 import { trpc } from '../trpc'
 
-const TABS = ['Account', 'Security', 'Notifications', 'Integrations', 'Users', 'Server'] as const
+const TABS = ['Account', 'Security', 'Notifications', 'Integrations', 'Users', 'Storage'] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Server']
+const ADMIN_TABS: Tab[] = ['Users', 'Storage']
+const TAB_ICONS: Record<Tab, string> = {
+  Account: '👤',
+  Security: '🔒',
+  Notifications: '🔔',
+  Integrations: '🔗',
+  Users: '👥',
+  Storage: '🗄',
+}
 
 export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
@@ -13,31 +21,36 @@ export function SettingsPage() {
   const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
-    <div className="max-w-2xl mx-auto px-10 py-8">
-      <h1 className="text-2xl font-bold mb-4">Settings</h1>
-      <div className="flex gap-1 border-b mb-6" style={{ borderColor: 'var(--border)' }}>
-        {tabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className="px-3 py-1.5 text-sm rounded-t-lg"
-            style={{
-              color: tab === t ? 'var(--accent)' : 'var(--text-2)',
-              background: tab === t ? 'var(--accent-soft)' : undefined,
-              fontWeight: tab === t ? 600 : 400,
-            }}
-          >
-            {t}
-          </button>
-        ))}
+    <div className="max-w-4xl mx-auto px-10 py-8">
+      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+      <div className="flex gap-8 items-start">
+        <nav className="w-44 shrink-0 flex flex-col gap-0.5 sticky top-8">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
+              style={{
+                color: tab === t ? 'var(--accent)' : 'var(--text-2)',
+                background: tab === t ? 'var(--accent-soft)' : undefined,
+                fontWeight: tab === t ? 600 : 400,
+              }}
+            >
+              <span className="text-xs">{TAB_ICONS[t]}</span>
+              {t}
+            </button>
+          ))}
+        </nav>
+        <div className="flex-1 min-w-0">
+          {tab === 'Account' && <AccountTab />}
+          {tab === 'Security' && <SecurityTab />}
+          {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
+          {tab === 'Integrations' && <IntegrationsTab />}
+          {tab === 'Users' && isAdmin && <UsersTab />}
+          {tab === 'Storage' && isAdmin && <StorageTab />}
+        </div>
       </div>
-      {tab === 'Account' && <AccountTab />}
-      {tab === 'Security' && <SecurityTab />}
-      {tab === 'Notifications' && <NotificationsTab />}
-      {tab === 'Integrations' && <IntegrationsTab />}
-      {tab === 'Users' && isAdmin && <UsersTab />}
-      {tab === 'Server' && isAdmin && <ServerTab />}
     </div>
   )
 }
@@ -330,7 +343,7 @@ function SessionsCard() {
   )
 }
 
-function NotificationsTab() {
+function NotificationsTab(props: { isAdmin: boolean }) {
   const utils = trpc.useUtils()
   const status = trpc.auth.status.useQuery()
   const setEmail = trpc.auth.setEmailNotifications.useMutation({
@@ -341,7 +354,7 @@ function NotificationsTab() {
 
   return (
     <>
-      <Card title="Email">
+      <Card title="My email notifications">
         {mailConfigured ? (
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -354,20 +367,29 @@ function NotificationsTab() {
           </label>
         ) : (
           <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-            No SMTP configured. An admin can fill it in under Settings → Server (or via env vars);
-            that enables email notifications, emailed invites, and the forgot-password flow.
+            No SMTP configured yet
+            {props.isAdmin
+              ? ' — fill in the channel below to enable email notifications, emailed invites, and the forgot-password flow.'
+              : '. Ask your admin to configure the email channel; that enables email notifications, emailed invites, and the forgot-password flow.'}
           </p>
         )}
       </Card>
-      <Card title="Push (ntfy)">
-        <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-          Configured under Settings → Server (admin). Reminder and heads-up notifications push to
-          every device subscribed to the topic.
-        </p>
-        <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-          Without a channel configured, notifications appear in the server log only.
-        </p>
-      </Card>
+      {props.isAdmin ? (
+        <>
+          <SmtpCard />
+          <NtfyCard />
+        </>
+      ) : (
+        <Card title="Push (ntfy)">
+          <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+            Channels are configured by an admin on this tab. Reminder and heads-up notifications
+            push to every device subscribed to the ntfy topic.
+          </p>
+          <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+            Without a channel configured, notifications appear in the server log only.
+          </p>
+        </Card>
+      )}
     </>
   )
 }
@@ -485,14 +507,8 @@ function IntegrationsTab() {
   )
 }
 
-function ServerTab() {
-  return (
-    <>
-      <SmtpCard />
-      <NtfyCard />
-      <StorageCard />
-    </>
-  )
+function StorageTab() {
+  return <StorageCard />
 }
 
 function sourceLabel(source: 'db' | 'env' | 'off' | undefined): string {
