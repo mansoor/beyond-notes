@@ -472,6 +472,10 @@ export function createRepo(appDb: AppDb) {
       await db.insert(t.attachments).values(row)
     },
 
+    async listAttachments(): Promise<AttachmentRow[]> {
+      return db.select().from(t.attachments)
+    },
+
     async getAttachment(id: string): Promise<AttachmentRow | null> {
       const rows = await db.select().from(t.attachments).where(eq(t.attachments.id, id)).limit(1)
       return rows[0] ?? null

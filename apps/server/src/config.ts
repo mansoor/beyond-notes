@@ -21,6 +21,17 @@ const envSchema = z.object({
   SMTP_USER: z.string().default(''),
   SMTP_PASS: z.string().default(''),
   MAIL_FROM: z.string().default(''),
+  // S3-compatible blob storage (optional). S3_BUCKET set = use S3; otherwise
+  // the filesystem driver at UPLOADS_DIR. Endpoint empty = real AWS.
+  S3_BUCKET: z.string().default(''),
+  S3_ENDPOINT: z.string().default(''),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY: z.string().default(''),
+  S3_SECRET_KEY: z.string().default(''),
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   NODE_ENV: z.string().default('development'),
 })
 

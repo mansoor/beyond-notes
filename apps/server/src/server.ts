@@ -8,6 +8,7 @@ import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
 import { createFsBlobStore } from './blobstore'
+import { createS3BlobStore, s3Configured } from './blobstore-s3'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
@@ -40,7 +41,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
   const publicSrv = createPublicServer(repo, publishing)
-  const blobs = createFsBlobStore(config.UPLOADS_DIR)
+  const blobs = s3Configured(config)
+    ? createS3BlobStore(config)
+    : createFsBlobStore(config.UPLOADS_DIR)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
 
@@ -93,11 +96,13 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(404).send({ error: 'not found' })
     }
     const key =
-      thumb && blobs.exists(thumbKey(attachment.hash)) ? thumbKey(attachment.hash) : attachment.hash
-    if (!blobs.exists(key)) return reply.code(404).send({ error: 'not found' })
+      thumb && (await blobs.exists(thumbKey(attachment.hash)))
+        ? thumbKey(attachment.hash)
+        : attachment.hash
+    if (!(await blobs.exists(key))) return reply.code(404).send({ error: 'not found' })
     reply.header('cache-control', 'private, max-age=31536000, immutable')
     reply.type(attachment.mime)
-    return reply.send(blobs.getStream(key))
+    return reply.send(await blobs.getStream(key))
   }
   server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
   server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))

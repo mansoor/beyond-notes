@@ -5,14 +5,15 @@ import type { Readable } from 'node:stream'
 
 /**
  * The deliberately tiny storage seam from TECH-PLAN. Keys are content hashes
- * (plus derived suffixes like `<hash>.t` for thumbnails). The S3-compatible
- * driver plugs in behind this same interface later; nothing above it changes.
+ * (plus derived suffixes like `<hash>.t` for thumbnails). Fully async because
+ * the S3-compatible driver (blobstore-s3.ts) cannot answer `exists` or open a
+ * stream without a round-trip; the fs driver just wraps its sync answers.
  */
 export interface BlobStore {
   put(key: string, data: Buffer): Promise<void>
-  getStream(key: string): Readable
+  getStream(key: string): Promise<Readable>
   read(key: string): Promise<Buffer>
-  exists(key: string): boolean
+  exists(key: string): Promise<boolean>
   delete(key: string): Promise<void>
 }
 
@@ -28,13 +29,13 @@ export function createFsBlobStore(root: string): BlobStore {
       mkdirSync(dirname(path), { recursive: true })
       await writeFile(path, data)
     },
-    getStream(key) {
+    async getStream(key) {
       return createReadStream(pathFor(key))
     },
     read(key) {
       return readFile(pathFor(key))
     },
-    exists(key) {
+    async exists(key) {
       return existsSync(pathFor(key))
     },
     async delete(key) {
