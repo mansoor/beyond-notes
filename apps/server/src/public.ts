@@ -1,15 +1,17 @@
 import {
+  albumCardsHtml,
   buildRss,
   buildSitemap,
   docs404,
   docsSearchResults,
   docsShell,
+  sectionListHtml,
   site404,
   siteBlogIndex,
   sitePage,
   sitePost,
 } from '@bn/renderer'
-import type { SiteNavItem } from '@bn/renderer'
+import type { AlbumCard, Crumb, SiteNavItem } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
@@ -133,14 +135,34 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     const theme = space.publicTheme
     const siteTitle = site.siteTitle
     const footer = site.footer
+    const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
 
-    // top nav = root-level live pages, in order
+    // Hierarchical nav from the live tree. Children of blog pages are posts —
+    // the blog index (dated, complete) is their menu, so they stay out of the
+    // dropdowns; everything else nests. Parents light up on the active trail.
+    const toNav = (nodes: typeof site.nav): SiteNavItem[] =>
+      nodes.map((n) => {
+        const entry = site.byPath.get(n.path)
+        const isBlog = entry?.entry.page.pageType === 'blog'
+        return {
+          title: n.title,
+          path: n.path,
+          active: path === n.path || path.startsWith(`${n.path}/`),
+          children: isBlog ? [] : toNav(n.children),
+        }
+      })
+    const nav = toNav(site.nav)
     const roots = site.flat.filter((f) => f.entry.page.parentId === null)
-    const nav: SiteNavItem[] = roots.map((r) => ({
-      title: r.title,
-      path: r.path,
-      active: path === r.path || path.startsWith(`${r.path}/`),
-    }))
+
+    const crumbsFor = (item: (typeof site.flat)[number]): Crumb[] => {
+      const chain: Crumb[] = []
+      let cursor = item.entry.page.parentId ? byId.get(item.entry.page.parentId) : undefined
+      while (cursor) {
+        chain.unshift({ title: cursor.title, path: cursor.path })
+        cursor = cursor.entry.page.parentId ? byId.get(cursor.entry.page.parentId) : undefined
+      }
+      return chain
+    }
     const blogEntries = site.flat.filter((f) => f.entry.page.pageType === 'blog')
     const rssPath = blogEntries.length > 0 ? '/rss.xml' : undefined
 
@@ -219,6 +241,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
             date: p.date.toISOString().slice(0, 10),
             snippet: p.snippet,
           })),
+          crumbs: crumbsFor(hit),
           rssPath: '/rss.xml',
         }),
       )
@@ -250,7 +273,37 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       return
     }
 
-    // standard page (home, about, contact, ...)
+    // standard page (home, about, contact, gallery, ...) — children compose
+    // at SERVE time, like the blog's post list: publishing a sub-page must
+    // surface on the parent without republishing it (snapshots stay frozen)
+    const children = site.flat.filter((f) => f.entry.page.parentId === hit.entry.page.id)
+    let extras = ''
+    if (hit.entry.page.pageType === 'gallery') {
+      const albums: AlbumCard[] = children
+        .filter((c) => c.entry.page.pageType === 'gallery')
+        .map((c) => ({
+          title: c.title,
+          path: c.path,
+          // cover + count come from the child's published grid — the snapshot
+          // is the source of truth, so drafts never leak a cover image
+          coverUrl:
+            c.entry.version.html.match(/class="cell" href="[^"]*"><img src="([^"]+)"/)?.[1] ?? null,
+          count: (c.entry.version.html.match(/class="cell"/g) ?? []).length,
+        }))
+      const rest = children.filter((c) => c.entry.page.pageType !== 'gallery')
+      extras =
+        albumCardsHtml(albums, basePath) +
+        sectionListHtml(
+          rest.map((c) => ({ title: c.title, path: c.path })),
+          basePath,
+        )
+    } else {
+      extras = sectionListHtml(
+        children.map((c) => ({ title: c.title, path: c.path })),
+        basePath,
+      )
+    }
+
     reply.send(
       sitePage({
         siteTitle,
@@ -259,7 +312,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml: hit.entry.version.html,
+        contentHtml: hit.entry.version.html + extras,
+        crumbs: crumbsFor(hit),
         rssPath,
       }),
     )

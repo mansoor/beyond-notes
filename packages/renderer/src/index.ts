@@ -11,7 +11,10 @@ export {
   site404,
   buildRss,
   buildSitemap,
+  crumbsHtml,
+  sectionListHtml,
+  albumCardsHtml,
 } from './site'
-export type { SiteNavItem, PostListItem } from './site'
+export type { SiteNavItem, PostListItem, Crumb, AlbumCard } from './site'
 export { themeCss } from './themes'
 export type { ThemeName } from './themes'

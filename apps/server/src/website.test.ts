@@ -219,6 +219,107 @@ for (const dialect of dialects) {
       expect(rss.body).toContain('Why I left my old notes app')
     })
 
+    it('nav nests structural sub-pages; posts stay out of the menu', async () => {
+      const services = await makePage(siteSpaceId, null, 'Services', 'What I offer')
+      const consulting = await makePage(siteSpaceId, services.id, 'Consulting', 'Hourly')
+      const rates = await makePage(siteSpaceId, consulting.id, 'Rates', 'Per project')
+      await makePage(siteSpaceId, services.id, 'Secret draft', 'DRAFT-CHILD-CONTENT')
+      await publishing.publish(user, services.id)
+      await publishing.publish(user, consulting.id)
+      await publishing.publish(user, rates.id)
+
+      const home = await get('/')
+      // Services became a dropdown with its live subtree, indented by depth
+      expect(home.body).toContain('class="navitem"')
+      expect(home.body).toContain('class="caret"')
+      expect(home.body).toContain('class="lvl1" href="/services/consulting"')
+      expect(home.body).toContain('class="lvl2" href="/services/consulting/rates"')
+      // drafts and posts never reach the menu
+      expect(home.body).not.toContain('Secret draft')
+      expect(home.body).not.toContain('Shipping Beyond Notes<')
+      // Blog renders as a bare link: no caret, no dropdown wrapper of its own
+      expect(home.body).not.toContain('>Blog<span class="caret"')
+    })
+
+    it('sub-pages get breadcrumbs and parents get an In-this-section list', async () => {
+      const rates = await get('/services/consulting/rates')
+      expect(rates.statusCode).toBe(200)
+      expect(rates.body).toContain('class="crumbs"')
+      expect(rates.body).toContain('href="/services">Services</a>')
+      expect(rates.body).toContain('href="/services/consulting">Consulting</a>')
+
+      const services = await get('/services')
+      expect(services.body).toContain('In this section')
+      expect(services.body).toContain('/services/consulting')
+      expect(services.body).not.toContain('Secret draft')
+      // root pages carry no breadcrumb trail
+      expect(services.body).not.toContain('class="crumbs"')
+    })
+
+    it('a gallery lists child galleries as album cards with covers from the published grid', async () => {
+      const photos = await makePage(siteSpaceId, null, 'Photos', 'All my photos')
+      await pagesSvc.setPageType(user, photos.id, 'gallery')
+      const trips = await makePage(siteSpaceId, photos.id, 'Trips', 'On the road')
+      await pagesSvc.setPageType(user, trips.id, 'gallery')
+      const readme = await makePage(siteSpaceId, photos.id, 'About these photos', 'Shot on film')
+
+      // the child gallery gets two published photos (rows only; files not needed)
+      await repo.insertAttachment({
+        id: 'photatt111111111111111',
+        hash: 'h1',
+        filename: 'a.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertAttachment({
+        id: 'photatt222222222222222',
+        hash: 'h2',
+        filename: 'b.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertGalleryItem({
+        id: 'gi1',
+        pageId: trips.id,
+        attachmentId: 'photatt111111111111111',
+        position: 0,
+        caption: 'dunes',
+      })
+      await repo.insertGalleryItem({
+        id: 'gi2',
+        pageId: trips.id,
+        attachmentId: 'photatt222222222222222',
+        position: 1,
+        caption: '',
+      })
+      await publishing.publish(user, photos.id)
+      await publishing.publish(user, trips.id)
+      await publishing.publish(user, readme.id)
+
+      const parent = await get('/photos')
+      expect(parent.statusCode).toBe(200)
+      expect(parent.body).toContain('class="albums"')
+      expect(parent.body).toContain('class="album" href="/photos/trips"')
+      expect(parent.body).toContain('src="/api/files/photatt111111111111111/thumb"')
+      expect(parent.body).toContain('2 photos')
+      // the non-gallery child lands in the section list, not the album grid
+      expect(parent.body).toContain('In this section')
+      expect(parent.body).toContain('/photos/about-these-photos')
+
+      // publishing composed at serve time: the parent snapshot was never touched
+      const child = await get('/photos/trips')
+      expect(child.body).toContain('class="crumbs"')
+      expect(child.body).toContain('href="/photos">Photos</a>')
+    })
+
     it('cross-space move resets colliding slugs so publish stays unambiguous', async () => {
       // a note whose slug collides with the existing 'about' slug
       const clash = await makePage(notebookSpaceId, null, 'About', 'A different about note')
