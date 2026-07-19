@@ -9,28 +9,48 @@ import {
 import type { BlobStore } from './blobstore'
 import type { Config } from './config'
 
+export type S3Config = {
+  bucket: string
+  endpoint: string
+  region: string
+  accessKey: string
+  secretKey: string
+  forcePathStyle: boolean
+}
+
+export function s3ConfigFromEnv(config: Config): S3Config {
+  return {
+    bucket: config.S3_BUCKET,
+    endpoint: config.S3_ENDPOINT,
+    region: config.S3_REGION,
+    accessKey: config.S3_ACCESS_KEY,
+    secretKey: config.S3_SECRET_KEY,
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+  }
+}
+
 export function s3Configured(config: Config): boolean {
   return Boolean(config.S3_BUCKET)
 }
 
 /**
  * S3-compatible driver: MinIO, AWS S3, Wasabi, R2, B2 — endpoint + bucket +
- * keys via env. Path-style is the default because MinIO (and most self-hosted
- * gateways) require it; AWS accepts it too. No presigned URLs anywhere: all
- * access stays proxied through the app so the visibility boundary holds
- * (TECH-PLAN, files section).
+ * keys via settings or env. Path-style is the default because MinIO (and most
+ * self-hosted gateways) require it; AWS accepts it too. No presigned URLs
+ * anywhere: all access stays proxied through the app so the visibility
+ * boundary holds (TECH-PLAN, files section).
  */
-export function createS3BlobStore(config: Config): BlobStore {
+export function createS3BlobStore(cfg: S3Config): BlobStore {
   const client = new S3Client({
-    region: config.S3_REGION,
-    endpoint: config.S3_ENDPOINT || undefined,
-    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+    region: cfg.region,
+    endpoint: cfg.endpoint || undefined,
+    forcePathStyle: cfg.forcePathStyle,
     credentials: {
-      accessKeyId: config.S3_ACCESS_KEY,
-      secretAccessKey: config.S3_SECRET_KEY,
+      accessKeyId: cfg.accessKey,
+      secretAccessKey: cfg.secretKey,
     },
   })
-  const Bucket = config.S3_BUCKET
+  const Bucket = cfg.bucket
   // same two-level fanout as the fs driver, so keys list sanely in a browser
   const keyFor = (key: string) => `${key.slice(0, 2)}/${key}`
 

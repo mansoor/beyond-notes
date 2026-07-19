@@ -17,25 +17,27 @@ const drivers: Array<{ name: string; make: () => BlobStore }> = [
 ]
 
 if (process.env.TEST_S3_ENDPOINT) {
-  const s3Config = loadConfig({
-    S3_ENDPOINT: process.env.TEST_S3_ENDPOINT,
-    S3_BUCKET: process.env.TEST_S3_BUCKET ?? 'bn-test',
-    S3_ACCESS_KEY: process.env.TEST_S3_ACCESS_KEY ?? 'minioadmin',
-    S3_SECRET_KEY: process.env.TEST_S3_SECRET_KEY ?? 'minioadmin',
-  })
+  const s3Config = {
+    bucket: process.env.TEST_S3_BUCKET ?? 'bn-test',
+    endpoint: process.env.TEST_S3_ENDPOINT,
+    region: 'us-east-1',
+    accessKey: process.env.TEST_S3_ACCESS_KEY ?? 'minioadmin',
+    secretKey: process.env.TEST_S3_SECRET_KEY ?? 'minioadmin',
+    forcePathStyle: true,
+  }
 
   beforeAll(async () => {
     const client = new S3Client({
-      region: s3Config.S3_REGION,
-      endpoint: s3Config.S3_ENDPOINT,
+      region: s3Config.region,
+      endpoint: s3Config.endpoint,
       forcePathStyle: true,
       credentials: {
-        accessKeyId: s3Config.S3_ACCESS_KEY,
-        secretAccessKey: s3Config.S3_SECRET_KEY,
+        accessKeyId: s3Config.accessKey,
+        secretAccessKey: s3Config.secretKey,
       },
     })
     try {
-      await client.send(new CreateBucketCommand({ Bucket: s3Config.S3_BUCKET }))
+      await client.send(new CreateBucketCommand({ Bucket: s3Config.bucket }))
     } catch (err) {
       const name = (err as { name?: string }).name ?? ''
       if (!name.startsWith('BucketAlready')) throw err

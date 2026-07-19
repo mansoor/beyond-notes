@@ -311,3 +311,72 @@ export type TaskView = {
   spaceName: string
   isJournal: boolean
 }
+
+// ---- server settings (admin-editable, stored in the settings table) ----
+
+export const smtpSettings = z.object({
+  host: z.string().trim().max(255).default(''),
+  port: z.number().int().min(1).max(65535).default(587),
+  secure: z.boolean().default(false),
+  user: z.string().max(255).default(''),
+  // empty string on save = keep the stored password (never echoed to the UI)
+  pass: z.string().max(255).default(''),
+  from: z.string().trim().max(255).default(''),
+})
+export type SmtpSettings = z.infer<typeof smtpSettings>
+
+export const ntfySettings = z.object({
+  url: z.string().trim().max(500).default(''),
+  topic: z.string().trim().max(200).default(''),
+})
+export type NtfySettings = z.infer<typeof ntfySettings>
+
+export const storageDriver = z.enum(['fs', 'db', 's3'])
+export type StorageDriver = z.infer<typeof storageDriver>
+
+export const storageSettings = z.object({
+  driver: storageDriver.default('fs'),
+  s3Bucket: z.string().trim().max(255).default(''),
+  s3Endpoint: z.string().trim().max(500).default(''),
+  s3Region: z.string().trim().max(100).default('us-east-1'),
+  s3AccessKey: z.string().max(255).default(''),
+  // empty string on save = keep the stored secret
+  s3SecretKey: z.string().max(255).default(''),
+  s3ForcePathStyle: z.boolean().default(true),
+})
+export type StorageSettings = z.infer<typeof storageSettings>
+
+export type ServerSettingsView = {
+  smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
+  ntfy: NtfySettings
+  storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
+  // which sources are effectively active right now (db beats env)
+  mailSource: 'db' | 'env' | 'off'
+  ntfySource: 'db' | 'env' | 'off'
+}
+
+// ---- webhooks ----
+
+export const webhookTarget = z.enum(['inbox', 'today', 'tasks'])
+export type WebhookTarget = z.infer<typeof webhookTarget>
+
+export const createWebhookInput = z.object({
+  target: webhookTarget,
+  label: z.string().trim().min(1).max(80),
+})
+
+export type WebhookView = {
+  id: string
+  target: WebhookTarget
+  label: string
+  createdAt: string
+  lastUsedAt: string | null
+  revoked: boolean
+}
+
+// ---- journal day notes ----
+
+export const createDayNoteInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  title: z.string().trim().min(1).max(120),
+})

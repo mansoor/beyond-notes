@@ -4,12 +4,15 @@
 import { thumbKey } from './attachments'
 import { createAuthService } from './auth'
 import { createFsBlobStore } from './blobstore'
-import { createS3BlobStore, s3Configured } from './blobstore-s3'
+import { createDbBlobStore } from './blobstore-db'
+import { createDynamicBlobStore } from './blobstore-dynamic'
+import { createS3BlobStore } from './blobstore-s3'
 import { loadConfig } from './config'
 import { createDb } from './db'
 import { exportInstance, importInstance, importMarkdownDir } from './export'
 import { createPagesService } from './pages'
 import { createRepo } from './repo'
+import { createSettingsService } from './settings'
 
 async function main() {
   try {
@@ -44,24 +47,35 @@ async function main() {
       // Copies every known blob between drivers. Idempotent and non-destructive:
       // the source is left in place — delete it yourself once you've verified.
       const [from = '', to = ''] = args
-      const valid = ['fs', 's3']
+      const valid = ['fs', 's3', 'db']
       if (!valid.includes(from) || !valid.includes(to) || from === to) {
-        console.error('usage: cli blobs:migrate <fs|s3> <s3|fs>   (both drivers via env)')
+        console.error('usage: cli blobs:migrate <fs|s3|db> <fs|s3|db>')
         process.exitCode = 1
         return
       }
-      if ((from === 's3' || to === 's3') && !s3Configured(config)) {
-        console.error('S3 is not configured. Set S3_BUCKET (and endpoint/keys) first.')
+      const repo = createRepo(appDb)
+      const cliSettings = createSettingsService(repo, config)
+      await cliSettings.load()
+      const storageCfg = cliSettings.effectiveStorage()
+      if ((from === 's3' || to === 's3') && !storageCfg.s3Bucket) {
+        console.error('S3 is not configured. Fill it in Settings > Server or set S3_BUCKET.')
         process.exitCode = 1
         return
       }
       const stores = {
         fs: createFsBlobStore(config.UPLOADS_DIR),
-        s3: createS3BlobStore(config),
+        db: createDbBlobStore(repo),
+        s3: createS3BlobStore({
+          bucket: storageCfg.s3Bucket,
+          endpoint: storageCfg.s3Endpoint,
+          region: storageCfg.s3Region,
+          accessKey: storageCfg.s3AccessKey,
+          secretKey: storageCfg.s3SecretKey,
+          forcePathStyle: storageCfg.s3ForcePathStyle,
+        }),
       }
-      const src = stores[from as 'fs' | 's3']
-      const dst = stores[to as 'fs' | 's3']
-      const repo = createRepo(appDb)
+      const src = stores[from as 'fs' | 's3' | 'db']
+      const dst = stores[to as 'fs' | 's3' | 'db']
       let copied = 0
       let skipped = 0
       let missing = 0
@@ -90,9 +104,10 @@ async function main() {
       return
     }
     const repo = createRepo(appDb)
-    const blobs = s3Configured(config)
-      ? createS3BlobStore(config)
-      : createFsBlobStore(config.UPLOADS_DIR)
+    const settings = createSettingsService(repo, config)
+    await settings.load()
+    // reads fall back across every driver; writes go to the active one
+    const blobs = createDynamicBlobStore(settings, config, repo)
 
     if (cmd === 'export') {
       const [dir] = args

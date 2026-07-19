@@ -16,19 +16,23 @@ import type {
   TaskView,
   UserView,
   VersionView,
+  WebhookView,
 } from '@bn/schema'
 import {
   acceptInviteInput,
   captureMemoInput,
   changePasswordInput,
+  createDayNoteInput,
   createInviteInput,
   createPageInput,
   createReminderInput,
   createSpaceInput,
+  createWebhookInput,
   journalDayInput,
   journalMonthInput,
   loginInput,
   movePageInput,
+  ntfySettings,
   promoteToJournalInput,
   promoteToNoteInput,
   promoteToTaskInput,
@@ -39,6 +43,8 @@ import {
   saveDocumentInput,
   setPageTypeInput,
   setupInput,
+  smtpSettings,
+  storageSettings,
   toggleTaskInput,
   totpConfirmInput,
   updateProfileInput,
@@ -47,9 +53,10 @@ import {
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AuthError } from './auth'
+import { createS3BlobStore } from './blobstore-s3'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
-import type { InviteRow, PageRow, SpaceRow, UserRow } from './repo'
+import type { InviteRow, PageRow, SpaceRow, UserRow, WebhookRow } from './repo'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
 
@@ -624,6 +631,123 @@ const journalRouter = router({
       rethrow(err)
     }
   }),
+
+  /** All notes for one day: the main note plus any topic notes. */
+  notes: authedProcedure.input(journalDayInput).query(async ({ ctx, input }) => {
+    try {
+      const notes = await ctx.daily.dayNotes(ctx.user, input.date)
+      return notes.map(({ page, doc, main }) => ({
+        page: toPageMeta(page),
+        doc: {
+          content: doc.content,
+          schemaVersion: doc.schemaVersion,
+          updatedAt: doc.updatedAt.toISOString(),
+        },
+        main,
+      }))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  createNote: authedProcedure.input(createDayNoteInput).mutation(async ({ ctx, input }) => {
+    try {
+      const page = await ctx.daily.createDayNote(ctx.user, input.date, input.title)
+      return toPageMeta(page)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  deleteNote: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.daily.deleteDayNote(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
+const settingsRouter = router({
+  get: adminProcedure.query(async ({ ctx }) => ctx.settings.view()),
+
+  saveSmtp: adminProcedure.input(smtpSettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveSmtp(input)
+    return ctx.settings.view()
+  }),
+
+  saveNtfy: adminProcedure.input(ntfySettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveNtfy(input)
+    return ctx.settings.view()
+  }),
+
+  saveStorage: adminProcedure.input(storageSettings).mutation(async ({ ctx, input }) => {
+    if (input.driver === 's3') {
+      // probe before committing: a bad bucket must fail the save, not the
+      // next photo upload
+      const secret = input.s3SecretKey || ctx.settings.storage()?.s3SecretKey || ''
+      if (!input.s3Bucket) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'S3 needs a bucket name.' })
+      }
+      const probe = createS3BlobStore({
+        bucket: input.s3Bucket,
+        endpoint: input.s3Endpoint,
+        region: input.s3Region,
+        accessKey: input.s3AccessKey,
+        secretKey: secret,
+        forcePathStyle: input.s3ForcePathStyle,
+      })
+      const key = `probe-${Date.now().toString(36)}`
+      try {
+        await probe.put(key, Buffer.from('beyond-notes storage probe'))
+        await probe.read(key)
+        await probe.delete(key)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'connection failed'
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `S3 check failed: ${message}` })
+      }
+    }
+    await ctx.settings.saveStorage(input)
+    return ctx.settings.view()
+  }),
+})
+
+function toWebhookView(w: WebhookRow): WebhookView {
+  return {
+    id: w.id,
+    target: w.target,
+    label: w.label,
+    createdAt: w.createdAt.toISOString(),
+    lastUsedAt: w.lastUsedAt?.toISOString() ?? null,
+    revoked: w.revokedAt !== null,
+  }
+}
+
+const webhooksRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<WebhookView[]> => {
+    const rows = await ctx.webhooks.list(ctx.user.id)
+    return rows.map(toWebhookView)
+  }),
+
+  create: authedProcedure.input(createWebhookInput).mutation(async ({ ctx, input }) => {
+    const { token, row } = await ctx.webhooks.create(ctx.user.id, input)
+    return {
+      webhook: toWebhookView(row),
+      url: `${ctx.config.BASE_URL}/api/hooks/${token}`,
+    }
+  }),
+
+  revoke: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.webhooks.revoke(ctx.user.id, input.id)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
 })
 
 const memosRouter = router({
@@ -830,6 +954,8 @@ export const appRouter = router({
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,
+  settings: settingsRouter,
+  webhooks: webhooksRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

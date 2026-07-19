@@ -1,29 +1,34 @@
 import { createTransport } from 'nodemailer'
-import type { Config } from './config'
+import type { SettingsService } from './settings'
 
 // The email seam. Everything that sends mail goes through this interface so
-// dev/test run on a log (or capture) mailer and SMTP stays a deployment fact.
+// dev/test run on a log (or capture) mailer. SMTP resolves through the
+// settings service on every send — admin edits in the UI apply immediately,
+// no restart, with env vars as the bootstrap fallback.
 export interface Mailer {
-  /** false = no SMTP configured; the UI hides email-dependent flows entirely */
-  configured: boolean
+  /** false = no SMTP anywhere; the UI hides email-dependent flows entirely */
+  readonly configured: boolean
   send(to: string, subject: string, text: string): Promise<void>
 }
 
-export function mailConfigured(config: Config): boolean {
-  return Boolean(config.SMTP_HOST && config.MAIL_FROM)
-}
-
-export function createSmtpMailer(config: Config): Mailer {
-  const transport = createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE,
-    auth: config.SMTP_USER ? { user: config.SMTP_USER, pass: config.SMTP_PASS } : undefined,
-  })
+export function createDynamicMailer(settings: SettingsService, log: (msg: string) => void): Mailer {
   return {
-    configured: true,
+    get configured() {
+      return settings.effectiveSmtp() !== null
+    },
     async send(to, subject, text) {
-      await transport.sendMail({ from: config.MAIL_FROM, to, subject, text })
+      const smtp = settings.effectiveSmtp()
+      if (!smtp) {
+        log(`[mail] (no SMTP configured) to=${to} subject=${subject}\n${text}`)
+        return
+      }
+      const transport = createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+      })
+      await transport.sendMail({ from: smtp.from, to, subject, text })
     },
   }
 }

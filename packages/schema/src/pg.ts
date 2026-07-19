@@ -1,4 +1,21 @@
-import { type AnyPgColumn, boolean, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import {
+  type AnyPgColumn,
+  boolean,
+  customType,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+} from 'drizzle-orm/pg-core'
+
+// drizzle pg-core has no built-in bytea; the blob store needs one.
+// Uint8Array keeps this package free of node typings; the driver hands
+// back Buffers at runtime either way.
+const bytea = customType<{ data: Uint8Array }>({
+  dataType() {
+    return 'bytea'
+  },
+})
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -220,5 +237,34 @@ export const invites = pgTable('invites', {
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true, mode: 'date' }),
   usedBy: text('used_by'),
+  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+})
+
+// runtime-editable server settings: one row per group, JSON value validated
+// by per-group zod schemas at the service boundary (TECH-PLAN settings split)
+export const settings = pgTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// blob storage, database driver: content-addressed like the other drivers
+export const blobs = pgTable('blobs', {
+  key: text('key').primaryKey(),
+  data: bytea('data').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// incoming webhooks: token-addressed writers into a user's capture surfaces
+export const webhooks = pgTable('webhooks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  target: text('target', { enum: ['inbox', 'today', 'tasks'] }).notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
   revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
 })

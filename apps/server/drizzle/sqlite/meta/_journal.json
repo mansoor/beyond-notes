@@ -78,6 +78,13 @@
       "when": 1784442129879,
       "tag": "0010_dizzy_veda",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1784443354215,
+      "tag": "0011_left_deathbird",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { type AnySQLiteColumn, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { type AnySQLiteColumn, blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 // Mirrors pg.ts exactly; dates are stored as integer epoch-ms and surfaced as Date.
 
@@ -195,5 +195,30 @@ export const invites = sqliteTable('invites', {
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   usedAt: integer('used_at', { mode: 'timestamp_ms' }),
   usedBy: text('used_by'),
+  revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+})
+
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const blobs = sqliteTable('blobs', {
+  key: text('key').primaryKey(),
+  data: blob('data', { mode: 'buffer' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const webhooks = sqliteTable('webhooks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  target: text('target', { enum: ['inbox', 'today', 'tasks'] }).notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
   revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
 })

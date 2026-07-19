@@ -16,12 +16,29 @@ import { DueReminderRow, TaskRowItem, freqLabel } from './Tasks'
 export function JournalPage() {
   const { date } = useParams({ from: '/app/day/$date' })
   const navigate = useNavigate()
-  const day = trpc.journal.day.useQuery({ date })
+  const notes = trpc.journal.notes.useQuery({ date })
   const agenda = trpc.tasks.agenda.useQuery()
   const memos = trpc.memos.list.useQuery()
   const reminders = trpc.reminders.list.useQuery()
   const [state, setState] = useState<SaveState>('saved')
   const utils = trpc.useUtils()
+  const createNote = trpc.journal.createNote.useMutation({
+    onSuccess: () => utils.journal.notes.invalidate({ date }),
+  })
+  const deleteNote = trpc.journal.deleteNote.useMutation({
+    onSuccess: () =>
+      Promise.all([utils.journal.notes.invalidate({ date }), utils.tasks.agenda.invalidate()]),
+  })
+  const [addingNote, setAddingNote] = useState(false)
+  const [noteTitle, setNoteTitle] = useState('')
+
+  const addNote = async () => {
+    const title = noteTitle.trim()
+    if (!title) return
+    await createNote.mutateAsync({ date, title })
+    setNoteTitle('')
+    setAddingNote(false)
+  }
 
   const today = todayKey()
   const dueTasks = (agenda.data ?? []).filter((t) => !t.checked && t.due !== null && t.due <= date)
@@ -63,18 +80,74 @@ export function JournalPage() {
           </button>
         </div>
 
-        {day.data ? (
-          <DocumentEditor
-            key={`${day.data.page.id}:${day.data.doc.updatedAt}`}
-            pageId={day.data.page.id}
-            doc={day.data.doc}
-            onStateChange={setState}
-            onReload={() => utils.journal.day.invalidate({ date })}
-          />
+        {notes.data ? (
+          notes.data.map((note) => (
+            <section key={note.page.id} className={note.main ? '' : 'mt-8'}>
+              {!note.main && (
+                <div
+                  className="flex items-center gap-2 border-t pt-5 mb-1"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <h2 className="text-lg font-semibold flex-1">{note.page.title}</h2>
+                  <button
+                    type="button"
+                    className="text-xs underline"
+                    style={{ color: 'var(--danger)' }}
+                    title="Delete this note"
+                    onClick={() => deleteNote.mutate({ pageId: note.page.id })}
+                  >
+                    delete
+                  </button>
+                </div>
+              )}
+              <DocumentEditor
+                key={`${note.page.id}:${note.doc.updatedAt}`}
+                pageId={note.page.id}
+                doc={note.doc}
+                onStateChange={setState}
+                onReload={() => utils.journal.notes.invalidate({ date })}
+              />
+            </section>
+          ))
         ) : (
           <div className="text-sm py-4" style={{ color: 'var(--text-3)' }}>
-            {day.error ? day.error.message : 'Loading…'}
+            {notes.error ? notes.error.message : 'Loading…'}
           </div>
+        )}
+
+        {addingNote ? (
+          <div className="flex items-center gap-2 mt-6">
+            <input
+              autoFocus
+              className="rounded-lg border px-3 py-1.5 text-sm flex-1 max-w-72"
+              style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+              placeholder="Note topic (Work, Hobby, ...)"
+              value={noteTitle}
+              onChange={(e) => setNoteTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addNote()
+                if (e.key === 'Escape') setAddingNote(false)
+              }}
+            />
+            <button
+              type="button"
+              onClick={addNote}
+              disabled={createNote.isPending || !noteTitle.trim()}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              Add
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAddingNote(true)}
+            className="mt-6 text-sm underline"
+            style={{ color: 'var(--text-3)' }}
+          >
+            + Add a note for another topic
+          </button>
         )}
 
         {(dueTasks.length > 0 || dueReminders.length > 0) && (

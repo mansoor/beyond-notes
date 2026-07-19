@@ -32,6 +32,8 @@ const DATE_COLUMNS: Record<string, string[]> = {
   tasks: ['updatedAt'],
   reminders: ['createdAt', 'completedAt'],
   scheduledJobs: ['runAt', 'createdAt'],
+  settings: ['updatedAt'],
+  webhooks: ['createdAt', 'lastUsedAt', 'revokedAt'],
 }
 
 type Dump = {
@@ -59,6 +61,8 @@ export async function exportInstance(repo: Repo, blobs: BlobStore, outDir: strin
     tasks: await repo.listAllTasks(),
     reminders: await repo.listAllReminders(),
     scheduledJobs: await repo.listAllJobs(),
+    settings: await repo.listSettings(),
+    webhooks: await repo.listAllWebhooks(),
   } as unknown as Dump['tables']
 
   const dump: Dump = {
@@ -134,6 +138,10 @@ export async function importInstance(repo: Repo, blobs: BlobStore, inDir: string
   for (const row of rows('tasks')) await repo.insertTask(row as never)
   for (const row of rows('reminders')) await repo.insertReminder(row as never)
   for (const row of rows('scheduledJobs')) await repo.insertJob(row as never)
+  for (const row of rows('settings') as Array<{ key: string; value: string; updatedAt: Date }>) {
+    await repo.putSetting(row.key, row.value, row.updatedAt)
+  }
+  for (const row of rows('webhooks')) await repo.insertWebhook(row as never)
 
   let blobCount = 0
   const blobDir = join(inDir, 'blobs')

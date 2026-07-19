@@ -7,13 +7,12 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
-import { createFsBlobStore } from './blobstore'
-import { createS3BlobStore, s3Configured } from './blobstore-s3'
+import { createDynamicBlobStore } from './blobstore-dynamic'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { exportSpaceZip } from './export'
-import { createLogMailer, createSmtpMailer, mailConfigured } from './mailer'
+import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
@@ -27,8 +26,10 @@ import {
   createNtfyNotifier,
   createScheduler,
 } from './scheduler'
+import { createSettingsService } from './settings'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
+import { createWebhooksService } from './webhooks'
 
 export async function buildServer(config: Config, appDb: AppDb) {
   const server = Fastify({ logger: config.NODE_ENV !== 'test' })
@@ -36,28 +37,27 @@ export async function buildServer(config: Config, appDb: AppDb) {
   await server.register(fastifyCookie)
 
   const repo = createRepo(appDb)
+  const settings = createSettingsService(repo, config)
+  await settings.load()
   const auth = createAuthService(repo)
   const pages = createPagesService(repo)
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
   const publicSrv = createPublicServer(repo, publishing)
-  const blobs = s3Configured(config)
-    ? createS3BlobStore(config)
-    : createFsBlobStore(config.UPLOADS_DIR)
+  const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
+  const webhooks = createWebhooksService(repo, daily)
 
-  const mailer = mailConfigured(config)
-    ? createSmtpMailer(config)
-    : createLogMailer((msg) => server.log.info(msg))
+  const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
 
-  const notifiers: Notifier[] = []
-  if (config.NTFY_URL && config.NTFY_TOPIC) {
-    notifiers.push(createNtfyNotifier(config.NTFY_URL, config.NTFY_TOPIC))
-  }
-  if (mailer.configured) notifiers.push(createEmailNotifier(mailer))
-  notifiers.push(createLogNotifier((msg) => server.log.info(msg)))
+  // every channel resolves its config per send; unconfigured channels no-op
+  const notifiers: Notifier[] = [
+    createNtfyNotifier(settings),
+    createEmailNotifier(mailer),
+    createLogNotifier((msg) => server.log.info(msg)),
+  ]
   const scheduler = createScheduler(repo, notifiers)
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
@@ -107,6 +107,25 @@ export async function buildServer(config: Config, appDb: AppDb) {
   }
   server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
   server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))
+
+  // incoming webhooks: token-authenticated writers into capture surfaces.
+  // Accepts JSON {text} (or {content}) and raw text/plain bodies.
+  server.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, body)
+  })
+  server.post('/api/hooks/:token', async (req: any, reply) => {
+    const token = String(req.params.token ?? '')
+    let text = ''
+    if (typeof req.body === 'string') text = req.body
+    else if (req.body && typeof req.body === 'object') {
+      text = String(req.body.text ?? req.body.content ?? '')
+    }
+    text = text.trim().slice(0, 5000)
+    if (!text) return reply.code(400).send({ error: 'send JSON {"text": "..."} or plain text' })
+    const result = await webhooks.deliver(token, text)
+    if (!result) return reply.code(404).send({ error: 'not found' })
+    return { ok: true, target: result.target }
+  })
 
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
@@ -174,6 +193,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
         attachments,
         reminders,
         mailer,
+        settings,
+        webhooks,
       }),
     },
   })
@@ -193,6 +214,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
     reminders,
     scheduler,
     mailer,
+    settings,
+    webhooks,
+    blobs,
   })
 
   // the scheduler tick lives with the server lifecycle; runOnce on boot

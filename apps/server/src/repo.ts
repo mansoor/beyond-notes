@@ -146,6 +146,17 @@ export type DocumentRow = {
   updatedAt: Date
 }
 
+export type WebhookRow = {
+  id: string
+  userId: string
+  target: 'inbox' | 'today' | 'tasks'
+  tokenHash: string
+  label: string
+  createdAt: Date
+  lastUsedAt: Date | null
+  revokedAt: Date | null
+}
+
 export type InviteRow = {
   id: string
   tokenHash: string
@@ -612,6 +623,89 @@ export function createRepo(appDb: AppDb) {
       await db
         .delete(t.scheduledJobs)
         .where(and(eq(t.scheduledJobs.refId, refId), eq(t.scheduledJobs.status, 'pending')))
+    },
+
+    // ---- server settings ----
+
+    async getSetting(key: string): Promise<string | null> {
+      const rows = await db.select().from(t.settings).where(eq(t.settings.key, key)).limit(1)
+      return rows[0]?.value ?? null
+    },
+
+    async listSettings(): Promise<Array<{ key: string; value: string; updatedAt: Date }>> {
+      return db.select().from(t.settings)
+    },
+
+    async listAllWebhooks(): Promise<WebhookRow[]> {
+      return db.select().from(t.webhooks)
+    },
+
+    async putSetting(key: string, value: string, when: Date): Promise<void> {
+      const updated = await db
+        .update(t.settings)
+        .set({ value, updatedAt: when })
+        .where(eq(t.settings.key, key))
+        .returning({ key: t.settings.key })
+      if (updated.length === 0) {
+        await db.insert(t.settings).values({ key, value, updatedAt: when })
+      }
+    },
+
+    // ---- blob rows (database storage driver) ----
+
+    async putBlob(key: string, data: Buffer, when: Date): Promise<void> {
+      if (await this.getBlob(key)) return // content-addressed: same key, same bytes
+      await db.insert(t.blobs).values({ key, data, createdAt: when })
+    },
+
+    async getBlob(key: string): Promise<Buffer | null> {
+      const rows = await db.select().from(t.blobs).where(eq(t.blobs.key, key)).limit(1)
+      return rows[0] ? Buffer.from(rows[0].data) : null
+    },
+
+    async deleteBlob(key: string): Promise<void> {
+      await db.delete(t.blobs).where(eq(t.blobs.key, key))
+    },
+
+    async listBlobKeys(): Promise<string[]> {
+      const rows = await db.select({ key: t.blobs.key }).from(t.blobs)
+      return rows.map((r: { key: string }) => r.key)
+    },
+
+    // ---- webhooks ----
+
+    async insertWebhook(row: WebhookRow): Promise<void> {
+      await db.insert(t.webhooks).values(row)
+    },
+
+    async getWebhookByTokenHash(tokenHash: string): Promise<WebhookRow | null> {
+      const rows = await db
+        .select()
+        .from(t.webhooks)
+        .where(eq(t.webhooks.tokenHash, tokenHash))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listWebhooksForUser(userId: string): Promise<WebhookRow[]> {
+      return db.select().from(t.webhooks).where(eq(t.webhooks.userId, userId))
+    },
+
+    async touchWebhook(id: string, when: Date): Promise<void> {
+      await db.update(t.webhooks).set({ lastUsedAt: when }).where(eq(t.webhooks.id, id))
+    },
+
+    async revokeWebhook(id: string, when: Date): Promise<void> {
+      await db.update(t.webhooks).set({ revokedAt: when }).where(eq(t.webhooks.id, id))
+    },
+
+    // ---- journal day notes ----
+
+    async listPagesByDateKey(spaceId: string, dateKey: string): Promise<PageRow[]> {
+      return db
+        .select()
+        .from(t.pages)
+        .where(and(eq(t.pages.spaceId, spaceId), eq(t.pages.dateKey, dateKey)))
     },
 
     // ---- whole-table reads for export (export.ts is the only caller) ----
