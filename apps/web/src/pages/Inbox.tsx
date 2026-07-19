@@ -160,7 +160,7 @@ function PromoteToNoteModal(props: { memoId: string; onClose: () => void }) {
   })
 
   return (
-    <Modal title="Promote to note" onClose={props.onClose}>
+    <Modal title="Promote to note" onClose={props.onClose} dirty={spaceId !== ''}>
       <form onSubmit={onSubmit}>
         <label className="block mb-4">
           <span className="block text-sm font-medium mb-1">Space</span>
