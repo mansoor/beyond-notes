@@ -13,6 +13,7 @@ export const users = sqliteTable('users', {
   totpSecret: text('totp_secret'),
   totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
   recoveryCodes: text('recovery_codes'),
+  emailNotifications: integer('email_notifications', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -23,6 +24,16 @@ export const sessions = sqliteTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const passwordResetTokens = sqliteTable('password_reset_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  usedAt: integer('used_at', { mode: 'timestamp_ms' }),
 })
 
 export const spaces = sqliteTable('spaces', {

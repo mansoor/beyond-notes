@@ -10,6 +10,17 @@ const envSchema = z.object({
   // notifications are opt-in: nothing sends unless a channel is configured
   NTFY_URL: z.string().default(''),
   NTFY_TOPIC: z.string().default(''),
+  // SMTP (optional): enables forgot-password, emailed invites, and the email
+  // notification channel. Unset = those flows are hidden in the UI.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  MAIL_FROM: z.string().default(''),
   NODE_ENV: z.string().default('development'),
 })
 

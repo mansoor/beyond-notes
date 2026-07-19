@@ -33,6 +33,8 @@ import {
   promoteToTaskInput,
   quickAddTaskInput,
   renamePageInput,
+  requestPasswordResetInput,
+  resetPasswordInput,
   saveDocumentInput,
   setPageTypeInput,
   setupInput,
@@ -43,6 +45,7 @@ import {
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AuthError } from './auth'
+import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
 import type { InviteRow, PageRow, SpaceRow, UserRow } from './repo'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
@@ -54,6 +57,7 @@ function toUserView(u: UserRow): UserView {
     email: u.email,
     name: u.name,
     role: u.role,
+    emailNotifications: u.emailNotifications,
     createdAt: u.createdAt.toISOString(),
   }
 }
@@ -142,6 +146,7 @@ const authRouter = router({
     return {
       needsSetup: await ctx.auth.needsSetup(),
       me: ctx.user ? toUserView(ctx.user) : null,
+      mailConfigured: ctx.mailer.configured,
     }
   }),
 
@@ -189,6 +194,38 @@ const authRouter = router({
       rethrow(err)
     }
   }),
+
+  requestPasswordReset: publicProcedure
+    .input(requestPasswordResetInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await ctx.auth.requestPasswordReset(input.email)
+        if (result && ctx.mailer.configured) {
+          const mail = passwordResetEmail(ctx.config.BASE_URL, result.token)
+          await ctx.mailer.send(result.user.email, mail.subject, mail.text)
+        }
+        // identical response whether or not the account exists
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  resetPassword: publicProcedure.input(resetPasswordInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.auth.resetPassword(input.token, input.password)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  setEmailNotifications: authedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
+      return { ok: true }
+    }),
 
   changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
     try {
@@ -298,10 +335,17 @@ const usersRouter = router({
 
   createInvite: adminProcedure.input(createInviteInput).mutation(async ({ ctx, input }) => {
     const { token, invite } = await ctx.auth.createInvite(ctx.user.id, input)
+    let emailed = false
+    if (input.sendEmail && input.suggestedEmail && ctx.mailer.configured) {
+      const mail = inviteEmail(ctx.config.BASE_URL, token, ctx.user.name)
+      await ctx.mailer.send(input.suggestedEmail, mail.subject, mail.text)
+      emailed = true
+    }
     return {
       token,
       invite: toInviteView(invite, new Date()),
       url: `${ctx.config.BASE_URL}/invite/${token}`,
+      emailed,
     }
   }),
 

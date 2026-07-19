@@ -24,6 +24,13 @@ export const changePasswordInput = z.object({
 
 export const totpConfirmInput = z.object({ code: z.string().trim().min(6).max(20) })
 
+export const requestPasswordResetInput = z.object({ email: emailSchema })
+
+export const resetPasswordInput = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+})
+
 export type SessionView = {
   id: string
   createdAt: string
@@ -43,6 +50,8 @@ export type LoginInput = z.infer<typeof loginInput>
 export const createInviteInput = z.object({
   suggestedEmail: emailSchema.optional(),
   role: z.enum(['admin', 'member']).default('member'),
+  // email the link to suggestedEmail (requires SMTP; ignored without it)
+  sendEmail: z.boolean().default(false),
 })
 export type CreateInviteInput = z.infer<typeof createInviteInput>
 
@@ -59,6 +68,7 @@ export type UserView = {
   email: string
   name: string
   role: 'admin' | 'member'
+  emailNotifications: boolean
   createdAt: string
 }
 
@@ -74,6 +84,8 @@ export type InviteView = {
 export type AuthStatus = {
   needsSetup: boolean
   me: UserView | null
+  // SMTP present on this deployment: gates "Forgot password?" and emailed invites
+  mailConfigured: boolean
 }
 
 // ---- spaces & pages (M1) ----

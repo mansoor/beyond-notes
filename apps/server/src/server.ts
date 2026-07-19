@@ -11,13 +11,20 @@ import { createFsBlobStore } from './blobstore'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { createLogMailer, createSmtpMailer, mailConfigured } from './mailer'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
 import { appRouter } from './routers'
-import { type Notifier, createLogNotifier, createNtfyNotifier, createScheduler } from './scheduler'
+import {
+  type Notifier,
+  createEmailNotifier,
+  createLogNotifier,
+  createNtfyNotifier,
+  createScheduler,
+} from './scheduler'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 
@@ -37,10 +44,15 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
 
+  const mailer = mailConfigured(config)
+    ? createSmtpMailer(config)
+    : createLogMailer((msg) => server.log.info(msg))
+
   const notifiers: Notifier[] = []
   if (config.NTFY_URL && config.NTFY_TOPIC) {
     notifiers.push(createNtfyNotifier(config.NTFY_URL, config.NTFY_TOPIC))
   }
+  if (mailer.configured) notifiers.push(createEmailNotifier(mailer))
   notifiers.push(createLogNotifier((msg) => server.log.info(msg)))
   const scheduler = createScheduler(repo, notifiers)
 
@@ -141,6 +153,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         publishing,
         attachments,
         reminders,
+        mailer,
       }),
     },
   })
@@ -159,6 +172,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     attachments,
     reminders,
     scheduler,
+    mailer,
   })
 
   // the scheduler tick lives with the server lifecycle; runOnce on boot

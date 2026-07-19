@@ -10,6 +10,7 @@ export type UserRow = {
   totpSecret: string | null
   totpEnabled: boolean
   recoveryCodes: string | null
+  emailNotifications: boolean
   createdAt: Date
 }
 
@@ -18,6 +19,14 @@ export type SessionRow = {
   userId: string
   createdAt: Date
   expiresAt: Date
+}
+
+export type ResetTokenRow = {
+  id: string
+  userId: string
+  createdAt: Date
+  expiresAt: Date
+  usedAt: Date | null
 }
 
 export type SpaceRow = {
@@ -181,10 +190,45 @@ export function createRepo(appDb: AppDb) {
     async updateUser(
       id: string,
       patch: Partial<
-        Pick<UserRow, 'passwordHash' | 'totpSecret' | 'totpEnabled' | 'recoveryCodes' | 'name'>
+        Pick<
+          UserRow,
+          | 'passwordHash'
+          | 'totpSecret'
+          | 'totpEnabled'
+          | 'recoveryCodes'
+          | 'name'
+          | 'emailNotifications'
+        >
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    async insertResetToken(row: ResetTokenRow): Promise<void> {
+      await db.insert(t.passwordResetTokens).values(row)
+    },
+
+    async getResetToken(id: string): Promise<ResetTokenRow | null> {
+      const rows = await db
+        .select()
+        .from(t.passwordResetTokens)
+        .where(eq(t.passwordResetTokens.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    /** CAS: only one caller can consume a token, even under a double-click. */
+    async markResetTokenUsed(id: string, when: Date): Promise<boolean> {
+      const rows = await db
+        .update(t.passwordResetTokens)
+        .set({ usedAt: when })
+        .where(and(eq(t.passwordResetTokens.id, id), isNull(t.passwordResetTokens.usedAt)))
+        .returning({ id: t.passwordResetTokens.id })
+      return rows.length === 1
+    },
+
+    async deleteResetTokensForUser(userId: string): Promise<void> {
+      await db.delete(t.passwordResetTokens).where(eq(t.passwordResetTokens.userId, userId))
     },
 
     async insertSession(session: SessionRow): Promise<void> {

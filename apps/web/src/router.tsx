@@ -5,6 +5,7 @@ import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
 import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
+import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
 import { TasksPage } from './pages/Tasks'
 
@@ -14,6 +15,12 @@ const inviteRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
   component: AcceptInvitePage,
+})
+
+const resetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reset/$token',
+  component: ResetPasswordPage,
 })
 
 // pathless layout: everything below requires auth and renders inside the shell
@@ -62,6 +69,7 @@ const settingsRoute = createRoute({
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
+    resetRoute,
     appRoute.addChildren([indexRoute, pageRoute, dayRoute, inboxRoute, tasksRoute, settingsRoute]),
   ]),
 })

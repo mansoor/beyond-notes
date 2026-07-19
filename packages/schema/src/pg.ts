@@ -13,6 +13,8 @@ export const users = pgTable('users', {
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').notNull().default(false),
   recoveryCodes: text('recovery_codes'),
+  // per-user opt-in for the email notification channel (channel itself is env config)
+  emailNotifications: boolean('email_notifications').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -24,6 +26,17 @@ export const sessions = pgTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  // sha256 hex of the raw emailed token; the raw token is never stored
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true, mode: 'date' }),
 })
 
 export const spaces = pgTable('spaces', {

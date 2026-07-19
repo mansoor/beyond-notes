@@ -1,10 +1,15 @@
+import type { Mailer } from './mailer'
 import type { Repo } from './repo'
 
+/** Who a notification is for. Channels that can target a person use it. */
+export type Recipient = { email: string; emailOptIn: boolean } | null
+
 export interface Notifier {
-  send(title: string, body: string): Promise<void>
+  send(title: string, body: string, recipient: Recipient): Promise<void>
 }
 
-/** ntfy: the plan's first notification channel — self-hosted push, trivial API. */
+/** ntfy: the plan's first notification channel — self-hosted push, trivial API.
+ *  Topic is instance-wide (household model), so the recipient is ignored. */
 export function createNtfyNotifier(url: string, topic: string): Notifier {
   return {
     async send(title, body) {
@@ -14,6 +19,16 @@ export function createNtfyNotifier(url: string, topic: string): Notifier {
         body,
       })
       if (!res.ok) throw new Error(`ntfy responded ${res.status}`)
+    },
+  }
+}
+
+/** Email channel: only fires when the recipient has opted in (Settings → Notifications). */
+export function createEmailNotifier(mailer: Mailer): Notifier {
+  return {
+    async send(title, body, recipient) {
+      if (!recipient?.emailOptIn) return
+      await mailer.send(recipient.email, title, body)
     },
   }
 }
@@ -64,8 +79,12 @@ export function createScheduler(
           ? { title: `Heads-up: ${reminder.title}`, body: `Due ${reminder.dueDate}${when}` }
           : { title: `Reminder: ${reminder.title}`, body: `Due today${when}` }
 
+      const owner = await repo.getUserById(reminder.userId)
+      const recipient: Recipient = owner
+        ? { email: owner.email, emailOptIn: owner.emailNotifications }
+        : null
       for (const notifier of notifiers) {
-        await notifier.send(message.title, message.body)
+        await notifier.send(message.title, message.body, recipient)
       }
       await repo.finishJob(job.id, 'done', job.attempts + 1, null)
     } catch (err) {

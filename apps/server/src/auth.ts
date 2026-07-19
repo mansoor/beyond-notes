@@ -6,6 +6,7 @@ import { generateRecoveryCodes, generateTotpSecret, otpauthUrl, verifyTotp } fro
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const RESET_TTL_MS = 60 * 60 * 1000 // 1 hour
 
 export class AuthError extends Error {
   constructor(
@@ -16,7 +17,8 @@ export class AuthError extends Error {
       | 'EMAIL_TAKEN'
       | 'INVITE_INVALID'
       | 'TOTP_REQUIRED'
-      | 'TOTP_INVALID',
+      | 'TOTP_INVALID'
+      | 'RESET_INVALID',
     message: string,
   ) {
     super(message)
@@ -104,6 +106,7 @@ export function createAuthService(
         totpSecret: null,
         totpEnabled: false,
         recoveryCodes: null,
+        emailNotifications: false,
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -165,6 +168,46 @@ export function createAuthService(
       await repo.updateUser(user.id, { totpSecret: null, totpEnabled: false, recoveryCodes: null })
     },
 
+    /**
+     * Forgot-password step 1. Returns the raw token for the caller to email,
+     * or null when no such account exists — the router must respond
+     * identically either way so the endpoint can't enumerate accounts.
+     */
+    async requestPasswordReset(email: string): Promise<{ user: UserRow; token: string } | null> {
+      limiter.check(`reset:${email}`)
+      limiter.recordFailure(`reset:${email}`) // every request counts: this endpoint sends mail
+      const user = await repo.getUserByEmail(email)
+      if (!user) return null
+      const token = randomBytes(32).toString('base64url')
+      await repo.insertResetToken({
+        id: hashToken(token),
+        userId: user.id,
+        createdAt: now(),
+        expiresAt: new Date(now().getTime() + RESET_TTL_MS),
+        usedAt: null,
+      })
+      return { user, token }
+    },
+
+    /**
+     * Forgot-password step 2: consume the token, set the password, revoke
+     * every session. TOTP is deliberately untouched — an attacker with the
+     * mailbox must still get past the second factor.
+     */
+    async resetPassword(token: string, next: string): Promise<void> {
+      const row = await repo.getResetToken(hashToken(token))
+      const valid = row && !row.usedAt && row.expiresAt.getTime() >= now().getTime()
+      if (!row || !valid || !(await repo.markResetTokenUsed(row.id, now()))) {
+        throw new AuthError('RESET_INVALID', 'This reset link is not valid any more.')
+      }
+      await repo.updateUser(row.userId, { passwordHash: await argonHash(next) })
+      // outstanding sibling tokens die with the reset, not on their own clock
+      await repo.deleteResetTokensForUser(row.userId)
+      for (const session of await repo.listSessionsForUser(row.userId)) {
+        await repo.deleteSession(session.id)
+      }
+    },
+
     async changePassword(user: UserRow, current: string, next: string) {
       if (!(await argonVerify(user.passwordHash, current))) {
         throw new AuthError('BAD_CREDENTIALS', 'Current password is wrong.')
@@ -182,6 +225,7 @@ export function createAuthService(
         totpEnabled: false,
         recoveryCodes: null,
       })
+      await repo.deleteResetTokensForUser(user.id)
       for (const session of await repo.listSessionsForUser(user.id)) {
         await repo.deleteSession(session.id)
       }
@@ -265,6 +309,7 @@ export function createAuthService(
         totpSecret: null,
         totpEnabled: false,
         recoveryCodes: null,
+        emailNotifications: false,
         createdAt: now(),
       }
       await repo.insertUser(user)

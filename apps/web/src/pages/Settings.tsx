@@ -276,30 +276,51 @@ function SessionsCard() {
 }
 
 function NotificationsTab() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const setEmail = trpc.auth.setEmailNotifications.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
+  const mailConfigured = status.data?.mailConfigured ?? false
+  const enabled = status.data?.me?.emailNotifications ?? false
+
   return (
-    <Card title="Channels">
-      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
-        Notifications are opt-in and configured on the server (a deployment fact, so it lives in
-        env, not here):
-      </p>
-      <ul className="text-sm list-disc ml-5" style={{ color: 'var(--text-2)' }}>
-        <li>
-          <b>ntfy</b> — set <code>NTFY_URL</code> and <code>NTFY_TOPIC</code>; reminder and heads-up
-          notifications push to your devices.
-        </li>
-        <li>
-          <b>Email (SMTP)</b> — arrives in v0.2 together with the forgot-password flow.
-        </li>
-      </ul>
-      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-        Without a channel configured, notifications appear in the server log only.
-      </p>
-    </Card>
+    <>
+      <Card title="Email">
+        {mailConfigured ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={setEmail.isPending}
+              onChange={(e) => setEmail.mutate({ enabled: e.target.checked })}
+            />
+            Email me reminders and heads-up notices ({status.data?.me?.email})
+          </label>
+        ) : (
+          <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+            No SMTP configured on this server. Set <code>SMTP_HOST</code> and <code>MAIL_FROM</code>{' '}
+            (plus <code>SMTP_USER</code>/<code>SMTP_PASS</code> if your relay needs auth) to enable
+            email notifications, emailed invites, and the forgot-password flow.
+          </p>
+        )}
+      </Card>
+      <Card title="Push (ntfy)">
+        <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+          Set <code>NTFY_URL</code> and <code>NTFY_TOPIC</code> on the server; reminder and heads-up
+          notifications push to every device subscribed to the topic.
+        </p>
+        <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+          Without a channel configured, notifications appear in the server log only.
+        </p>
+      </Card>
+    </>
   )
 }
 
 function UsersTab() {
   const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
   const users = trpc.users.list.useQuery()
   const invites = trpc.users.invites.useQuery()
   const createInvite = trpc.users.createInvite.useMutation({
@@ -309,15 +330,33 @@ function UsersTab() {
     onSuccess: () => utils.users.invites.invalidate(),
   })
   const [lastUrl, setLastUrl] = useState<string | null>(null)
+  const [emailedTo, setEmailedTo] = useState<string | null>(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const mailConfigured = status.data?.mailConfigured ?? false
 
   const makeInvite = async () => {
-    const res = await createInvite.mutateAsync({ role: 'member' })
+    const email = inviteEmail.trim() || undefined
+    const res = await createInvite.mutateAsync({
+      role: 'member',
+      suggestedEmail: email,
+      sendEmail: Boolean(email && mailConfigured),
+    })
     setLastUrl(`${window.location.origin}/invite/${res.token}`)
+    setEmailedTo(res.emailed ? (email ?? null) : null)
+    setInviteEmail('')
   }
 
   return (
     <Card title="Members & invites">
-      <div className="flex justify-end mb-3">
+      <div className="flex justify-end gap-2 mb-3">
+        <input
+          type="email"
+          className="rounded-lg border px-3 py-1.5 text-sm flex-1 max-w-60"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          placeholder={mailConfigured ? 'email (sends the link)' : 'email (optional)'}
+          value={inviteEmail}
+          onChange={(e) => setInviteEmail(e.target.value)}
+        />
         <button
           type="button"
           onClick={makeInvite}
@@ -335,7 +374,9 @@ function UsersTab() {
         >
           {lastUrl}
           <div className="mt-1 font-sans" style={{ color: 'var(--text-3)' }}>
-            Single use, expires in 7 days. Shown once — copy it now.
+            {emailedTo
+              ? `Emailed to ${emailedTo}. Single use, expires in 7 days.`
+              : 'Single use, expires in 7 days. Shown once — copy it now.'}
           </div>
         </div>
       )}

@@ -72,11 +72,13 @@ function SetupPage() {
 
 function LoginPage() {
   const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
   const login = trpc.auth.login.useMutation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [totpCode, setTotpCode] = useState('')
   const [needsTotp, setNeedsTotp] = useState(false)
+  const [forgot, setForgot] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
     try {
       await login.mutateAsync({ email, password, totpCode: totpCode || undefined })
@@ -87,6 +89,10 @@ function LoginPage() {
       throw err
     }
   })
+
+  if (forgot) {
+    return <ForgotPasswordPage initialEmail={email} onBack={() => setForgot(false)} />
+  }
 
   return (
     <CenterCard title="Beyond Notes" subtitle="Sign in to continue.">
@@ -102,7 +108,56 @@ function LoginPage() {
         )}
         <ErrorNote message={error} />
         <SubmitButton label="Sign in" busy={busy} />
+        {status.data?.mailConfigured && (
+          <p className="text-sm mt-4 text-center">
+            <button
+              type="button"
+              className="underline"
+              style={{ color: 'var(--text-2)' }}
+              onClick={() => setForgot(true)}
+            >
+              Forgot password?
+            </button>
+          </p>
+        )}
       </form>
+    </CenterCard>
+  )
+}
+
+function ForgotPasswordPage(props: { initialEmail: string; onBack: () => void }) {
+  const request = trpc.auth.requestPasswordReset.useMutation()
+  const [email, setEmail] = useState(props.initialEmail)
+  const [sent, setSent] = useState(false)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await request.mutateAsync({ email })
+    setSent(true)
+  })
+
+  return (
+    <CenterCard title="Reset password" subtitle="We will email you a reset link.">
+      {sent ? (
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          If an account exists for <b>{email}</b>, a reset link is on its way. It is valid for one
+          hour.
+        </p>
+      ) : (
+        <form onSubmit={onSubmit}>
+          <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus />
+          <ErrorNote message={error} />
+          <SubmitButton label="Send reset link" busy={busy} />
+        </form>
+      )}
+      <p className="text-sm mt-4 text-center">
+        <button
+          type="button"
+          className="underline"
+          style={{ color: 'var(--text-2)' }}
+          onClick={props.onBack}
+        >
+          Back to sign in
+        </button>
+      </p>
     </CenterCard>
   )
 }
