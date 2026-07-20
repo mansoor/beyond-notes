@@ -17,7 +17,7 @@ export function ArchivePage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   return (
-    <div className="max-w-2xl mx-auto px-10 py-8">
+    <div className="max-w-5xl mx-auto px-10 py-8">
       <h1 className="text-2xl font-bold mb-1">Archive</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
         Archived pages leave the sidebar, search, and the task list — but nothing is lost. Restore

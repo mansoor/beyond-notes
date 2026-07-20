@@ -80,6 +80,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
         {/* only this region scrolls; logo, search, and the user menu stay put */}
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
           <DailyNav />
+          <PinnedNav />
           <SpacesNav />
         </div>
 
@@ -212,6 +213,35 @@ function SearchModal(props: { onClose: () => void }) {
         )}
       </div>
     </Modal>
+  )
+}
+
+function PinnedNav() {
+  const pins = trpc.pins.list.useQuery()
+  if (!pins.data || pins.data.length === 0) return null
+  return (
+    <div>
+      <div
+        className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2"
+        style={{ color: 'var(--text-3)' }}
+      >
+        ★ Pinned
+      </div>
+      {pins.data.map((pin) => (
+        <Link
+          key={pin.pageId}
+          to="/p/$pageId"
+          params={{ pageId: pin.pageId }}
+          className="block truncate px-2 py-1 rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
+          style={{ color: 'var(--text-2)' }}
+          activeProps={{ style: { color: 'var(--accent)', background: 'var(--accent-soft)' } }}
+          title={pin.title}
+        >
+          {pin.pageType === 'blog' ? '📰 ' : pin.pageType === 'gallery' ? '🖼 ' : ''}
+          {pin.title}
+        </Link>
+      ))}
+    </div>
   )
 }
 

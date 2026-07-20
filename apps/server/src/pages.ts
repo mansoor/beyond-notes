@@ -1,3 +1,4 @@
+import { pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
@@ -5,19 +6,6 @@ import { reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
 const DOC_SCHEMA_VERSION = 1
-
-/**
- * The sections share one tree structure but are different products: wikis are
- * plain docs, notebooks can hold photo galleries, and only sites publish blogs.
- */
-export const PAGE_TYPES_BY_CATEGORY: Record<
-  SpaceRow['category'],
-  ReadonlyArray<'doc' | 'blog' | 'gallery'>
-> = {
-  wiki: ['doc'],
-  notebook: ['doc', 'gallery'],
-  site: ['doc', 'blog', 'gallery'],
-}
 
 export class PagesError extends Error {
   constructor(
@@ -250,7 +238,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       const { space } = await requirePage(pageId, user)
       if (space.kind !== 'tree')
         throw new PagesError('BAD_MOVE', 'Journal pages have no page type.')
-      if (!PAGE_TYPES_BY_CATEGORY[space.category].includes(pageType))
+      if (!pageTypesByCategory[space.category].includes(pageType))
         throw new PagesError(
           'BAD_MOVE',
           `A ${space.category} cannot contain ${pageType} pages — ${

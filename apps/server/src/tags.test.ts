@@ -121,6 +121,57 @@ for (const dialect of dialects) {
       await appDb.close()
     })
 
+    it('manual tags survive reconciliation; inline ones stay text-owned', async () => {
+      const appDb = await dialect.make()
+      const repo = createRepo(appDb)
+      const auth = createAuthService(repo)
+      const pages = createPagesService(repo)
+      const { user } = await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
+      const space = await pages.createSpace(user, {
+        name: 'Notes',
+        category: 'notebook',
+        personal: false,
+      })
+      const page = await pages.createPage(user, { spaceId: space.id, parentId: null, title: 'P' })
+      const save = async (content: string) => {
+        const doc = await repo.getDocument(page.id)
+        await pages.saveDocument(user, {
+          pageId: page.id,
+          content,
+          baseUpdatedAt: (doc as { updatedAt: Date }).updatedAt.toISOString(),
+        })
+      }
+
+      await repo.addManualPageTag(page.id, 'project-x')
+      await save(JSON.stringify([para('a', 'notes on #work')]))
+      expect((await repo.listPageTags(page.id)).sort((x, y) => x.tag.localeCompare(y.tag))).toEqual(
+        [
+          { tag: 'project-x', source: 'manual' },
+          { tag: 'work', source: 'inline' },
+        ],
+      )
+
+      // a save that drops the inline tag keeps the manual one
+      await save(JSON.stringify([para('a', 'no tags left')]))
+      expect(await repo.listPageTags(page.id)).toEqual([{ tag: 'project-x', source: 'manual' }])
+
+      // manually adding a tag that's already inline keeps the inline row (no dup)
+      await save(JSON.stringify([para('a', 'back to #work')]))
+      await repo.addManualPageTag(page.id, 'work')
+      const rows = await repo.listPageTags(page.id)
+      expect(rows.filter((r) => r.tag === 'work')).toEqual([{ tag: 'work', source: 'inline' }])
+
+      // removeManual only touches manual rows
+      await repo.removeManualPageTag(page.id, 'work') // inline — untouched
+      await repo.removeManualPageTag(page.id, 'project-x')
+      expect(await repo.listPageTags(page.id)).toEqual([{ tag: 'work', source: 'inline' }])
+
+      // both sources count in the flat index
+      await repo.addManualPageTag(page.id, 'project-x')
+      expect(await repo.listPageIdsByTag('project-x')).toEqual([page.id])
+      await appDb.close()
+    })
+
     it('another user cannot see tags from a personal space', async () => {
       const appDb = await dialect.make()
       const repo = createRepo(appDb)

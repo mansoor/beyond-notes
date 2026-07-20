@@ -27,7 +27,7 @@ export function InboxPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-10 py-8">
+    <div className="max-w-5xl mx-auto px-10 py-8">
       <h1 className="text-2xl font-bold mb-1">Inbox</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
         Capture first, organize later — or never.

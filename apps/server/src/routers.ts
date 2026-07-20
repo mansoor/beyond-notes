@@ -8,7 +8,10 @@ import type {
   InviteView,
   MemoView,
   PageMeta,
+  PageTagView,
+  PinView,
   PublishingView,
+  RecentPage,
   ReminderView,
   SearchResult,
   SessionView,
@@ -35,6 +38,7 @@ import {
   loginInput,
   movePageInput,
   ntfySettings,
+  pageTagInput,
   promoteToJournalInput,
   promoteToNoteInput,
   promoteToTaskInput,
@@ -565,6 +569,27 @@ const pagesRouter = router({
     }))
   }),
 
+  /** Most recently edited pages across accessible tree spaces (Today rail). */
+  recent: authedProcedure.query(async ({ ctx }): Promise<RecentPage[]> => {
+    const [pages, spaces] = await Promise.all([ctx.repo.listAllPages(), ctx.repo.listSpaces()])
+    const spaceById = new Map(
+      spaces
+        .filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === ctx.user.id))
+        .map((s) => [s.id, s]),
+    )
+    return pages
+      .filter((p) => spaceById.has(p.spaceId) && !p.archivedAt)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 8)
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        spaceName: (spaceById.get(p.spaceId) as SpaceRow).name,
+        pageType: p.pageType,
+        updatedAt: p.updatedAt.toISOString(),
+      }))
+  }),
+
   saveDoc: authedProcedure.input(saveDocumentInput).mutation(async ({ ctx, input }) => {
     try {
       return await ctx.pages.saveDocument(ctx.user, input)
@@ -772,6 +797,56 @@ const tagsRouter = router({
         })
       }
       return items
+    }),
+
+  /** Tags on one page, inline-detected and manual together (context rail). */
+  forPage: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<PageTagView[]> => {
+      await ctx.pages.getPage(ctx.user, input.pageId) // access check
+      const rows = await ctx.repo.listPageTags(input.pageId)
+      return rows.sort((a, b) => a.tag.localeCompare(b.tag))
+    }),
+
+  add: authedProcedure.input(pageTagInput).mutation(async ({ ctx, input }) => {
+    await ctx.pages.getPage(ctx.user, input.pageId)
+    await ctx.repo.addManualPageTag(input.pageId, input.tag)
+    return { ok: true }
+  }),
+
+  /** Only manual tags can be removed here; inline ones live in the text. */
+  remove: authedProcedure.input(pageTagInput).mutation(async ({ ctx, input }) => {
+    await ctx.pages.getPage(ctx.user, input.pageId)
+    await ctx.repo.removeManualPageTag(input.pageId, input.tag)
+    return { ok: true }
+  }),
+})
+
+const pinsRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<PinView[]> => {
+    const [pins, pages] = await Promise.all([
+      ctx.repo.listPins(ctx.user.id),
+      ctx.repo.listAllPages(),
+    ])
+    const byId = new Map(pages.map((p) => [p.id, p]))
+    return pins
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .flatMap((pin) => {
+        const page = byId.get(pin.pageId)
+        if (!page || page.archivedAt) return []
+        return [{ pageId: page.id, title: page.title, pageType: page.pageType }]
+      })
+  }),
+
+  toggle: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.pages.getPage(ctx.user, input.pageId)
+      const pins = await ctx.repo.listPins(ctx.user.id)
+      const pinned = pins.some((p) => p.pageId === input.pageId)
+      if (pinned) await ctx.repo.removePin(ctx.user.id, input.pageId)
+      else await ctx.repo.addPin(ctx.user.id, input.pageId, new Date())
+      return { pinned: !pinned }
     }),
 })
 
@@ -1061,6 +1136,7 @@ export const appRouter = router({
   settings: settingsRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
+  pins: pinsRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 
