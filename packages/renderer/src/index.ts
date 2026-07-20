@@ -5,7 +5,7 @@ export type { SocialLink, SocialPlatform } from './chrome'
 export { blocknoteToMarkdown, markdownToBlocks } from './markdown'
 export type { GalleryRenderItem } from './render'
 export { slugify } from './slug'
-export { docsShell, docsSearchResults, docs404 } from './theme'
+export { docsShell, docsSearchResults, docs404, docsTagPage } from './theme'
 export type { NavNode, ShellInput } from './theme'
 export {
   sitePage,

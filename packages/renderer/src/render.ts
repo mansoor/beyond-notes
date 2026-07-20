@@ -122,6 +122,13 @@ function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): s
       case 'codeBlock': {
         const rawLang = typeof block.props?.language === 'string' ? block.props.language : ''
         const language = escapeHtml(rawLang)
+        // Mermaid stays source in the snapshot and becomes a diagram in the
+        // browser: escaping is both the safety rule and correct input, since
+        // the library reads textContent (which un-escapes back to the source).
+        if (rawLang.toLowerCase() === 'mermaid') {
+          out += `<pre class="mermaid">${escapeHtml(codeText(block.content))}</pre>`
+          break
+        }
         const code = highlightCode(codeText(block.content), rawLang)
         out += `<pre${language ? ` data-lang="${language}"` : ''}><code${
           language ? ` class="language-${language}"` : ''

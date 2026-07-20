@@ -1,7 +1,7 @@
 import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { trpc } from '../trpc'
@@ -84,6 +84,7 @@ function PageView(props: {
           }}
           onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
         />
+        <MermaidPreview pageId={props.page.id} saveState={state} />
         {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
       </div>
       <aside
@@ -255,6 +256,116 @@ function PreviewSection(props: { pageId: string }) {
         + create preview link
       </button>
     </div>
+  )
+}
+
+/**
+ * Diagrams for `mermaid` code blocks. The editor shows the source; this
+ * renders it underneath so you can see what you are writing. Uses the same
+ * self-hosted library the published pages load, so what you see here is what
+ * readers get.
+ */
+function MermaidPreview(props: { pageId: string; saveState: SaveState }) {
+  const page = trpc.pages.get.useQuery({ pageId: props.pageId })
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [failed, setFailed] = useState(false)
+
+  // re-read the saved document whenever a save lands
+  const utils = trpc.useUtils()
+  useEffect(() => {
+    if (props.saveState === 'saved') utils.pages.get.invalidate({ pageId: props.pageId })
+  }, [props.saveState, props.pageId, utils])
+
+  const sources: string[] = (() => {
+    try {
+      const blocks = JSON.parse(page.data?.doc.content ?? '[]')
+      if (!Array.isArray(blocks)) return []
+      const out: string[] = []
+      const walk = (list: unknown[]) => {
+        for (const b of list as Array<Record<string, any>>) {
+          if (
+            b?.type === 'codeBlock' &&
+            String(b?.props?.language ?? '').toLowerCase() === 'mermaid'
+          ) {
+            const text = (b.content ?? [])
+              .map((c: { text?: string }) => (typeof c?.text === 'string' ? c.text : ''))
+              .join('')
+            if (text.trim()) out.push(text)
+          }
+          if (Array.isArray(b?.children)) walk(b.children)
+        }
+      }
+      walk(blocks)
+      return out
+    } catch {
+      return []
+    }
+  })()
+
+  const key = sources.join(' ')
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || sources.length === 0) return
+    let cancelled = false
+    const render = async () => {
+      const w = window as unknown as { mermaid?: any }
+      if (!w.mermaid) {
+        await new Promise<void>((res, rej) => {
+          const sc = document.createElement('script')
+          sc.src = '/api/assets/mermaid.js'
+          sc.onload = () => res()
+          sc.onerror = () => rej(new Error('mermaid unavailable'))
+          document.head.appendChild(sc)
+        })
+      }
+      const dark = document.documentElement.classList.contains('dark')
+      w.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: dark ? 'dark' : 'default',
+      })
+      host.innerHTML = ''
+      for (const [i, src] of sources.entries()) {
+        const box = document.createElement('div')
+        box.className = 'mermaid-box'
+        try {
+          const { svg } = await w.mermaid.render(`bn-d-${i}-${Date.now()}`, src)
+          if (cancelled) return
+          box.innerHTML = svg
+        } catch (err) {
+          // a half-typed diagram is normal — say so instead of blanking out
+          box.textContent = err instanceof Error ? err.message : 'Diagram could not be drawn yet'
+          box.setAttribute('data-bad', '1')
+        }
+        host.appendChild(box)
+      }
+    }
+    render().catch(() => setFailed(true))
+    return () => {
+      cancelled = true
+    }
+  }, [key, sources])
+
+  if (sources.length === 0) return null
+  return (
+    <section className="mt-8">
+      <h3
+        className="text-xs uppercase tracking-wide font-semibold mb-3"
+        style={{ color: 'var(--text-3)' }}
+      >
+        Diagrams — {sources.length}
+      </h3>
+      {failed ? (
+        <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Could not load the diagram library from this instance.
+        </p>
+      ) : (
+        <div ref={hostRef} className="mermaidhost flex flex-col gap-4" />
+      )}
+      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+        Rendered from your <code>mermaid</code> code blocks; readers see the same drawing.
+      </p>
+    </section>
   )
 }
 

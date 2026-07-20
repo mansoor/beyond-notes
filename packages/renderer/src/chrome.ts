@@ -54,6 +54,12 @@ border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--text2);text-de
 background:none;cursor:pointer;font-family:inherit}
 .sharebar a:hover,.sharebar button:hover{color:var(--accent);border-color:var(--accent)}
 .sharebar svg{width:13px;height:13px;fill:currentColor}
+pre.mermaid{background:none;border:0;padding:0;margin:18px 0;text-align:center;overflow-x:auto;
+font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--text3)}
+pre.mermaid[data-done]{color:inherit}
+pre.mermaid svg{max-width:100%;height:auto}
+pre.mermaid.failed{text-align:left;color:var(--text3);font-size:12.5px;white-space:pre-wrap;
+border-left:3px solid var(--border);padding-left:12px}
 `
 
 // One small script, no dependencies: lightbox with arrow traversal, carousel/
@@ -99,6 +105,38 @@ g.addEventListener('pointerleave',function(){paused=false;});
 setInterval(function(){if(paused||document.querySelector('.lightbox.open'))return;
 var atEnd=track.scrollLeft+track.clientWidth>=track.scrollWidth-8;
 if(atEnd)track.scrollTo({left:0,behavior:'smooth'});else step(1);},secs*1000);}});
+// Mermaid: loaded from this instance (never a CDN) and only when a page
+// actually has a diagram, so ordinary pages pay nothing for the feature.
+var diagrams=[].slice.call(document.querySelectorAll('pre.mermaid'));
+// snapshot the source the moment the page loads: later scripts that decorate
+// <pre> elements must never be able to leak text into a diagram's source
+var sources=diagrams.map(function(d){return d.textContent||''});
+if(diagrams.length){
+var sc=document.createElement('script');
+sc.src='/api/assets/mermaid.js';
+sc.onload=function(){
+  try{
+    // a site pinned to light must not draw dark diagrams because the
+    // visitor's OS happens to be dark — only 'auto' consults the device
+    var ap=document.body.getAttribute('data-appearance')||'auto';
+    var dark=ap==='dark'||(ap!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);
+    window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',
+      theme:dark?'dark':'default',fontFamily:'inherit'});
+    // render() with an explicit source string, not run() over the DOM:
+    // textContent is the decoded source, which is exactly what mermaid wants,
+    // and it is the same call the in-app editor preview makes
+    diagrams.forEach(function(d,i){
+      var src=sources[i]||'';
+      window.mermaid.render('bn-d-'+i+'-'+Date.now(),src).then(function(out){
+        d.innerHTML=out.svg;d.setAttribute('data-done','1');
+      }).catch(function(){d.classList.add('failed');});
+    });
+  }catch(e){diagrams.forEach(function(d){d.classList.add('failed');});}
+};
+// no network, no library: the source stays readable rather than vanishing
+sc.onerror=function(){diagrams.forEach(function(d){d.classList.add('failed');});};
+document.head.appendChild(sc);
+}
 var copy=document.querySelector('.sharebar .copylink');
 if(copy)copy.addEventListener('click',function(){
 navigator.clipboard.writeText(copy.getAttribute('data-url')).then(function(){

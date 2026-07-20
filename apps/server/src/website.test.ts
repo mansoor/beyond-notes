@@ -486,10 +486,14 @@ for (const dialect of dialects) {
     })
 
     it('appearance pins a palette; bloom theme renders bright', async () => {
+      // the assertion is about the PALETTE, so look inside <style> only —
+      // page scripts legitimately mention prefers-color-scheme for 'auto'
+      const styleOf = (html: string) => html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+
       // ink on auto is always dark (its identity)
       let home = await get('/')
       expect(home.body).toContain('--bg:#15161a')
-      expect(home.body).not.toContain('prefers-color-scheme')
+      expect(styleOf(home.body)).not.toContain('prefers-color-scheme')
 
       // pinning light overrides even ink with its light palette
       const base = {
@@ -506,7 +510,9 @@ for (const dialect of dialects) {
       })
       home = await get('/')
       expect(home.body).toContain('--bg:#f7f8fb')
-      expect(home.body).not.toContain('prefers-color-scheme')
+      expect(styleOf(home.body)).not.toContain('prefers-color-scheme')
+      // and the page tells its scripts which look was pinned
+      expect(home.body).toContain('data-appearance="light"')
 
       // bloom on auto: bright white light palette + a dark variant for dark-OS visitors
       await publishing.updateSpacePublishing(user, {
@@ -517,7 +523,7 @@ for (const dialect of dialects) {
       home = await get('/')
       expect(home.body).toContain('--bg:#ffffff')
       expect(home.body).toContain('--accent:#c2318c')
-      expect(home.body).toContain('prefers-color-scheme')
+      expect(styleOf(home.body)).toContain('prefers-color-scheme')
 
       // restore for any later assertions
       await publishing.updateSpacePublishing(user, { ...base, theme: 'ink', appearance: 'auto' })

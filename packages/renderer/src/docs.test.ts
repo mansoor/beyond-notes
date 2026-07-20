@@ -129,6 +129,69 @@ describe('docs chrome', () => {
   })
 })
 
+describe('mermaid diagrams', () => {
+  const diagram = 'flowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]'
+
+  it('emits a mermaid pre whose text decodes back to the exact source', () => {
+    const html = blocknoteToHtml(JSON.stringify([code(diagram, 'mermaid')]))
+    expect(html).toContain('<pre class="mermaid">')
+    // arrows survive as entities in the markup...
+    expect(html).toContain('--&gt;')
+    expect(html).not.toContain('<pre data-lang="mermaid"')
+    // ...and decode back to the source the renderer will parse
+    const inner = /<pre class="mermaid">([\s\S]*?)<\/pre>/.exec(html)?.[1] ?? ''
+    const decoded = inner
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&amp;', '&')
+    expect(decoded).toBe(diagram)
+  })
+
+  it('escapes hostile diagram source like any other user content', () => {
+    const html = blocknoteToHtml(
+      JSON.stringify([code('flowchart LR\n A["<img src=x onerror=alert(1)>"]', 'mermaid')]),
+    )
+    expect(html).not.toContain('<img src=x')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('is recognised case-insensitively and does not get highlighted', () => {
+    const html = blocknoteToHtml(JSON.stringify([code(diagram, 'Mermaid')]))
+    expect(html).toContain('<pre class="mermaid">')
+    expect(html).not.toContain('tok-kw')
+  })
+
+  it('the code copy button never targets diagrams (it would corrupt the source)', () => {
+    // regression: appending a "copy" button to every <pre> put the word "copy"
+    // inside the diagram text mermaid reads back, breaking every diagram
+    const shell = docsShell({
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<pre class="mermaid">flowchart LR</pre>',
+      nav: [],
+      basePath: '',
+    })
+    expect(shell).toContain("querySelectorAll('main pre:not(.mermaid)')")
+    expect(shell).not.toContain("querySelectorAll('main pre')")
+  })
+
+  it('loads the library from this instance, never a CDN', () => {
+    const shell = docsShell({
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<pre class="mermaid">flowchart LR</pre>',
+      nav: [],
+      basePath: '',
+    })
+    expect(shell).toContain("'/api/assets/mermaid.js'")
+    expect(shell).not.toMatch(/https?:\/\/[^"']*mermaid/)
+  })
+})
+
 describe('syntax highlighting', () => {
   it('marks keywords, strings, and comments without dropping text', () => {
     const html = blocknoteToHtml(JSON.stringify([code('const x = "hi" // note\n', 'javascript')]))
