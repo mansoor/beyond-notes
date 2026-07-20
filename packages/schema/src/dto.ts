@@ -166,6 +166,20 @@ export type PageMeta = {
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
 export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
 
+/**
+ * The sections share one tree but are different products: wikis are plain
+ * docs, notebooks add galleries, only sites publish blogs. Single source of
+ * truth for the server-side rule and both UI menus.
+ */
+export const pageTypesByCategory: Record<
+  SpaceCategory,
+  ReadonlyArray<'doc' | 'blog' | 'gallery'>
+> = {
+  wiki: ['doc'],
+  notebook: ['doc', 'gallery'],
+  site: ['doc', 'blog', 'gallery'],
+}
+
 export const updatePageOptionsInput = z.object({
   pageId: z.string(),
   galleryLayout: galleryLayoutName.optional(),
@@ -425,6 +439,29 @@ export type WebhookView = {
 // ---- tags ----
 
 export type TagCount = { tag: string; count: number }
+
+export type PageTagView = { tag: string; source: 'inline' | 'manual' }
+
+// same shape the inline extractor accepts: letter/digit start, ≤50 chars
+export const tagName = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,49}$/u, 'Tags are letters, digits, _ or -')
+
+export const pageTagInput = z.object({ pageId: z.string(), tag: tagName })
+
+// ---- pins + recents ----
+
+export type PinView = { pageId: string; title: string; pageType: 'doc' | 'blog' | 'gallery' }
+
+export type RecentPage = {
+  id: string
+  title: string
+  spaceName: string
+  pageType: 'doc' | 'blog' | 'gallery'
+  updatedAt: string
+}
 
 export type TagItem = {
   kind: 'page' | 'memo'

@@ -239,7 +239,41 @@ export function JournalPage() {
             ))}
           </div>
         )}
+        <RecentlyEdited />
       </aside>
+    </div>
+  )
+}
+
+/** Continue where you left off — the freshest pages across all spaces. */
+function RecentlyEdited() {
+  const recent = trpc.pages.recent.useQuery()
+  const navigate = useNavigate()
+  if (!recent.data || recent.data.length === 0) return null
+  return (
+    <div
+      className="rounded-xl border p-4 mt-4 text-sm"
+      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+    >
+      <h4
+        className="text-xs uppercase tracking-wide font-semibold mb-2"
+        style={{ color: 'var(--text-3)' }}
+      >
+        Recently edited
+      </h4>
+      {recent.data.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className="block w-full text-left py-1"
+          onClick={() => navigate({ to: '/p/$pageId', params: { pageId: p.id } })}
+        >
+          <span className="block truncate">{p.title}</span>
+          <span className="block text-xs truncate" style={{ color: 'var(--text-3)' }}>
+            {p.spaceName}
+          </span>
+        </button>
+      ))}
     </div>
   )
 }

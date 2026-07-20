@@ -10,7 +10,7 @@ export function TagsPage() {
   const items = trpc.tags.items.useQuery({ tag: selected ?? '' }, { enabled: selected !== null })
 
   return (
-    <div className="max-w-2xl mx-auto px-10 py-8">
+    <div className="max-w-5xl mx-auto px-10 py-8">
       <h1 className="text-2xl font-bold mb-1">Tags</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
         Write <code>#a-tag</code> anywhere — notes, day notes, thoughts, tasks — and it shows up

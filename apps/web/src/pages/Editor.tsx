@@ -1,4 +1,5 @@
-import type { PageMeta, PublishingView } from '@bn/schema'
+import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
+import { pageTypesByCategory } from '@bn/schema'
 import { useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Modal } from '../components'
@@ -53,54 +54,307 @@ function PageView(props: {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-10 py-8">
-      <PublishBar page={props.page} publishing={props.publishing} />
-      <div className="flex items-center gap-3 mb-2">
-        <input
-          className="flex-1 bg-transparent text-3xl font-bold outline-none"
-          value={title}
-          placeholder="Untitled"
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={commitTitle}
-          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+    <div className="flex gap-8 max-w-[1440px] mx-auto px-10 py-8">
+      <div className="flex-1 min-w-0 max-w-5xl mx-auto">
+        <div className="flex items-center gap-3 mb-2">
+          <input
+            className="flex-1 bg-transparent text-3xl font-bold outline-none"
+            value={title}
+            placeholder="Untitled"
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          />
+          <SaveBadge state={state} />
+          <ContextDrawerButton page={props.page} publishing={props.publishing} />
+        </div>
+        <DocumentEditor
+          pageId={props.page.id}
+          doc={props.doc}
+          onStateChange={(s) => {
+            setState(s)
+            // a save may have added/removed inline #tags — refresh the rail
+            if (s === 'saved') utils.tags.forPage.invalidate({ pageId: props.page.id })
+          }}
+          onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
         />
-        <SaveBadge state={state} />
-        <PageSettingsButton page={props.page} />
+        {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
       </div>
-      <DocumentEditor
-        pageId={props.page.id}
-        doc={props.doc}
-        onStateChange={setState}
-        onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
-      />
-      {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
+      <aside className="hidden lg:block w-72 shrink-0">
+        <div className="sticky top-8">
+          <ContextPanel page={props.page} publishing={props.publishing} />
+        </div>
+      </aside>
     </div>
   )
 }
 
-/**
- * The one home for per-page settings — the gear next to the save badge.
- * Shows only what applies to this page type; future options land here too.
- */
-function PageSettingsButton(props: { page: PageMeta }) {
+/** On narrow windows the rail folds into a drawer behind this button. */
+function ContextDrawerButton(props: { page: PageMeta; publishing: PublishingView }) {
   const [open, setOpen] = useState(false)
   return (
-    <>
+    <span className="lg:hidden">
       <button
         type="button"
-        title="Page settings"
+        title="Page context"
         onClick={() => setOpen(true)}
         className="rounded-md border px-2 py-1 text-sm"
         style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
       >
         ⚙
       </button>
-      {open && <PageSettingsModal page={props.page} onClose={() => setOpen(false)} />}
-    </>
+      {open && (
+        <Modal title="Page context" onClose={() => setOpen(false)}>
+          <ContextPanel page={props.page} publishing={props.publishing} bare />
+        </Modal>
+      )}
+    </span>
   )
 }
 
-function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
+/**
+ * The context rail — the WordPress-post model: status, type, tags, and
+ * per-type options always visible, saved as they change. Every future
+ * per-page setting (SEO description, schedule, backlinks) lands here.
+ */
+function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?: boolean }) {
+  const spaces = trpc.spaces.list.useQuery()
+  const space = spaces.data?.find((s) => s.id === props.page.spaceId)
+  const category: SpaceCategory = space?.category ?? 'notebook'
+  const isSite = category === 'site'
+  const isGallery = props.page.pageType === 'gallery'
+
+  return (
+    <div className="flex flex-col gap-4">
+      <ContextCard bare={props.bare} title="Status">
+        <StatusSection page={props.page} publishing={props.publishing} />
+      </ContextCard>
+      {pageTypesByCategory[category].length > 1 && (
+        <ContextCard bare={props.bare} title="Page type">
+          <TypeSection page={props.page} category={category} />
+        </ContextCard>
+      )}
+      <ContextCard bare={props.bare} title="Tags">
+        <TagsSection pageId={props.page.id} />
+      </ContextCard>
+      {(isSite || isGallery) && (
+        <ContextCard bare={props.bare} title={isGallery ? 'Gallery' : 'Sharing & listing'}>
+          <OptionsSection page={props.page} isSite={isSite} />
+          <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+            Layout, autoplay, and images apply on the next publish; the share toggle applies
+            immediately.
+          </p>
+        </ContextCard>
+      )}
+    </div>
+  )
+}
+
+function ContextCard(props: { title: string; bare?: boolean; children: React.ReactNode }) {
+  return (
+    <section
+      className={props.bare ? 'mb-1' : 'rounded-xl border p-4'}
+      style={props.bare ? undefined : { borderColor: 'var(--border)', background: 'var(--panel)' }}
+    >
+      <h3
+        className="text-[11px] uppercase tracking-wide font-semibold mb-2.5"
+        style={{ color: 'var(--text-3)' }}
+      >
+        {props.title}
+      </h3>
+      {props.children}
+    </section>
+  )
+}
+
+function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
+  const utils = trpc.useUtils()
+  const publish = trpc.publish.publish.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
+  })
+  const pins = trpc.pins.list.useQuery()
+  const togglePin = trpc.pins.toggle.useMutation({ onSuccess: () => utils.pins.list.invalidate() })
+  const pinned = pins.data?.some((p) => p.pageId === props.page.id) ?? false
+  const [history, setHistory] = useState(false)
+  const p = props.publishing
+
+  const liveUrl =
+    p.live && p.spaceEnabled && p.host && p.slugPath ? `/s/${p.host}${p.slugPath}` : null
+
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <div className="flex items-center gap-2 flex-wrap">
+        {p.live ? (
+          <Pill
+            color="var(--live)"
+            bg="color-mix(in srgb, var(--live) 12%, transparent)"
+            label={`Live · v${p.live.version}`}
+          />
+        ) : (
+          <Pill color="var(--text-3)" bg="var(--accent-soft)" label="Draft" />
+        )}
+        <button
+          type="button"
+          title={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+          className="ml-auto text-base leading-none"
+          style={{ color: pinned ? 'var(--accent)' : 'var(--text-3)' }}
+          disabled={togglePin.isPending}
+          onClick={() => togglePin.mutate({ pageId: props.page.id })}
+        >
+          {pinned ? '★' : '☆'}
+        </button>
+      </div>
+      {p.pending && p.live && (
+        <span className="text-xs" style={{ color: 'var(--danger)' }}>
+          Working copy has unpublished edits
+        </span>
+      )}
+      {!p.spaceEnabled && p.live && (
+        <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Site not enabled — configure publishing on the space
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={publish.isPending}
+        onClick={() => publish.mutate({ pageId: props.page.id })}
+        className="rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        style={{ background: 'var(--accent)' }}
+      >
+        {p.live ? `Publish v${p.live.version + 1}` : 'Publish'}
+      </button>
+      <div className="flex items-center gap-3">
+        {liveUrl && (
+          <a
+            href={liveUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs underline"
+            style={{ color: 'var(--text-2)' }}
+          >
+            View live ↗
+          </a>
+        )}
+        <button
+          type="button"
+          className="text-xs underline"
+          style={{ color: 'var(--text-2)' }}
+          onClick={() => setHistory(true)}
+        >
+          History
+        </button>
+      </div>
+      {history && <HistoryModal page={props.page} onClose={() => setHistory(false)} />}
+    </div>
+  )
+}
+
+function TypeSection(props: { page: PageMeta; category: SpaceCategory }) {
+  const utils = trpc.useUtils()
+  const setType = trpc.pages.setType.useMutation({
+    onSuccess: () => {
+      utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
+      utils.pages.get.invalidate({ pageId: props.page.id })
+    },
+  })
+  const TYPE_LABEL = { doc: 'Page', blog: 'Blog', gallery: 'Gallery' } as const
+  return (
+    <select
+      className="w-full rounded-lg border px-3 py-1.5 text-sm"
+      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+      value={props.page.pageType}
+      disabled={setType.isPending}
+      onChange={(e) =>
+        setType.mutate({
+          pageId: props.page.id,
+          pageType: e.target.value as PageMeta['pageType'],
+        })
+      }
+    >
+      {pageTypesByCategory[props.category].map((t) => (
+        <option key={t} value={t}>
+          {TYPE_LABEL[t]}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function TagsSection(props: { pageId: string }) {
+  const utils = trpc.useUtils()
+  const tags = trpc.tags.forPage.useQuery({ pageId: props.pageId })
+  const invalidate = () => {
+    utils.tags.forPage.invalidate({ pageId: props.pageId })
+    utils.tags.all.invalidate()
+  }
+  const add = trpc.tags.add.useMutation({ onSuccess: invalidate })
+  const remove = trpc.tags.remove.useMutation({ onSuccess: invalidate })
+  const [draft, setDraft] = useState('')
+
+  const submit = () => {
+    const tag = draft.trim().replace(/^#/, '').toLowerCase()
+    if (!tag) return
+    add.mutate({ pageId: props.pageId, tag })
+    setDraft('')
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.data?.map((t) => (
+          <span
+            key={t.tag}
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
+            style={{
+              background: 'var(--accent-soft)',
+              color: 'var(--accent)',
+              opacity: t.source === 'inline' ? 0.75 : 1,
+            }}
+            title={t.source === 'inline' ? 'From #tag in the text — edit the text to remove' : ''}
+          >
+            {t.source === 'inline' ? '#' : ''}
+            {t.tag}
+            {t.source === 'manual' && (
+              <button
+                type="button"
+                className="leading-none"
+                title="Remove tag"
+                onClick={() => remove.mutate({ pageId: props.pageId, tag: t.tag })}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {tags.data?.length === 0 && (
+          <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+            No tags yet
+          </span>
+        )}
+      </div>
+      <input
+        className="w-full rounded-lg border px-3 py-1.5 text-xs"
+        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+        placeholder="Add tag ⏎"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            submit()
+          }
+        }}
+      />
+      {add.error && (
+        <p className="text-xs mt-1" style={{ color: 'var(--danger)' }}>
+          {add.error.message.includes('letters') ? add.error.message : 'Invalid tag'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function OptionsSection(props: { page: PageMeta; isSite: boolean }) {
   const utils = trpc.useUtils()
   const update = trpc.pages.updateOptions.useMutation({
     onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
@@ -109,11 +363,7 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
   const page = props.page
   const isGallery = page.pageType === 'gallery'
   const stripLayout = page.galleryLayout === 'carousel' || page.galleryLayout === 'filmstrip'
-  // Which options exist depends on the section: share bars and listing images
-  // are website concepts, so wikis and notebooks don't show them.
-  const spaces = trpc.spaces.list.useQuery()
-  const category = spaces.data?.find((s) => s.id === page.spaceId)?.category
-  const isSite = category === 'site'
+  const isSite = props.isSite
 
   const uploadCover = async (files: FileList | null) => {
     const file = files?.[0]
@@ -132,128 +382,110 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
   }
 
   return (
-    <Modal title="Page settings" onClose={props.onClose}>
-      <div className="flex flex-col gap-4 text-sm">
-        {isSite && (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={page.shareEnabled}
-              disabled={update.isPending}
-              onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
-            />
-            Social share buttons on the published page
-          </label>
-        )}
+    <div className="flex flex-col gap-4 text-sm">
+      {isSite && (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={page.shareEnabled}
+            disabled={update.isPending}
+            onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
+          />
+          Social share buttons on the published page
+        </label>
+      )}
 
-        {isGallery && (
-          <>
-            <label className="block">
-              <span className="block font-medium mb-1">Gallery layout</span>
-              <select
-                className="w-full rounded-lg border px-3 py-2"
-                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                value={page.galleryLayout}
+      {isGallery && (
+        <>
+          <label className="block">
+            <span className="block font-medium mb-1">Gallery layout</span>
+            <select
+              className="w-full rounded-lg border px-3 py-2"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={page.galleryLayout}
+              onChange={(e) =>
+                update.mutate({
+                  pageId: page.id,
+                  galleryLayout: e.target.value as PageMeta['galleryLayout'],
+                })
+              }
+            >
+              {LAYOUTS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {stripLayout && (
+            <label className="flex items-center gap-2 flex-wrap">
+              <input
+                type="checkbox"
+                checked={page.galleryAutoplaySecs !== null}
                 onChange={(e) =>
                   update.mutate({
                     pageId: page.id,
-                    galleryLayout: e.target.value as PageMeta['galleryLayout'],
+                    galleryAutoplaySecs: e.target.checked ? 5 : null,
                   })
                 }
-              >
-                {LAYOUTS.map((l) => (
-                  <option key={l.value} value={l.value}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
+              />
+              Auto-rotate every
+              <input
+                type="number"
+                min={2}
+                max={60}
+                className="w-16 rounded-lg border px-2 py-1"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                disabled={page.galleryAutoplaySecs === null}
+                value={page.galleryAutoplaySecs ?? 5}
+                onChange={(e) => {
+                  const n = Math.min(60, Math.max(2, Number(e.target.value) || 5))
+                  update.mutate({ pageId: page.id, galleryAutoplaySecs: n })
+                }}
+              />
+              seconds
             </label>
-            {stripLayout && (
-              <label className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="checkbox"
-                  checked={page.galleryAutoplaySecs !== null}
-                  onChange={(e) =>
-                    update.mutate({
-                      pageId: page.id,
-                      galleryAutoplaySecs: e.target.checked ? 5 : null,
-                    })
-                  }
-                />
-                Auto-rotate every
-                <input
-                  type="number"
-                  min={2}
-                  max={60}
-                  className="w-16 rounded-lg border px-2 py-1"
-                  style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                  disabled={page.galleryAutoplaySecs === null}
-                  value={page.galleryAutoplaySecs ?? 5}
-                  onChange={(e) => {
-                    const n = Math.min(60, Math.max(2, Number(e.target.value) || 5))
-                    update.mutate({ pageId: page.id, galleryAutoplaySecs: n })
-                  }}
-                />
-                seconds
-              </label>
-            )}
-            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-              The cover image is picked on a photo in the gallery below (hover → Set cover).
-            </p>
-          </>
-        )}
-
-        {!isGallery && !isSite && (
+          )}
           <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-            No settings apply to this page yet.
+            The cover image is picked on a photo in the gallery below (hover → Set cover).
           </p>
-        )}
+        </>
+      )}
 
-        {!isGallery && isSite && (
-          <div>
-            <span className="block font-medium mb-1">Listing image (shown in blog lists)</span>
-            {page.coverAttachmentId ? (
-              <span className="flex items-center gap-2">
-                <img
-                  src={`/api/files/${page.coverAttachmentId}/thumb`}
-                  alt="listing"
-                  className="w-14 h-10 object-cover rounded"
-                />
-                <button
-                  type="button"
-                  className="text-xs underline"
-                  style={{ color: 'var(--danger)' }}
-                  onClick={() => update.mutate({ pageId: page.id, coverAttachmentId: null })}
-                >
-                  remove
-                </button>
-              </span>
-            ) : (
-              <label
-                className="text-xs underline cursor-pointer"
-                style={{ color: 'var(--text-2)' }}
+      {!isGallery && isSite && (
+        <div>
+          <span className="block font-medium mb-1">Listing image (shown in blog lists)</span>
+          {page.coverAttachmentId ? (
+            <span className="flex items-center gap-2">
+              <img
+                src={`/api/files/${page.coverAttachmentId}/thumb`}
+                alt="listing"
+                className="w-14 h-10 object-cover rounded"
+              />
+              <button
+                type="button"
+                className="text-xs underline"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => update.mutate({ pageId: page.id, coverAttachmentId: null })}
               >
-                {uploading ? 'uploading…' : '+ upload image'}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  disabled={uploading}
-                  onChange={(e) => uploadCover(e.target.files)}
-                />
-              </label>
-            )}
-          </div>
-        )}
-
-        {(isSite || isGallery) && (
-          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-            Content-affecting settings (layout, autoplay, images) apply to the public site on the
-            next publish; the share toggle applies immediately.
-          </p>
-        )}
-      </div>
-    </Modal>
+                remove
+              </button>
+            </span>
+          ) : (
+            <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
+              {uploading ? 'uploading…' : '+ upload image'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => uploadCover(e.target.files)}
+              />
+            </label>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -387,78 +619,6 @@ function Pill(props: { color: string; bg: string; label: string }) {
     >
       {props.label}
     </span>
-  )
-}
-
-function PublishBar(props: { page: PageMeta; publishing: PublishingView }) {
-  const utils = trpc.useUtils()
-  const publish = trpc.publish.publish.useMutation({
-    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
-  })
-  const [history, setHistory] = useState(false)
-  const p = props.publishing
-
-  const liveUrl =
-    p.live && p.spaceEnabled && p.host && p.slugPath ? `/s/${p.host}${p.slugPath}` : null
-
-  return (
-    <div
-      className="flex items-center gap-2 rounded-lg border px-3 py-2 mb-5 text-sm flex-wrap"
-      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
-    >
-      {p.live ? (
-        <Pill
-          color="var(--live)"
-          bg="color-mix(in srgb, var(--live) 12%, transparent)"
-          label={`Live · v${p.live.version}`}
-        />
-      ) : (
-        <Pill color="var(--text-3)" bg="var(--accent-soft)" label="Draft — not published" />
-      )}
-      {p.pending && p.live && (
-        <Pill
-          color="var(--danger)"
-          bg="color-mix(in srgb, var(--danger) 10%, transparent)"
-          label="Working copy has unpublished edits"
-        />
-      )}
-      {!p.spaceEnabled && p.live && (
-        <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-          site not enabled — configure publishing on the space
-        </span>
-      )}
-      <span className="ml-auto flex items-center gap-2">
-        {liveUrl && (
-          <a
-            href={liveUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs underline"
-            style={{ color: 'var(--text-2)' }}
-          >
-            View live ↗
-          </a>
-        )}
-        <button
-          type="button"
-          className="text-xs underline"
-          style={{ color: 'var(--text-2)' }}
-          onClick={() => setHistory(true)}
-        >
-          History
-        </button>
-        <button
-          type="button"
-          disabled={publish.isPending}
-          onClick={() => publish.mutate({ pageId: props.page.id })}
-          className="rounded-md px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-          style={{ background: 'var(--accent)' }}
-        >
-          {p.live ? `Publish v${p.live.version + 1}` : 'Publish'}
-        </button>
-      </span>
-      {history && <HistoryModal page={props.page} onClose={() => setHistory(false)} />}
-    </div>
   )
 }
 

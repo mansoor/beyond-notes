@@ -724,15 +724,48 @@ export function createRepo(appDb: AppDb) {
 
     // ---- tag index ----
 
+    /** Replace the inline-derived tags; manual tags (context rail) survive. */
     async setPageTags(pageId: string, tags: string[]): Promise<void> {
-      await db.delete(t.pageTags).where(eq(t.pageTags.pageId, pageId))
+      await db
+        .delete(t.pageTags)
+        .where(and(eq(t.pageTags.pageId, pageId), eq(t.pageTags.source, 'inline')))
       if (tags.length > 0) {
-        await db.insert(t.pageTags).values(tags.map((tag) => ({ pageId, tag })))
+        await db
+          .insert(t.pageTags)
+          .values(tags.map((tag) => ({ pageId, tag, source: 'inline' as const })))
+          // a manual row already owns this (pageId, tag) — keep it manual
+          .onConflictDoNothing()
       }
     },
 
+    async addManualPageTag(pageId: string, tag: string): Promise<void> {
+      await db.insert(t.pageTags).values({ pageId, tag, source: 'manual' }).onConflictDoNothing()
+    },
+
+    async removeManualPageTag(pageId: string, tag: string): Promise<void> {
+      await db
+        .delete(t.pageTags)
+        .where(
+          and(
+            eq(t.pageTags.pageId, pageId),
+            eq(t.pageTags.tag, tag),
+            eq(t.pageTags.source, 'manual'),
+          ),
+        )
+    },
+
+    async listPageTags(
+      pageId: string,
+    ): Promise<Array<{ tag: string; source: 'inline' | 'manual' }>> {
+      const rows = await db
+        .select({ tag: t.pageTags.tag, source: t.pageTags.source })
+        .from(t.pageTags)
+        .where(eq(t.pageTags.pageId, pageId))
+      return rows as Array<{ tag: string; source: 'inline' | 'manual' }>
+    },
+
     async listAllPageTags(): Promise<Array<{ pageId: string; tag: string }>> {
-      return db.select().from(t.pageTags)
+      return db.select({ pageId: t.pageTags.pageId, tag: t.pageTags.tag }).from(t.pageTags)
     },
 
     async listPageIdsByTag(tag: string): Promise<string[]> {
@@ -741,6 +774,23 @@ export function createRepo(appDb: AppDb) {
         .from(t.pageTags)
         .where(eq(t.pageTags.tag, tag))
       return rows.map((r: { pageId: string }) => r.pageId)
+    },
+
+    // ---- pins ----
+
+    async addPin(userId: string, pageId: string, when: Date): Promise<void> {
+      await db.insert(t.pins).values({ userId, pageId, createdAt: when }).onConflictDoNothing()
+    },
+
+    async removePin(userId: string, pageId: string): Promise<void> {
+      await db.delete(t.pins).where(and(eq(t.pins.userId, userId), eq(t.pins.pageId, pageId)))
+    },
+
+    async listPins(userId: string): Promise<Array<{ pageId: string; createdAt: Date }>> {
+      return db
+        .select({ pageId: t.pins.pageId, createdAt: t.pins.createdAt })
+        .from(t.pins)
+        .where(eq(t.pins.userId, userId))
     },
 
     // ---- journal day notes ----

@@ -16,7 +16,9 @@ function App() {
     () => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }),
   )
   const [trpcClient] = useState(() =>
-    trpc.createClient({ links: [httpBatchLink({ url: '/api/trpc' })] }),
+    // maxURLLength splits large GET batches — enough parallel queries on one
+    // screen (trees + rail) can otherwise overflow the server's URL limit (414)
+    trpc.createClient({ links: [httpBatchLink({ url: '/api/trpc', maxURLLength: 2000 })] }),
   )
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

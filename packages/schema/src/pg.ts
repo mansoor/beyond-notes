@@ -300,6 +300,26 @@ export const pageTags = pgTable(
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
     tag: text('tag').notNull(),
+    // 'inline' rows are re-derived from the text on every save; 'manual' rows
+    // come from the context rail and survive reconciliation
+    source: text('source', { enum: ['inline', 'manual'] })
+      .notNull()
+      .default('inline'),
   },
   (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)
+
+// per-user pinned pages (the ⭐ section in the sidebar)
+export const pins = pgTable(
+  'pins',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )

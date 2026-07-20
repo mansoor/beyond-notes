@@ -34,7 +34,7 @@ export function TasksPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-10 py-8">
+    <div className="max-w-5xl mx-auto px-10 py-8">
       <h1 className="text-2xl font-bold mb-1">Tasks</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
         Every checkbox block, everywhere — one agenda. Checking here checks the block in its page.

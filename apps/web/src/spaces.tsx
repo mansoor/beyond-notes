@@ -1,5 +1,5 @@
 import type { PageMeta, SpaceCategory, SpaceView } from '@bn/schema'
-import { socialPlatform } from '@bn/schema'
+import { pageTypesByCategory, socialPlatform } from '@bn/schema'
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
@@ -562,15 +562,6 @@ function PageTreeLevel(props: {
   )
 }
 
-// What a page is allowed to become depends on the section it lives in — wikis
-// are docs-only, notebooks add galleries, sites get the full set (mirrors the
-// server-side rule in pages.setPageType).
-const TYPES_BY_CATEGORY: Record<SpaceCategory, ReadonlyArray<PageMeta['pageType']>> = {
-  wiki: ['doc'],
-  notebook: ['doc', 'gallery'],
-  site: ['doc', 'blog', 'gallery'],
-}
-
 function PageMenu(props: {
   page: PageMeta
   category: SpaceCategory
@@ -645,7 +636,7 @@ function PageMenu(props: {
           >
             Delete
           </button>
-          {TYPES_BY_CATEGORY[props.category]
+          {pageTypesByCategory[props.category]
             .filter((t) => t !== props.page.pageType)
             .map((t) => (
               <button

@@ -255,6 +255,23 @@ export const pageTags = sqliteTable(
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
     tag: text('tag').notNull(),
+    source: text('source', { enum: ['inline', 'manual'] })
+      .notNull()
+      .default('inline'),
   },
   (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)
+
+export const pins = sqliteTable(
+  'pins',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )
