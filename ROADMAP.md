@@ -54,18 +54,17 @@ push amplifies public URLs.
 
 Migrations: `page_links`, `page_slugs`, trash fields.
 
-## v0.5.0 — Website reach
+## v0.5.0 — Website reach ✅ shipped
 
-Everything that makes shared links and readers work harder for the site.
-
-1. **OG/SEO meta**: `og:title/description/image` (reuse covers), meta
-   description field in the context rail for site pages.
-2. **Public tag pages** (`/tags/<tag>`) + tags shown on post listings.
-3. **Blog pagination.**
-4. **Draft preview links** — tokened URL serving the working copy, revocable,
-   never in nav.
-5. **Scheduled publishing** (`publishAt` on a version).
-6. **Favicon** derived from the site logo; **robots.txt**.
+1. ~~OG/SEO meta~~ — og:title/description/image + canonical; description
+   field in the rail, falling back to the opening text.
+2. ~~Public tag pages~~ (`/tags/<tag>`) + tags on posts. Tags freeze into
+   the snapshot at publish, so public output never reads a working copy.
+3. ~~Blog pagination~~ — 10 per page.
+4. ~~Draft preview links~~ — tokened, revocable, noindex; the token also
+   authorizes that page's unpublished images.
+5. ~~Scheduled publishing~~ — rides the existing job tick.
+6. ~~Favicon from the logo; robots.txt.~~
 
 ## v0.6.0 — Wiki reading experience
 
