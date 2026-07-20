@@ -30,6 +30,41 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     return space
   }
 
+  /**
+   * A missed path may be built from slugs a page USED to publish under
+   * (titles change, slugs follow). Walk the segments allowing historical
+   * slugs at every level; a hit returns the canonical path for a 301.
+   */
+  async function resolveHistoricalPath(
+    site: Awaited<ReturnType<PublishingService['publicSite']>>,
+    path: string,
+  ): Promise<string | null> {
+    const segments = path.split('/').filter(Boolean)
+    if (segments.length === 0) return null
+    const history = new Map<string, Set<string>>()
+    for (const row of await repo.listAllPageSlugs()) {
+      let set = history.get(row.pageId)
+      if (!set) history.set(row.pageId, (set = new Set()))
+      set.add(row.slug)
+    }
+    let parentId: string | null = null
+    let hit: (typeof site.flat)[number] | undefined
+    let usedHistory = false
+    for (const segment of segments) {
+      const children: typeof site.flat = site.flat.filter((f) => f.entry.page.parentId === parentId)
+      hit = children.find((f) => f.entry.version.slug === segment)
+      if (!hit) {
+        hit = children.find((f) => history.get(f.entry.page.id)?.has(segment))
+        if (!hit) return null
+        usedHistory = true
+      }
+      parentId = hit.entry.page.id
+    }
+    // only redirect when a historical slug did the resolving — otherwise the
+    // path would have matched byPath already
+    return usedHistory && hit ? hit.path : null
+  }
+
   /** Returns true if it handled the request. basePath '' = host routing; '/s/<host>' = dev escape. */
   async function serve(
     host: string,
@@ -102,6 +137,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
 
     const hit = site.byPath.get(path)
     if (!hit) {
+      const canonical = await resolveHistoricalPath(site, path)
+      if (canonical) {
+        reply.redirect(`${basePath}${canonical}`, 301)
+        return true
+      }
       reply.code(404).send(docs404(site.siteTitle, site.footer, basePath))
       return true
     }
@@ -116,7 +156,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         siteTitle: site.siteTitle,
         footer: site.footer,
         pageTitle: hit.entry.version.title,
-        contentHtml: hit.entry.version.html,
+        contentHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath),
         nav: site.nav,
         basePath,
         prev: prev ? { title: prev.title, path: prev.path } : undefined,
@@ -267,6 +307,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // '/' renders the first root page as the home page
     const hit = path === '/' ? roots[0] : site.byPath.get(path)
     if (!hit) {
+      const canonical = await resolveHistoricalPath(site, path)
+      if (canonical) {
+        reply.redirect(`${basePath}${canonical}`, 301)
+        return
+      }
       reply.code(404).send(site404({ siteTitle, footer, theme, appearance, basePath }))
       return
     }
@@ -290,7 +335,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: hit.entry.version.html + shareFor(hit),
+          introHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
@@ -328,7 +373,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
           contentHtml:
-            hit.entry.version.html +
+            rewriteInternalLinks(hit.entry.version.html, site, basePath) +
             shareFor(hit) +
             sectionListHtml(
               postChildren.map((c) => ({ title: c.title, path: c.path })),
@@ -384,7 +429,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml: hit.entry.version.html + shareFor(hit) + extras,
+        contentHtml:
+          rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit) + extras,
         crumbs: crumbsFor(hit),
         rssPath,
       }),
@@ -392,6 +438,23 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
   }
 
   return { serve, resolveSpace }
+}
+
+/**
+ * Editor @-mentions produce app links (/p/<id>). At serve time the ones whose
+ * target is live on this site become real site URLs — snapshots stay frozen,
+ * so a target published LATER still resolves without republishing the source.
+ */
+function rewriteInternalLinks(
+  html: string,
+  site: { flat: Array<{ path: string; entry: { page: { id: string } } }> },
+  basePath: string,
+): string {
+  const pathById = new Map(site.flat.map((f) => [f.entry.page.id, f.path]))
+  return html.replace(/href="\/p\/([A-Za-z0-9_-]{10,})"/g, (match, id: string) => {
+    const target = pathById.get(id)
+    return target ? `href="${basePath}${target}"` : match
+  })
 }
 
 function parseSocialLinks(raw: string): SocialLink[] {

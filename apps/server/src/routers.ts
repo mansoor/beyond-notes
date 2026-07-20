@@ -3,6 +3,7 @@ import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   ArchivedPageView,
   AuthStatus,
+  BacklinkView,
   DocumentView,
   GalleryItemView,
   InviteView,
@@ -19,6 +20,8 @@ import type {
   TagCount,
   TagItem,
   TaskView,
+  TemplateView,
+  TrashedPageView,
   UserView,
   VersionView,
   WebhookView,
@@ -32,6 +35,7 @@ import {
   createPageInput,
   createReminderInput,
   createSpaceInput,
+  createTemplateInput,
   createWebhookInput,
   journalDayInput,
   journalMonthInput,
@@ -58,6 +62,7 @@ import {
   updatePublishingInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
+import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
@@ -514,15 +519,89 @@ const pagesRouter = router({
     }
   }),
 
+  /** "Delete" from the UI is soft — the subtree moves to the 30-day trash. */
   delete: authedProcedure
     .input(z.object({ pageId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.pages.deletePage(ctx.user, input.pageId)
+        await ctx.pages.trashPage(ctx.user, input.pageId)
         return { ok: true }
       } catch (err) {
         rethrow(err)
       }
+    }),
+
+  trashed: authedProcedure.query(async ({ ctx }): Promise<TrashedPageView[]> => {
+    const items = await ctx.pages.listTrashed(ctx.user)
+    const users = new Map((await ctx.repo.listUsers()).map((u) => [u.id, u.name]))
+    return items.map(({ page, space }) => {
+      const trashedAt = page.trashedAt as Date
+      return {
+        id: page.id,
+        title: page.title,
+        pageType: page.pageType,
+        spaceName: space.name,
+        trashedAt: trashedAt.toISOString(),
+        trashedByName: (page.trashedBy && users.get(page.trashedBy)) || 'unknown',
+        purgeAt: new Date(trashedAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }
+    })
+  }),
+
+  restoreTrashed: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.restoreTrashedPage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  deleteForever: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.deleteForever(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  duplicate: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }): Promise<PageMeta> => {
+      try {
+        return toPageMeta(await ctx.pages.duplicatePage(ctx.user, input.pageId))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  /** Pages whose text links to this one (the rail's "Linked from" card). */
+  backlinks: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<BacklinkView[]> => {
+      await ctx.pages.getPage(ctx.user, input.pageId) // access check
+      const [fromIds, pages, spaces] = await Promise.all([
+        ctx.repo.listBacklinks(input.pageId),
+        ctx.repo.listAllPages(),
+        ctx.repo.listSpaces(),
+      ])
+      const spaceById = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+      )
+      const byId = new Map(pages.map((p) => [p.id, p]))
+      return fromIds
+        .flatMap((id) => {
+          const page = byId.get(id)
+          const space = page ? spaceById.get(page.spaceId) : undefined
+          if (!page || !space || page.archivedAt || page.trashedAt) return []
+          return [{ id: page.id, title: page.title, spaceName: space.name }]
+        })
+        .sort((a, b) => a.title.localeCompare(b.title))
     }),
 
   updateOptions: authedProcedure.input(updatePageOptionsInput).mutation(async ({ ctx, input }) => {
@@ -578,7 +657,7 @@ const pagesRouter = router({
         .map((s) => [s.id, s]),
     )
     return pages
-      .filter((p) => spaceById.has(p.spaceId) && !p.archivedAt)
+      .filter((p) => spaceById.has(p.spaceId) && !p.archivedAt && !p.trashedAt)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .slice(0, 8)
       .map((p) => ({
@@ -644,6 +723,7 @@ const publishRouter = router({
           title: v.title,
           createdAt: v.createdAt.toISOString(),
           isLive: page.liveVersionId === v.id,
+          textPlain: v.textPlain,
         }))
       } catch (err) {
         rethrow(err)
@@ -739,7 +819,9 @@ const tagsRouter = router({
       spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => s.id),
     )
     const visible = new Map(
-      pages.filter((p) => accessible.has(p.spaceId) && !p.archivedAt).map((p) => [p.id, p]),
+      pages
+        .filter((p) => accessible.has(p.spaceId) && !p.archivedAt && !p.trashedAt)
+        .map((p) => [p.id, p]),
     )
     const counts = new Map<string, number>()
     for (const row of tagRows) {
@@ -775,7 +857,7 @@ const tagsRouter = router({
       for (const id of pageIds) {
         const page = byId.get(id)
         const space = page ? spaceById.get(page.spaceId) : undefined
-        if (!page || !space || page.archivedAt) continue
+        if (!page || !space || page.archivedAt || page.trashedAt) continue
         // the user's own journal only; other users' journals are not accessible anyway
         const isJournal = space.kind === 'journal'
         items.push({
@@ -833,7 +915,7 @@ const pinsRouter = router({
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .flatMap((pin) => {
         const page = byId.get(pin.pageId)
-        if (!page || page.archivedAt) return []
+        if (!page || page.archivedAt || page.trashedAt) return []
         return [{ pageId: page.id, title: page.title, pageType: page.pageType }]
       })
   }),
@@ -848,6 +930,42 @@ const pinsRouter = router({
       else await ctx.repo.addPin(ctx.user.id, input.pageId, new Date())
       return { pinned: !pinned }
     }),
+})
+
+const templatesRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<TemplateView[]> => {
+    const rows = await ctx.repo.listTemplates()
+    return rows
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt.toISOString() }))
+  }),
+
+  /** Snapshot a page's current content as a reusable skeleton. */
+  create: authedProcedure.input(createTemplateInput).mutation(async ({ ctx, input }) => {
+    const { doc } = await ctx.pages.getPage(ctx.user, input.pageId)
+    await ctx.repo.insertTemplate({
+      id: nanoid(),
+      name: input.name,
+      content: doc.content,
+      createdBy: ctx.user.id,
+      createdAt: new Date(),
+    })
+    return { ok: true }
+  }),
+
+  /** Content fetch for applying to an empty page (client saves via saveDoc). */
+  content: authedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }): Promise<{ content: string }> => {
+      const row = await ctx.repo.getTemplate(input.id)
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found.' })
+      return { content: row.content }
+    }),
+
+  delete: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    await ctx.repo.deleteTemplate(input.id)
+    return { ok: true }
+  }),
 })
 
 const settingsRouter = router({
@@ -1137,6 +1255,7 @@ export const appRouter = router({
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,
+  templates: templatesRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

@@ -34,9 +34,14 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
     return { page, space }
   }
 
+  /**
+   * The slug follows the current title on every publish; every slug a page
+   * has ever used is kept in page_slugs so old public URLs 301 instead of
+   * breaking. (Before v0.4 the first slug was frozen forever.)
+   */
   async function ensureSlug(page: PageRow): Promise<string> {
-    if (page.slug) return page.slug
     const base = slugify(page.title)
+    if (page.slug === base) return page.slug
     const siblings = await repo.listPagesInSpace(page.spaceId)
     const taken = new Set(siblings.filter((p) => p.id !== page.id).map((p) => p.slug))
     let slug = base
@@ -45,6 +50,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       slug = `${base}-${n}`
       n++
     }
+    if (page.slug === slug) return slug
+    if (page.slug) await repo.addPageSlug(page.id, page.slug, now()) // retire the old one
     await repo.setPageSlug(page.id, slug)
     return slug
   }
@@ -107,6 +114,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       }
       await repo.insertPageVersion(version)
       await repo.setLivePointer(pageId, version.id)
+      // record the slug in history too — redirect resolution reads one table
+      await repo.addPageSlug(pageId, slug, now())
       invalidateAttachmentCache()
       return version
     },
@@ -244,10 +253,12 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
     async liveTree(spaceId: string): Promise<Array<{ page: PageRow; version: PageVersionRow }>> {
       const pages = await repo.listPagesInSpace(spaceId)
       const byId = new Map(pages.map((p) => [p.id, p]))
+      // a trashed page (or one under a trashed ancestor) is off the site
+      // immediately, without touching its publish state — restore brings it back
       const lineageLive = (p: PageRow): boolean => {
         let cursor: PageRow | undefined = p
         while (cursor) {
-          if (!cursor.liveVersionId) return false
+          if (!cursor.liveVersionId || cursor.trashedAt) return false
           cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
         }
         return true

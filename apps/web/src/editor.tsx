@@ -1,7 +1,7 @@
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
-import { useCreateBlockNote } from '@blocknote/react'
+import { SuggestionMenuController, useCreateBlockNote } from '@blocknote/react'
 import type { DocumentView } from '@bn/schema'
 import { useEffect, useRef, useState } from 'react'
 import { trpc } from './trpc'
@@ -28,6 +28,7 @@ export function DocumentEditor(props: {
   onStateChange?: (s: SaveState) => void
 }) {
   const save = trpc.pages.saveDoc.useMutation()
+  const utils = trpc.useUtils()
   const [state, setStateRaw] = useState<SaveState>('saved')
   const baseRef = useRef(props.doc.updatedAt)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -93,7 +94,30 @@ export function DocumentEditor(props: {
         </div>
       )}
       <div className="-mx-[54px]">
-        <BlockNoteView editor={editor} onChange={scheduleSave} theme={dark ? 'dark' : 'light'} />
+        <BlockNoteView editor={editor} onChange={scheduleSave} theme={dark ? 'dark' : 'light'}>
+          {/* @-mention: link to another page; the link index derives from these */}
+          <SuggestionMenuController
+            triggerCharacter="@"
+            minQueryLength={2}
+            getItems={async (query) => {
+              if (query.trim().length < 2) return []
+              const results = await utils.client.search.all.query({ q: query })
+              return results
+                .filter((r) => r.kind === 'page')
+                .slice(0, 8)
+                .map((r) => ({
+                  title: r.title || 'Untitled',
+                  subtext: r.context,
+                  onItemClick: () => {
+                    editor.insertInlineContent([
+                      { type: 'link', href: `/p/${r.id}`, content: r.title || 'Untitled' },
+                      ' ',
+                    ])
+                  },
+                }))
+            }}
+          />
+        </BlockNoteView>
       </div>
     </div>
   )

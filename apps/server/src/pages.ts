@@ -1,5 +1,6 @@
 import { pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
+import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
 import { reconcileTasks } from './tasks'
@@ -102,7 +103,9 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
     async tree(user: UserRow, spaceId: string): Promise<PageRow[]> {
       assertSpaceAccess(await repo.getSpace(spaceId), user)
       const pages = await repo.listPagesInSpace(spaceId)
-      return pages.filter((p) => p.archivedAt === null).sort((a, b) => a.position - b.position)
+      return pages
+        .filter((p) => p.archivedAt === null && p.trashedAt === null)
+        .sort((a, b) => a.position - b.position)
     },
 
     // ---- archive ----
@@ -144,10 +147,114 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       )
       const archivedIds = new Set(archived.map((p) => p.id))
       return archived
-        .filter((p) => accessible.has(p.spaceId))
+        .filter((p) => accessible.has(p.spaceId) && p.trashedAt === null)
         .filter((p) => p.parentId === null || !archivedIds.has(p.parentId))
         .sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0))
         .map((p) => ({ page: p, space: accessible.get(p.spaceId) as SpaceRow }))
+    },
+
+    // ---- trash ----
+
+    /**
+     * Deletion is soft: the subtree moves to the trash, disappearing from the
+     * tree, search, tags, and the public site. The purge job hard-deletes
+     * after TRASH_RETENTION_DAYS; until then it can be restored.
+     */
+    async trashPage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      const all = await repo.listPagesInSpace(page.spaceId)
+      await repo.setPagesTrashed(subtreeIds(all, pageId), now(), user.id)
+    },
+
+    async restoreTrashedPage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      if (!page.trashedAt) return
+      const all = await repo.listPagesInSpace(page.spaceId)
+      const ids = subtreeIds(all, pageId)
+      await repo.setPagesTrashed(ids, null, null)
+      // same rule as archive restore: never resurface under a still-hidden parent
+      const parent = page.parentId ? all.find((p) => p.id === page.parentId) : null
+      if (
+        page.parentId &&
+        (!parent || ((parent.trashedAt || parent.archivedAt) && !ids.includes(parent.id)))
+      ) {
+        const rootCount = all.filter(
+          (p) => p.parentId === null && !p.archivedAt && !p.trashedAt,
+        ).length
+        await repo.updatePage(pageId, { parentId: null, position: rootCount, updatedAt: now() })
+      }
+    },
+
+    /** Trash roots visible to this user — the units that were trashed. */
+    async listTrashed(user: UserRow): Promise<Array<{ page: PageRow; space: SpaceRow }>> {
+      const [trashed, spaces] = await Promise.all([repo.listTrashedPages(), repo.listSpaces()])
+      const accessible = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
+      )
+      const trashedIds = new Set(trashed.map((p) => p.id))
+      return trashed
+        .filter((p) => accessible.has(p.spaceId))
+        .filter((p) => p.parentId === null || !trashedIds.has(p.parentId))
+        .sort((a, b) => (b.trashedAt?.getTime() ?? 0) - (a.trashedAt?.getTime() ?? 0))
+        .map((p) => ({ page: p, space: accessible.get(p.spaceId) as SpaceRow }))
+    },
+
+    /** "Delete forever" — only reachable for pages already in the trash. */
+    async deleteForever(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      if (!page.trashedAt)
+        throw new PagesError('BAD_MOVE', 'Only trashed pages can be deleted forever.')
+      await repo.deletePage(pageId)
+    },
+
+    /** Hard-delete everything trashed before the cutoff. Called by the scheduler. */
+    async purgeExpiredTrash(cutoff: Date): Promise<number> {
+      const trashed = await repo.listTrashedPages()
+      const trashedIds = new Set(trashed.map((p) => p.id))
+      const roots = trashed.filter(
+        (p) =>
+          (p.trashedAt as Date) < cutoff && (p.parentId === null || !trashedIds.has(p.parentId)),
+      )
+      for (const p of roots) await repo.deletePage(p.id) // FK cascade takes the subtree
+      return roots.length
+    },
+
+    /** Copy one page (content, type, gallery settings) as its next sibling. */
+    async duplicatePage(user: UserRow, pageId: string): Promise<PageRow> {
+      const { page } = await requirePage(pageId, user)
+      const doc = await repo.getDocument(pageId)
+      if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
+      const siblings = (await repo.listPagesInSpace(page.spaceId)).filter(
+        (p) => p.parentId === page.parentId,
+      )
+      const copy: PageRow = {
+        ...page,
+        id: nanoid(),
+        title: `${page.title} (copy)`,
+        position: siblings.length,
+        slug: null,
+        liveVersionId: null, // the copy starts unpublished
+        archivedAt: null,
+        archivedBy: null,
+        trashedAt: null,
+        trashedBy: null,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      await repo.insertPage(copy)
+      await repo.insertDocument({
+        pageId: copy.id,
+        content: doc.content,
+        schemaVersion: doc.schemaVersion,
+        updatedAt: now(),
+      })
+      for (const item of await repo.listGalleryItems(pageId)) {
+        await repo.insertGalleryItem({ ...item, id: nanoid(), pageId: copy.id })
+      }
+      await reconcileTags(repo, copy.id, doc.content)
+      await reconcileLinks(repo, copy.id, doc.content)
+      await reconcileTasks(repo, copy.id, doc.content, now())
+      return copy
     },
 
     async createPage(
@@ -180,6 +287,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         coverAttachmentId: null,
         archivedAt: null,
         archivedBy: null,
+        trashedAt: null,
+        trashedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -380,9 +489,10 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       const when = now()
       await repo.updateDocument(input.pageId, input.content, when)
       await repo.updatePage(input.pageId, { updatedAt: when })
-      // keep the tasks index true to the blocks on every save
+      // keep the tasks, tags, and link indexes true to the blocks on every save
       await reconcileTasks(repo, input.pageId, input.content, when)
       await reconcileTags(repo, input.pageId, input.content)
+      await reconcileLinks(repo, input.pageId, input.content)
       return { updatedAt: when.toISOString() }
     },
   }

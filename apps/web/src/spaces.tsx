@@ -13,7 +13,7 @@ const CATEGORY_LABEL: Record<SpaceCategory, string> = {
   site: 'Sites',
 }
 
-type PageAction = { kind: 'rename' | 'move' | 'delete'; page: PageMeta } | null
+type PageAction = { kind: 'rename' | 'move' | 'template'; page: PageMeta } | null
 
 export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
@@ -196,8 +196,8 @@ function SpaceItem(props: { space: SpaceView }) {
       {action?.kind === 'move' && tree.data && (
         <MovePageModal page={action.page} all={tree.data} onClose={() => setAction(null)} />
       )}
-      {action?.kind === 'delete' && (
-        <DeletePageModal page={action.page} onClose={() => setAction(null)} />
+      {action?.kind === 'template' && (
+        <SaveTemplateModal page={action.page} onClose={() => setAction(null)} />
       )}
     </div>
   )
@@ -583,6 +583,22 @@ function PageMenu(props: {
         utils.tasks.agenda.invalidate(),
       ]),
   })
+  const trash = trpc.pages.delete.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.pages.tree.invalidate({ spaceId: props.page.spaceId }),
+        utils.pages.trashed.invalidate(),
+        utils.tasks.agenda.invalidate(),
+        utils.pins.list.invalidate(),
+      ]),
+  })
+  const navigate = useNavigate()
+  const duplicate = trpc.pages.duplicate.useMutation({
+    onSuccess: (copy) => {
+      utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
+      navigate({ to: '/p/$pageId', params: { pageId: copy.id } })
+    },
+  })
   return (
     <span className="relative">
       <button
@@ -617,6 +633,29 @@ function PageMenu(props: {
             type="button"
             className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
             style={{ color: 'var(--text)' }}
+            onClick={() => {
+              setOpen(false)
+              duplicate.mutate({ pageId: props.page.id })
+            }}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--text)' }}
+            title="Snapshot this page's content as a reusable starting point"
+            onClick={() => {
+              setOpen(false)
+              props.onAction({ kind: 'template', page: props.page })
+            }}
+          >
+            Save as template
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--text)' }}
             title="Hide from the sidebar, search, and tasks; restore any time from Archive"
             onClick={() => {
               setOpen(false)
@@ -629,9 +668,10 @@ function PageMenu(props: {
             type="button"
             className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
             style={{ color: 'var(--danger)' }}
+            title="Moves to Trash; restore within 30 days, then it purges"
             onClick={() => {
               setOpen(false)
-              props.onAction({ kind: 'delete', page: props.page })
+              trash.mutate({ pageId: props.page.id })
             }}
           >
             Delete
@@ -775,25 +815,24 @@ function MovePageModal(props: { page: PageMeta; all: PageMeta[]; onClose: () => 
   )
 }
 
-function DeletePageModal(props: { page: PageMeta; onClose: () => void }) {
+function SaveTemplateModal(props: { page: PageMeta; onClose: () => void }) {
   const utils = trpc.useUtils()
-  const del = trpc.pages.delete.useMutation()
-  const navigate = useNavigate()
+  const create = trpc.templates.create.useMutation()
+  const [name, setName] = useState(props.page.title)
   const { busy, error, onSubmit } = useSubmit(async () => {
-    await del.mutateAsync({ pageId: props.page.id })
-    await utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
-    navigate({ to: '/' })
+    await create.mutateAsync({ pageId: props.page.id, name: name.trim() })
+    await utils.templates.list.invalidate()
     props.onClose()
   })
   return (
-    <Modal title={`Delete "${props.page.title}"?`} onClose={props.onClose}>
+    <Modal title="Save as template" onClose={props.onClose} dirty={name !== props.page.title}>
       <form onSubmit={onSubmit}>
         <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
-          This deletes the page and every subpage under it. There is no undo (version history
-          arrives in M3).
+          Snapshots this page&apos;s current content. Empty pages will offer it as a starting point.
         </p>
+        <Field label="Template name" value={name} onChange={setName} autoFocus />
         <ErrorNote message={error} />
-        <SubmitButton label="Delete permanently" busy={busy} />
+        <SubmitButton label="Save template" busy={busy} />
       </form>
     </Modal>
   )

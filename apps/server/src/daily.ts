@@ -58,6 +58,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       coverAttachmentId: null,
       archivedAt: null,
       archivedBy: null,
+      trashedAt: null,
+      trashedBy: null,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -134,6 +136,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         coverAttachmentId: null,
         archivedAt: null,
         archivedBy: null,
+        trashedAt: null,
+        trashedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -247,6 +251,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         coverAttachmentId: null,
         archivedAt: null,
         archivedBy: null,
+        trashedAt: null,
+        trashedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }

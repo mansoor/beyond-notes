@@ -1,6 +1,6 @@
 import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
-import { useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Modal } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
@@ -68,13 +68,17 @@ function PageView(props: {
           <SaveBadge state={state} />
           <ContextDrawerButton page={props.page} publishing={props.publishing} />
         </div>
+        <TemplatePicker page={props.page} doc={props.doc} />
         <DocumentEditor
           pageId={props.page.id}
           doc={props.doc}
           onStateChange={(s) => {
             setState(s)
-            // a save may have added/removed inline #tags — refresh the rail
-            if (s === 'saved') utils.tags.forPage.invalidate({ pageId: props.page.id })
+            // a save may have changed inline #tags or @-links — refresh the rail
+            if (s === 'saved') {
+              utils.tags.forPage.invalidate({ pageId: props.page.id })
+              utils.pages.backlinks.invalidate()
+            }
           }}
           onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
         />
@@ -137,6 +141,7 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
       <ContextCard bare={props.bare} title="Tags">
         <TagsSection pageId={props.page.id} />
       </ContextCard>
+      <BacklinksCard pageId={props.page.id} bare={props.bare} />
       {(isSite || isGallery) && (
         <ContextCard bare={props.bare} title={isGallery ? 'Gallery' : 'Sharing & listing'}>
           <OptionsSection page={props.page} isSite={isSite} />
@@ -146,6 +151,85 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
           </p>
         </ContextCard>
       )}
+    </div>
+  )
+}
+
+/** "Linked from" — pages whose text @-mentions this one. Hidden when empty. */
+function BacklinksCard(props: { pageId: string; bare?: boolean }) {
+  const backlinks = trpc.pages.backlinks.useQuery({ pageId: props.pageId })
+  const navigate = useNavigate()
+  if (!backlinks.data || backlinks.data.length === 0) return null
+  return (
+    <ContextCard bare={props.bare} title="Linked from">
+      <div className="flex flex-col text-sm">
+        {backlinks.data.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            className="text-left py-0.5"
+            onClick={() => navigate({ to: '/p/$pageId', params: { pageId: b.id } })}
+          >
+            <span className="block truncate" style={{ color: 'var(--accent)' }}>
+              {b.title}
+            </span>
+            <span className="block truncate text-xs" style={{ color: 'var(--text-3)' }}>
+              {b.spaceName}
+            </span>
+          </button>
+        ))}
+      </div>
+    </ContextCard>
+  )
+}
+
+/**
+ * An empty page offers the saved templates as starting points. Applying one
+ * is an ordinary save, so the optimistic lock still guards it.
+ */
+function TemplatePicker(props: { page: PageMeta; doc: { content: string; updatedAt: string } }) {
+  const utils = trpc.useUtils()
+  const templates = trpc.templates.list.useQuery()
+  const save = trpc.pages.saveDoc.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
+  })
+  const isEmpty = (() => {
+    try {
+      const blocks = JSON.parse(props.doc.content)
+      return !Array.isArray(blocks) || blocks.length === 0
+    } catch {
+      return false
+    }
+  })()
+  if (!isEmpty || !templates.data || templates.data.length === 0) return null
+
+  const apply = async (id: string) => {
+    const { content } = await utils.client.templates.content.query({ id })
+    await save.mutateAsync({
+      pageId: props.page.id,
+      content,
+      baseUpdatedAt: props.doc.updatedAt,
+    })
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 flex-wrap mb-3 text-xs"
+      style={{ color: 'var(--text-3)' }}
+    >
+      Start from a template:
+      {templates.data.map((tpl) => (
+        <button
+          key={tpl.id}
+          type="button"
+          disabled={save.isPending}
+          onClick={() => apply(tpl.id)}
+          className="rounded-full border px-2.5 py-0.5"
+          style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
+        >
+          {tpl.name}
+        </button>
+      ))}
     </div>
   )
 }
@@ -622,6 +706,89 @@ function Pill(props: { color: string; bg: string; label: string }) {
   )
 }
 
+// word-level LCS diff for the History dialog; capped so huge snapshots stay cheap
+const DIFF_CAP = 20_000
+type DiffPart = { kind: 'same' | 'added' | 'removed'; text: string }
+
+function wordDiff(oldText: string, newText: string): DiffPart[] {
+  const a = oldText.slice(0, DIFF_CAP).split(/(\s+)/).filter(Boolean)
+  const b = newText.slice(0, DIFF_CAP).split(/(\s+)/).filter(Boolean)
+  const m = a.length
+  const n = b.length
+  const lcs: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      lcs[i]![j] =
+        a[i] === b[j]
+          ? (lcs[i + 1]?.[j + 1] ?? 0) + 1
+          : Math.max(lcs[i + 1]?.[j] ?? 0, lcs[i]?.[j + 1] ?? 0)
+    }
+  }
+  const parts: DiffPart[] = []
+  const push = (kind: DiffPart['kind'], text: string) => {
+    const last = parts[parts.length - 1]
+    if (last && last.kind === kind) last.text += text
+    else parts.push({ kind, text })
+  }
+  let i = 0
+  let j = 0
+  while (i < m && j < n) {
+    if (a[i] === b[j]) {
+      push('same', a[i] as string)
+      i++
+      j++
+    } else if ((lcs[i + 1]?.[j] ?? 0) >= (lcs[i]?.[j + 1] ?? 0)) {
+      push('removed', a[i] as string)
+      i++
+    } else {
+      push('added', b[j] as string)
+      j++
+    }
+  }
+  while (i < m) push('removed', a[i++] as string)
+  while (j < n) push('added', b[j++] as string)
+  return parts
+}
+
+function DiffView(props: { oldText: string; newText: string }) {
+  const parts = wordDiff(props.oldText, props.newText)
+  if (parts.every((p) => p.kind === 'same')) {
+    return (
+      <p className="text-xs py-1" style={{ color: 'var(--text-3)' }}>
+        No text changes (formatting or images only).
+      </p>
+    )
+  }
+  return (
+    <div
+      className="rounded-lg border p-2 my-1 text-xs whitespace-pre-wrap max-h-48 overflow-y-auto"
+      style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+    >
+      {parts.map((p, idx) =>
+        p.kind === 'same' ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static render of a computed diff
+          <span key={idx}>{p.text}</span>
+        ) : (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: static render of a computed diff
+            key={idx}
+            style={
+              p.kind === 'added'
+                ? { background: 'color-mix(in srgb, var(--live) 22%, transparent)' }
+                : {
+                    background: 'color-mix(in srgb, var(--danger) 18%, transparent)',
+                    textDecoration: 'line-through',
+                  }
+            }
+          >
+            {p.text}
+          </span>
+        ),
+      )}
+    </div>
+  )
+}
+
 function HistoryModal(props: { page: PageMeta; onClose: () => void }) {
   const utils = trpc.useUtils()
   const versions = trpc.publish.versions.useQuery({ pageId: props.page.id })
@@ -632,48 +799,66 @@ function HistoryModal(props: { page: PageMeta; onClose: () => void }) {
   const republish = trpc.publish.republish.useMutation({ onSuccess: invalidate })
   const retire = trpc.publish.retire.useMutation({ onSuccess: invalidate })
   const anyLive = versions.data?.some((v) => v.isLive) ?? false
+  const [diffFor, setDiffFor] = useState<string | null>(null)
 
   return (
-    <Modal title="Versions" onClose={props.onClose}>
+    <Modal title="Versions" onClose={props.onClose} width="lg">
       {versions.data?.length === 0 && (
         <p className="text-sm" style={{ color: 'var(--text-2)' }}>
           Never published.
         </p>
       )}
       <ul className="text-sm mb-4">
-        {versions.data?.map((v) => (
-          <li
-            key={v.id}
-            className="flex items-center gap-2 py-2 border-b last:border-0"
-            style={{ borderColor: 'var(--border)' }}
-          >
-            <span
-              className="font-mono text-xs rounded px-1.5"
-              style={{ background: 'var(--accent-soft)' }}
+        {versions.data?.map((v, idx) => {
+          // versions arrive newest-first; the next entry is the previous version
+          const prev = versions.data?.[idx + 1]
+          return (
+            <li
+              key={v.id}
+              className="py-2 border-b last:border-0"
+              style={{ borderColor: 'var(--border)' }}
             >
-              v{v.version}
-            </span>
-            <span className="truncate flex-1">{v.title}</span>
-            <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-              {new Date(v.createdAt).toLocaleDateString()}
-            </span>
-            {v.isLive ? (
-              <span className="text-xs font-semibold" style={{ color: 'var(--live)' }}>
-                live
-              </span>
-            ) : (
-              <button
-                type="button"
-                className="text-xs underline"
-                style={{ color: 'var(--accent)' }}
-                disabled={republish.isPending}
-                onClick={() => republish.mutate({ pageId: props.page.id, versionId: v.id })}
-              >
-                restore
-              </button>
-            )}
-          </li>
-        ))}
+              <div className="flex items-center gap-2">
+                <span
+                  className="font-mono text-xs rounded px-1.5"
+                  style={{ background: 'var(--accent-soft)' }}
+                >
+                  v{v.version}
+                </span>
+                <span className="truncate flex-1">{v.title}</span>
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {new Date(v.createdAt).toLocaleDateString()}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--text-2)' }}
+                  onClick={() => setDiffFor(diffFor === v.id ? null : v.id)}
+                >
+                  {diffFor === v.id ? 'hide changes' : 'changes'}
+                </button>
+                {v.isLive ? (
+                  <span className="text-xs font-semibold" style={{ color: 'var(--live)' }}>
+                    live
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-xs underline"
+                    style={{ color: 'var(--accent)' }}
+                    disabled={republish.isPending}
+                    onClick={() => republish.mutate({ pageId: props.page.id, versionId: v.id })}
+                  >
+                    restore
+                  </button>
+                )}
+              </div>
+              {diffFor === v.id && (
+                <DiffView oldText={prev?.textPlain ?? ''} newText={v.textPlain} />
+              )}
+            </li>
+          )
+        })}
       </ul>
       {anyLive && (
         <button
