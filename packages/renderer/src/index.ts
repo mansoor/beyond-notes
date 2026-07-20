@@ -1,5 +1,5 @@
-export { blocknoteToHtml, plainText, galleryHtml } from './render'
-export type { GalleryLayout } from './render'
+export { blocknoteToHtml, plainText, galleryHtml, extractHeadings } from './render'
+export type { GalleryLayout, TocEntry } from './render'
 export { socialLinksHtml, shareBarHtml, SOCIAL_PLATFORMS } from './chrome'
 export type { SocialLink, SocialPlatform } from './chrome'
 export { blocknoteToMarkdown, markdownToBlocks } from './markdown'

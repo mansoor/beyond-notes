@@ -5,6 +5,7 @@ import {
   docs404,
   docsSearchResults,
   docsShell,
+  extractHeadings,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -73,6 +74,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     query: Record<string, unknown>,
     basePath: string,
     reply: FastifyReply,
+    /** editBase is the app's URL, set only when the visitor has a session */
+    opts: { editBase?: string | null } = {},
   ): Promise<boolean> {
     const space = await resolveSpace(host)
     if (!space) return false
@@ -163,6 +166,15 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     const prev = idx > 0 ? site.flat[idx - 1] : undefined
     const next = idx >= 0 && idx < site.flat.length - 1 ? site.flat[idx + 1] : undefined
 
+    // breadcrumb trail from the live tree (the site renderer has had this)
+    const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
+    const crumbs: Array<{ title: string; path: string }> = []
+    let cursor = hit.entry.page.parentId ? byId.get(hit.entry.page.parentId) : undefined
+    while (cursor) {
+      crumbs.unshift({ title: cursor.title, path: cursor.path })
+      cursor = cursor.entry.page.parentId ? byId.get(cursor.entry.page.parentId) : undefined
+    }
+
     reply.header('etag', `W/"${hit.entry.version.id}"`)
     reply.send(
       docsShell({
@@ -174,6 +186,12 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         basePath,
         prev: prev ? { title: prev.title, path: prev.path } : undefined,
         next: next ? { title: next.title, path: next.path } : undefined,
+        crumbs,
+        // the TOC is derived from the snapshot's blocks, so it always matches
+        // the ids baked into the stored HTML
+        toc: extractHeadings(hit.entry.version.content),
+        updatedAt: hit.entry.version.createdAt.toISOString(),
+        editUrl: opts.editBase ? `${opts.editBase}/p/${hit.entry.page.id}` : null,
       }),
     )
     return true

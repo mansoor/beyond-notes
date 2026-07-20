@@ -61,13 +61,15 @@ describe('blocknoteToHtml (golden)', () => {
       },
     ])
     expect(blocknoteToHtml(doc)).toBe(
-      '<h2>Install</h2>' +
+      // headings carry an id + copyable anchor (v0.6); code blocks carry the
+      // language on the <pre> so the copy button and highlighting can see it
+      '<h2 id="install">Install<a class="hanchor" href="#install" aria-label="Link to this section">#</a></h2>' +
         '<p>Plain <strong>bold</strong> and <code>code</code></p>' +
         '<ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul>' +
         '<ol><li>first</li></ol>' +
         '<ul class="checklist"><li class="check done"><input type="checkbox" disabled checked> done thing</li>' +
         '<li class="check"><input type="checkbox" disabled> todo thing</li></ul>' +
-        '<pre><code class="language-bash">docker compose up -d</code></pre>' +
+        '<pre data-lang="bash"><code class="language-bash">docker compose up -d</code></pre>' +
         '<blockquote>wisdom</blockquote>' +
         '<p><a href="https://example.com">a link</a></p>',
     )

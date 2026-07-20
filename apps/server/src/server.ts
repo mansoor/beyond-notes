@@ -169,12 +169,15 @@ export async function buildServer(config: Config, appDb: AppDb) {
     const host = (req.headers.host ?? '').toLowerCase()
     if (!host || host === appHost) return
     const url = new URL(req.url, 'http://placeholder')
+    // a signed-in visitor gets an "Edit this page" link back into the app
+    const viewer = await userFromRequest(req)
     await publicSrv.serve(
       host,
       decodeURIComponent(url.pathname),
       Object.fromEntries(url.searchParams),
       '',
       reply,
+      { editBase: viewer ? config.BASE_URL : null },
     )
   })
 
@@ -183,12 +186,14 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const serveByPath = async (req: any, reply: any) => {
     const host = String(req.params.host ?? '')
     const rest = `/${String(req.params['*'] ?? '')}`
+    const viewer = await userFromRequest(req)
     const handled = await publicSrv.serve(
       host,
       decodeURIComponent(rest),
       req.query ?? {},
       `/s/${host}`,
       reply,
+      { editBase: viewer ? config.BASE_URL : null },
     )
     if (!handled) reply.code(404).send({ error: 'no published site for this host' })
   }

@@ -133,6 +133,9 @@ function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: bool
           <Link to="/trash" className={itemClass} onClick={() => setOpen(false)}>
             🗑 Trash
           </Link>
+          <Link to="/stale" className={itemClass} onClick={() => setOpen(false)}>
+            ⏳ Needs a look
+          </Link>
           <div className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />
           <button
             type="button"
