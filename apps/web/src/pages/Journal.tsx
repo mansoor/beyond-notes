@@ -51,7 +51,7 @@ export function JournalPage() {
   )
 
   return (
-    <div className="flex">
+    <div className="flex min-h-screen">
       <div className="flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8">
         <div className="flex items-center gap-3 mb-1">
           <h1 className="text-3xl font-bold flex-1">{prettyDate(date)}</h1>

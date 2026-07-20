@@ -130,6 +130,10 @@ export const pages = pgTable('pages', {
   // untouched — retiring is its own explicit act.
   archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
   archivedBy: text('archived_by'),
+  // trash: deletion is a 30-day soft state before the purge job hard-deletes.
+  // Trashed pages vanish from the tree, search, tags, AND the public site.
+  trashedAt: timestamp('trashed_at', { withTimezone: true, mode: 'date' }),
+  trashedBy: text('trashed_by'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
@@ -308,6 +312,46 @@ export const pageTags = pgTable(
   },
   (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
 )
+
+// internal page→page links, re-derived from documents on every save (tags
+// pattern); the backlinks panel reads the reverse direction
+export const pageLinks = pgTable(
+  'page_links',
+  {
+    fromPageId: text('from_page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    toPageId: text('to_page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.fromPageId, t.toPageId] })],
+)
+
+// every slug a page has ever been published under — old public URLs 301 to
+// the current one instead of breaking
+export const pageSlugs = pgTable(
+  'page_slugs',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.slug] })],
+)
+
+// reusable page skeletons ("Save as template" → offered on empty pages)
+export const templates = pgTable('templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  content: text('content').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
 
 // per-user pinned pages (the ⭐ section in the sidebar)
 export const pins = pgTable(

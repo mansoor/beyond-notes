@@ -10,6 +10,7 @@ import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
 import { TagsPage } from './pages/Tags'
 import { TasksPage } from './pages/Tasks'
+import { TrashPage } from './pages/Trash'
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> })
 
@@ -74,6 +75,12 @@ const archiveRoute = createRoute({
   component: ArchivePage,
 })
 
+const trashRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/trash',
+  component: TrashPage,
+})
+
 const tagsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/tags',
@@ -92,6 +99,7 @@ export const router = createRouter({
       tasksRoute,
       settingsRoute,
       archiveRoute,
+      trashRoute,
       tagsRoute,
     ]),
   ]),

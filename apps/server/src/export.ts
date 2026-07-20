@@ -12,6 +12,7 @@ import { blocknoteToMarkdown, markdownToBlocks } from '@bn/renderer'
 import { zipSync } from 'fflate'
 import { extractAttachmentIds, thumbKey } from './attachments'
 import type { BlobStore } from './blobstore'
+import { reconcileLinks } from './links'
 import type { PagesService } from './pages'
 import type { AttachmentRow, PageRow, Repo, UserRow } from './repo'
 import { decryptGroup, encryptGroup } from './secrets'
@@ -25,7 +26,7 @@ const DATE_COLUMNS: Record<string, string[]> = {
   users: ['createdAt'],
   invites: ['createdAt', 'expiresAt', 'usedAt', 'revokedAt'],
   spaces: ['createdAt'],
-  pages: ['createdAt', 'updatedAt', 'archivedAt'],
+  pages: ['createdAt', 'updatedAt', 'archivedAt', 'trashedAt'],
   documents: ['updatedAt'],
   pageVersions: ['createdAt'],
   attachments: ['createdAt'],
@@ -36,6 +37,10 @@ const DATE_COLUMNS: Record<string, string[]> = {
   scheduledJobs: ['runAt', 'createdAt'],
   settings: ['updatedAt'],
   webhooks: ['createdAt', 'lastUsedAt', 'revokedAt'],
+  templates: ['createdAt'],
+  pins: ['createdAt'],
+  pageSlugs: ['createdAt'],
+  pageTags: [],
 }
 
 type Dump = {
@@ -81,6 +86,10 @@ export async function exportInstance(
       }
     }),
     webhooks: await repo.listAllWebhooks(),
+    templates: await repo.listTemplates(),
+    pins: await repo.listAllPins(),
+    pageSlugs: await repo.listAllPageSlugRows(),
+    pageTags: await repo.listAllPageTagRows(),
   } as unknown as Dump['tables']
 
   const dump: Dump = {
@@ -173,6 +182,19 @@ export async function importInstance(
     await repo.putSetting(row.key, value, row.updatedAt)
   }
   for (const row of rows('webhooks')) await repo.insertWebhook(row as never)
+  for (const row of rows('templates')) await repo.insertTemplate(row as never)
+  for (const row of rows('pins') as Array<{ userId: string; pageId: string; createdAt: Date }>) {
+    await repo.addPin(row.userId, row.pageId, row.createdAt)
+  }
+  for (const row of rows('pageSlugs') as Array<{ pageId: string; slug: string; createdAt: Date }>) {
+    await repo.addPageSlug(row.pageId, row.slug, row.createdAt)
+  }
+  // tags carry manual rows, so they import verbatim; the link index is
+  // derived and rebuilds from the documents
+  for (const row of rows('pageTags')) await repo.insertPageTagRow(row as never)
+  for (const row of rows('documents') as Array<{ pageId: string; content: string }>) {
+    await reconcileLinks(repo, row.pageId, row.content)
+  }
 
   let blobCount = 0
   const blobDir = join(inDir, 'blobs')

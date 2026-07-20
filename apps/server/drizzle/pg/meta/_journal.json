@@ -113,6 +113,13 @@
       "when": 1784527856459,
       "tag": "0015_ancient_randall_flagg",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784529956252,
+      "tag": "0016_bent_vanisher",
+      "breakpoints": true
     }
   ]
 }

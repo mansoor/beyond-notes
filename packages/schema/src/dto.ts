@@ -199,6 +199,30 @@ export type ArchivedPageView = {
   archivedByName: string
 }
 
+export type TrashedPageView = {
+  id: string
+  title: string
+  pageType: 'doc' | 'blog' | 'gallery'
+  spaceName: string
+  trashedAt: string
+  trashedByName: string
+  /** ISO date when the purge job will hard-delete it */
+  purgeAt: string
+}
+
+// ---- backlinks ----
+
+export type BacklinkView = { id: string; title: string; spaceName: string }
+
+// ---- templates ----
+
+export const createTemplateInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  pageId: z.string(),
+})
+
+export type TemplateView = { id: string; name: string; createdAt: string }
+
 export const setPageTypeInput = z.object({
   pageId: z.string(),
   pageType: z.enum(['doc', 'blog', 'gallery']),
@@ -330,6 +354,8 @@ export type VersionView = {
   title: string
   createdAt: string
   isLive: boolean
+  /** plain text of the snapshot — the History dialog diffs consecutive versions */
+  textPlain: string
 }
 
 // ---- reminders (M5) ----

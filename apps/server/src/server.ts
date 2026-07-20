@@ -224,12 +224,25 @@ export async function buildServer(config: Config, appDb: AppDb) {
   // the scheduler tick lives with the server lifecycle; runOnce on boot
   // catches up anything that came due while the app was down
   if (config.NODE_ENV !== 'test') {
+    const TRASH_RETENTION_DAYS = 30
+    let purgeTimer: ReturnType<typeof setInterval> | null = null
+    const purgeTrash = async () => {
+      const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      const purged = await pages.purgeExpiredTrash(cutoff)
+      if (purged > 0) server.log.info(`trash purge: hard-deleted ${purged} page subtree(s)`)
+    }
     server.addHook('onReady', async () => {
       await scheduler.runOnce()
       scheduler.start()
+      await purgeTrash().catch((err) => server.log.error(err, 'trash purge failed'))
+      purgeTimer = setInterval(
+        () => purgeTrash().catch((err) => server.log.error(err, 'trash purge failed')),
+        6 * 60 * 60 * 1000,
+      )
     })
     server.addHook('onClose', async () => {
       scheduler.stop()
+      if (purgeTimer) clearInterval(purgeTimer)
     })
   }
 

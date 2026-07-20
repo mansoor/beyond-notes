@@ -99,6 +99,8 @@ export const pages = sqliteTable('pages', {
   coverAttachmentId: text('cover_attachment_id'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   archivedBy: text('archived_by'),
+  trashedAt: integer('trashed_at', { mode: 'timestamp_ms' }),
+  trashedBy: text('trashed_by'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -261,6 +263,41 @@ export const pageTags = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
 )
+
+export const pageLinks = sqliteTable(
+  'page_links',
+  {
+    fromPageId: text('from_page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    toPageId: text('to_page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.fromPageId, t.toPageId] })],
+)
+
+export const pageSlugs = sqliteTable(
+  'page_slugs',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.slug] })],
+)
+
+export const templates = sqliteTable('templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  content: text('content').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
 
 export const pins = sqliteTable(
   'pins',

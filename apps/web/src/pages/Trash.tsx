@@ -3,35 +3,35 @@ import { trpc } from '../trpc'
 
 const TYPE_ICON = { doc: '📄', blog: '📰', gallery: '🖼' } as const
 
-export function ArchivePage() {
+export function TrashPage() {
   const utils = trpc.useUtils()
-  const archived = trpc.pages.archived.useQuery()
+  const trashed = trpc.pages.trashed.useQuery()
   const invalidate = () =>
     Promise.all([
-      utils.pages.archived.invalidate(),
       utils.pages.trashed.invalidate(),
       utils.pages.tree.invalidate(),
       utils.tasks.agenda.invalidate(),
+      utils.pins.list.invalidate(),
     ])
-  const restore = trpc.pages.restore.useMutation({ onSuccess: invalidate })
-  const del = trpc.pages.delete.useMutation({ onSuccess: invalidate })
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const restore = trpc.pages.restoreTrashed.useMutation({ onSuccess: invalidate })
+  const purge = trpc.pages.deleteForever.useMutation({ onSuccess: invalidate })
+  const [confirmPurge, setConfirmPurge] = useState<string | null>(null)
 
   return (
     <div className="max-w-5xl mx-auto px-10 py-8">
-      <h1 className="text-2xl font-bold mb-1">Archive</h1>
+      <h1 className="text-2xl font-bold mb-1">Trash</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
-        Archived pages leave the sidebar, search, and the task list — but nothing is lost. Restore
-        puts a page (and everything under it) back where it was.
+        Deleted pages wait here for 30 days before they purge for good. Restoring puts a page (and
+        everything under it) back where it was; published pages return to the site too.
       </p>
 
-      {archived.data?.length === 0 && (
+      {trashed.data?.length === 0 && (
         <p className="text-sm" style={{ color: 'var(--text-3)' }}>
-          Nothing archived. The page menu (⋯) in the sidebar has an Archive action.
+          The trash is empty.
         </p>
       )}
 
-      {archived.data?.map((item) => (
+      {trashed.data?.map((item) => (
         <div
           key={item.id}
           className="flex items-center gap-3 border-b py-3"
@@ -41,11 +41,12 @@ export function ArchivePage() {
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium truncate">{item.title}</div>
             <div className="text-xs" style={{ color: 'var(--text-3)' }}>
-              {item.spaceName} · archived by {item.archivedByName} ·{' '}
-              {new Date(item.archivedAt).toLocaleString([], {
+              {item.spaceName} · deleted by {item.trashedByName} ·{' '}
+              {new Date(item.trashedAt).toLocaleString([], {
                 dateStyle: 'medium',
                 timeStyle: 'short',
-              })}
+              })}{' '}
+              · purges {new Date(item.purgeAt).toLocaleDateString()}
             </div>
           </div>
           <button
@@ -57,28 +58,27 @@ export function ArchivePage() {
           >
             Restore
           </button>
-          {confirmDelete === item.id ? (
+          {confirmPurge === item.id ? (
             <button
               type="button"
               className="rounded-lg px-3 py-1 text-xs text-white"
               style={{ background: 'var(--danger)' }}
-              disabled={del.isPending}
+              disabled={purge.isPending}
               onClick={() => {
-                del.mutate({ pageId: item.id })
-                setConfirmDelete(null)
+                purge.mutate({ pageId: item.id })
+                setConfirmPurge(null)
               }}
             >
-              Really move to Trash
+              Really delete forever
             </button>
           ) : (
             <button
               type="button"
               className="text-xs underline"
               style={{ color: 'var(--danger)' }}
-              title="Moves to Trash; purges for good after 30 days"
-              onClick={() => setConfirmDelete(item.id)}
+              onClick={() => setConfirmPurge(item.id)}
             >
-              Delete
+              Delete forever
             </button>
           )}
         </div>

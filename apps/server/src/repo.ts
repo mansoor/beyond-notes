@@ -64,8 +64,18 @@ export type PageRow = {
   coverAttachmentId: string | null
   archivedAt: Date | null
   archivedBy: string | null
+  trashedAt: Date | null
+  trashedBy: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+export type TemplateRow = {
+  id: string
+  name: string
+  content: string
+  createdBy: string
+  createdAt: Date
 }
 
 export type PageVersionRow = {
@@ -382,6 +392,75 @@ export function createRepo(appDb: AppDb) {
       return db.select().from(t.pages).where(sqlOp`${t.pages.archivedAt} is not null`)
     },
 
+    // ---- trash ----
+
+    async setPagesTrashed(
+      ids: string[],
+      trashedAt: Date | null,
+      trashedBy: string | null,
+    ): Promise<void> {
+      for (const id of ids) {
+        await db.update(t.pages).set({ trashedAt, trashedBy }).where(eq(t.pages.id, id))
+      }
+    },
+
+    async listTrashedPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages).where(sqlOp`${t.pages.trashedAt} is not null`)
+    },
+
+    // ---- page links ----
+
+    async setPageLinks(fromPageId: string, toPageIds: string[]): Promise<void> {
+      await db.delete(t.pageLinks).where(eq(t.pageLinks.fromPageId, fromPageId))
+      if (toPageIds.length > 0) {
+        await db
+          .insert(t.pageLinks)
+          .values(toPageIds.map((toPageId) => ({ fromPageId, toPageId })))
+          .onConflictDoNothing()
+      }
+    },
+
+    async listBacklinks(toPageId: string): Promise<string[]> {
+      const rows = await db
+        .select({ fromPageId: t.pageLinks.fromPageId })
+        .from(t.pageLinks)
+        .where(eq(t.pageLinks.toPageId, toPageId))
+      return rows.map((r: { fromPageId: string }) => r.fromPageId)
+    },
+
+    // ---- slug history ----
+
+    async addPageSlug(pageId: string, slug: string, when: Date): Promise<void> {
+      await db.insert(t.pageSlugs).values({ pageId, slug, createdAt: when }).onConflictDoNothing()
+    },
+
+    async listAllPageSlugs(): Promise<Array<{ pageId: string; slug: string }>> {
+      return db.select({ pageId: t.pageSlugs.pageId, slug: t.pageSlugs.slug }).from(t.pageSlugs)
+    },
+
+    async listAllPageSlugRows(): Promise<Array<{ pageId: string; slug: string; createdAt: Date }>> {
+      return db.select().from(t.pageSlugs)
+    },
+
+    // ---- templates ----
+
+    async insertTemplate(row: TemplateRow): Promise<void> {
+      await db.insert(t.templates).values(row)
+    },
+
+    async listTemplates(): Promise<TemplateRow[]> {
+      return db.select().from(t.templates)
+    },
+
+    async getTemplate(id: string): Promise<TemplateRow | null> {
+      const rows = await db.select().from(t.templates).where(eq(t.templates.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async deleteTemplate(id: string): Promise<void> {
+      await db.delete(t.templates).where(eq(t.templates.id, id))
+    },
+
     // ---- documents ----
 
     async insertDocument(doc: DocumentRow): Promise<void> {
@@ -626,7 +705,7 @@ export function createRepo(appDb: AppDb) {
         .from(t.pages)
         .innerJoin(t.documents, eq(t.documents.pageId, t.pages.id))
         .where(
-          sqlOp`(lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}) and ${t.pages.archivedAt} is null`,
+          sqlOp`(lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}) and ${t.pages.archivedAt} is null and ${t.pages.trashedAt} is null`,
         )
         .limit(50)
       return rows as Array<{ page: PageRow; content: string }>
@@ -768,6 +847,21 @@ export function createRepo(appDb: AppDb) {
       return db.select({ pageId: t.pageTags.pageId, tag: t.pageTags.tag }).from(t.pageTags)
     },
 
+    // full rows for export — manual tags make this table non-derivable
+    async listAllPageTagRows(): Promise<
+      Array<{ pageId: string; tag: string; source: 'inline' | 'manual' }>
+    > {
+      return db.select().from(t.pageTags)
+    },
+
+    async insertPageTagRow(row: {
+      pageId: string
+      tag: string
+      source: 'inline' | 'manual'
+    }): Promise<void> {
+      await db.insert(t.pageTags).values(row).onConflictDoNothing()
+    },
+
     async listPageIdsByTag(tag: string): Promise<string[]> {
       const rows = await db
         .select({ pageId: t.pageTags.pageId })
@@ -791,6 +885,10 @@ export function createRepo(appDb: AppDb) {
         .select({ pageId: t.pins.pageId, createdAt: t.pins.createdAt })
         .from(t.pins)
         .where(eq(t.pins.userId, userId))
+    },
+
+    async listAllPins(): Promise<Array<{ userId: string; pageId: string; createdAt: Date }>> {
+      return db.select().from(t.pins)
     },
 
     // ---- journal day notes ----
