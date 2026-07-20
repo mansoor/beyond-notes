@@ -66,7 +66,7 @@ Migrations: `page_links`, `page_slugs`, trash fields.
 5. ~~Scheduled publishing~~ — rides the existing job tick.
 6. ~~Favicon from the logo; robots.txt.~~
 
-## v0.6.0 — Wiki reading experience
+## v0.6.0 — Wiki reading experience ✅ shipped
 
 Almost all renderer work; no migrations expected.
 
