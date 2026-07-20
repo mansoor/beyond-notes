@@ -8,6 +8,7 @@ import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
 import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
+import { StalePage } from './pages/Stale'
 import { TagsPage } from './pages/Tags'
 import { TasksPage } from './pages/Tasks'
 import { TrashPage } from './pages/Trash'
@@ -75,6 +76,12 @@ const archiveRoute = createRoute({
   component: ArchivePage,
 })
 
+const staleRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/stale',
+  component: StalePage,
+})
+
 const trashRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/trash',
@@ -100,6 +107,7 @@ export const router = createRouter({
       settingsRoute,
       archiveRoute,
       trashRoute,
+      staleRoute,
       tagsRoute,
     ]),
   ]),

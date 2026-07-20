@@ -18,6 +18,7 @@ import type {
   SearchResult,
   SessionView,
   SpaceView,
+  StalePage,
   TagCount,
   TagItem,
   TaskView,
@@ -657,6 +658,37 @@ const pagesRouter = router({
       archivedByName: (page.archivedBy && users.get(page.archivedBy)) || 'unknown',
     }))
   }),
+
+  /** Pages nobody has touched in a while — the wiki maintainer's worklist. */
+  stale: authedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(3650).default(180) }))
+    .query(async ({ ctx, input }): Promise<StalePage[]> => {
+      const [pages, spaces] = await Promise.all([ctx.repo.listAllPages(), ctx.repo.listSpaces()])
+      const spaceById = new Map(
+        spaces
+          .filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === ctx.user.id))
+          .map((s) => [s.id, s]),
+      )
+      const cutoff = Date.now() - input.days * 24 * 60 * 60 * 1000
+      return pages
+        .filter(
+          (p) =>
+            spaceById.has(p.spaceId) &&
+            !p.archivedAt &&
+            !p.trashedAt &&
+            p.updatedAt.getTime() < cutoff,
+        )
+        .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+        .slice(0, 100)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          spaceName: (spaceById.get(p.spaceId) as SpaceRow).name,
+          updatedAt: p.updatedAt.toISOString(),
+          ageDays: Math.floor((Date.now() - p.updatedAt.getTime()) / 86_400_000),
+          isLive: p.liveVersionId !== null,
+        }))
+    }),
 
   /** Most recently edited pages across accessible tree spaces (Today rail). */
   recent: authedProcedure.query(async ({ ctx }): Promise<RecentPage[]> => {

@@ -1,5 +1,5 @@
 import { CHROME_JS, GALLERY_CSS } from './chrome'
-import { escapeHtml } from './render'
+import { type TocEntry, escapeHtml } from './render'
 
 export type NavNode = {
   title: string
@@ -20,6 +20,13 @@ export type ShellInput = {
   searchQuery?: string
   /** draft previews must never be indexed */
   noindex?: boolean
+  /** "On this page" entries, from the snapshot's headings */
+  toc?: TocEntry[]
+  crumbs?: Array<{ title: string; path: string }>
+  /** ISO date the live version was published */
+  updatedAt?: string | null
+  /** app URL for "Edit this page"; only rendered for signed-in visitors */
+  editUrl?: string | null
 }
 
 const CSS = `
@@ -74,22 +81,152 @@ display:flex;justify-content:space-between}
 main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:8px}
 main figcaption{font-size:12px;color:var(--text3);margin-top:4px}
+.crumbs{font-size:12.5px;color:var(--text3);margin-bottom:10px}
+.crumbs a{color:var(--text3);text-decoration:none}
+.crumbs a:hover{color:var(--accent)}
+.crumbs .sep{margin:0 6px;opacity:.6}
+.pagemeta{font-size:12.5px;color:var(--text3);margin:-4px 0 18px;display:flex;gap:14px;flex-wrap:wrap}
+.pagemeta a{color:var(--accent);text-decoration:none}
+main h2,main h3,main h4{scroll-margin-top:20px}
+.hanchor{margin-left:8px;color:var(--text3);text-decoration:none;opacity:0;font-weight:400}
+h2:hover .hanchor,h3:hover .hanchor,h4:hover .hanchor,.hanchor:focus{opacity:1}
+.toc{width:200px;flex-shrink:0;padding:30px 16px;font-size:13px;position:sticky;top:0;
+align-self:flex-start;max-height:100vh;overflow-y:auto}
+.toc h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:8px}
+.toc a{display:block;padding:3px 0;color:var(--text2);text-decoration:none;line-height:1.35}
+.toc a:hover{color:var(--accent)}
+.toc a.lvl3{padding-left:12px;font-size:12.5px}
+.toc a.lvl4{padding-left:24px;font-size:12.5px}
+.toc a.here{color:var(--accent);font-weight:600}
+@media(max-width:1100px){.toc{display:none}}
+nav.side .grp{display:flex;align-items:center;gap:4px}
+nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:10px;
+padding:2px 4px;line-height:1;border-radius:4px}
+nav.side .tw:hover{color:var(--text)}
+nav.side li.collapsed>ul{display:none}
+pre{position:relative}
+pre .copy{position:absolute;top:6px;right:6px;border:1px solid var(--border);background:var(--panel);
+color:var(--text2);border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer;opacity:0}
+pre:hover .copy,pre .copy:focus{opacity:1}
+.tok-com{color:var(--text3);font-style:italic}
+.tok-str{color:#3f8f5f}
+.tok-num{color:#a5682a}
+.tok-kw{color:var(--accent);font-weight:600}
+.tok-key{color:#8a5cd6}
+@media(prefers-color-scheme:dark){.tok-str{color:#84c99b}.tok-num{color:#d9a066}.tok-key{color:#b69bec}}
 `
+
+/** Sections with children get a twisty; the active trail stays expanded. */
+function hasActive(n: NavNode): boolean {
+  return n.active === true || n.children.some(hasActive)
+}
 
 function navHtml(nodes: NavNode[], basePath: string): string {
   if (nodes.length === 0) return ''
   const items = nodes
-    .map(
-      (n) =>
-        `<li><a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${escapeHtml(n.title)}</a>${navHtml(n.children, basePath)}</li>`,
-    )
+    .map((n) => {
+      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${escapeHtml(n.title)}</a>`
+      if (n.children.length === 0) return `<li>${link}</li>`
+      const open = hasActive(n)
+      return `<li class="${open ? '' : 'collapsed'}" data-sec="${escapeHtml(n.path)}"><span class="grp"><button class="tw" type="button" aria-label="Toggle section">${open ? '▾' : '▸'}</button>${link}</span>${navHtml(n.children, basePath)}</li>`
+    })
     .join('')
   return `<ul>${items}</ul>`
+}
+
+function tocHtml(toc: TocEntry[]): string {
+  if (toc.length < 2) return '' // a single heading is not a table of contents
+  const links = toc
+    .map((t) => `<a class="lvl${t.level}" href="#${escapeHtml(t.id)}">${escapeHtml(t.text)}</a>`)
+    .join('')
+  return `<aside class="toc"><h4>On this page</h4><nav>${links}</nav></aside>`
+}
+
+function docsCrumbs(crumbs: Array<{ title: string; path: string }>, basePath: string): string {
+  if (crumbs.length === 0) return ''
+  return `<nav class="crumbs">${crumbs
+    .map((c) => `<a href="${escapeHtml(basePath + c.path)}">${escapeHtml(c.title)}</a>`)
+    .join('<span class="sep">/</span>')}</nav>`
 }
 
 // Sidebar drag-to-resize: width lives in --sidew, persisted per-browser. The
 // restore runs from <head> so the bar never flashes at the default width.
 const SIDEBAR_RESTORE_JS = `try{var w=localStorage.getItem('bn-docs-sidew');if(w)document.documentElement.style.setProperty('--sidew',w+'px')}catch(e){}`
+const DOCS_JS = `(function(){
+// collapsible nav sections, remembered per browser
+var st={};try{st=JSON.parse(localStorage.getItem('bn-docs-nav')||'{}')}catch(e){}
+document.querySelectorAll('nav.side li[data-sec]').forEach(function(li){
+  var key=li.getAttribute('data-sec');
+  if(st[key]===true)li.classList.remove('collapsed');
+  if(st[key]===false&&!li.querySelector('a.active'))li.classList.add('collapsed');
+  var b=li.querySelector('.tw');if(!b)return;
+  b.textContent=li.classList.contains('collapsed')?'\\u25B8':'\\u25BE';
+  b.addEventListener('click',function(){
+    var now=li.classList.toggle('collapsed');
+    b.textContent=now?'\\u25B8':'\\u25BE';
+    st[key]=!now;try{localStorage.setItem('bn-docs-nav',JSON.stringify(st))}catch(e){}
+  });
+});
+// clipboard with a fallback: navigator.clipboard is undefined on plain HTTP,
+// which plenty of self-hosted instances run on
+function bnCopy(text){
+  if(navigator.clipboard&&window.isSecureContext){
+    return navigator.clipboard.writeText(text).catch(function(){return bnCopyFallback(text)});
+  }
+  return bnCopyFallback(text);
+}
+function bnCopyFallback(text){
+  return new Promise(function(res,rej){
+    try{
+      var ta=document.createElement('textarea');
+      ta.value=text;ta.setAttribute('readonly','');
+      ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();
+      var ok=document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok?res():rej(new Error('copy refused'));
+    }catch(e){rej(e)}
+  });
+}
+// copy button on code blocks
+document.querySelectorAll('main pre').forEach(function(pre){
+  var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='copy';
+  b.addEventListener('click',function(){
+    var code=pre.querySelector('code');
+    bnCopy(code?code.innerText:pre.innerText).then(function(){
+      b.textContent='copied';setTimeout(function(){b.textContent='copy'},1200);
+    },function(){
+      b.textContent='copy failed';setTimeout(function(){b.textContent='copy'},1600);
+    });
+  });
+  pre.appendChild(b);
+});
+// heading anchors copy their link instead of only jumping
+document.querySelectorAll('.hanchor').forEach(function(a){
+  a.addEventListener('click',function(e){
+    e.preventDefault();
+    var url=location.origin+location.pathname+a.getAttribute('href');
+    history.replaceState(null,'',a.getAttribute('href'));
+    document.querySelector(a.getAttribute('href')).scrollIntoView();
+    bnCopy(url).catch(function(){});
+  });
+});
+// scrollspy: highlight the TOC entry for the heading nearest the top
+var links=[].slice.call(document.querySelectorAll('.toc a'));
+if(links.length){
+  var heads=links.map(function(l){return document.getElementById(l.getAttribute('href').slice(1))});
+  var tick=function(){
+    var best=0;
+    for(var i=0;i<heads.length;i++){if(heads[i]&&heads[i].getBoundingClientRect().top<=90)best=i}
+    // at the very bottom the last heading can never reach the top — claim it,
+    // otherwise the final section is unreachable in the TOC
+    if(window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-2)best=heads.length-1;
+    links.forEach(function(l,i){l.classList.toggle('here',i===best)});
+  };
+  document.addEventListener('scroll',tick,{passive:true});tick();
+}
+})();`
+
 const SIDEBAR_DRAG_JS = `(function(){
 var bar=document.querySelector('.dragbar');if(!bar)return;
 var root=document.documentElement,on=false;
@@ -121,7 +258,7 @@ ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(
 <body>
 ${body}
 <footer><span>${escapeHtml(footer)}</span><span>Built with Beyond Notes</span></footer>
-<script>${CHROME_JS}${SIDEBAR_DRAG_JS}</script>
+<script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}</script>
 </body>
 </html>`
 }
@@ -142,15 +279,27 @@ export function docsShell(input: ShellInput): string {
   const next = input.next
     ? `<a class="next" href="${escapeHtml(input.basePath + input.next.path)}">Next ›<b>${escapeHtml(input.next.title)}</b></a>`
     : '<span></span>'
+  const meta: string[] = []
+  if (input.updatedAt) {
+    meta.push(
+      `<span>Last updated ${escapeHtml(new Date(input.updatedAt).toISOString().slice(0, 10))}</span>`,
+    )
+  }
+  if (input.editUrl) {
+    meta.push(`<a href="${escapeHtml(input.editUrl)}">Edit this page ↗</a>`)
+  }
   const body = `${headerHtml(input.siteTitle, input.basePath)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
 <main><div class="inner">
+${docsCrumbs(input.crumbs ?? [], input.basePath)}
 <h1>${escapeHtml(input.pageTitle)}</h1>
+${meta.length > 0 ? `<div class="pagemeta">${meta.join('')}</div>` : ''}
 ${input.contentHtml}
 <div class="prevnext">${prev}${next}</div>
 </div></main>
+${tocHtml(input.toc ?? [])}
 </div>`
   return page(input.siteTitle, input.footer, input.basePath, body, input.pageTitle, input.noindex)
 }

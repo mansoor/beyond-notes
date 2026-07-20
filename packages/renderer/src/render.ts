@@ -3,6 +3,9 @@
 // passes through — this is the publish pipeline's security posture, enforced
 // here rather than at serve time.
 
+import { highlightCode } from './highlight'
+import { slugify } from './slug'
+
 type Block = {
   id?: string
   type?: string
@@ -57,12 +60,23 @@ function listTag(type: string): 'ul' | 'ol' {
   return type === 'numberedListItem' ? 'ol' : 'ul'
 }
 
-function renderChildren(block: Block): string {
-  if (!Array.isArray(block.children) || block.children.length === 0) return ''
-  return `<div class="indent">${renderBlocks(block.children)}</div>`
+/**
+ * Heading anchors: the slug of the text, deduped within a page. The renderer
+ * and the TOC extractor share this so a TOC link always finds its heading.
+ */
+function headingId(text: string, seen: Map<string, number>): string {
+  const base = slugify(text) || 'section'
+  const n = seen.get(base) ?? 0
+  seen.set(base, n + 1)
+  return n === 0 ? base : `${base}-${n + 1}`
 }
 
-function renderBlocks(blocks: Block[]): string {
+function renderChildren(block: Block, seen: Map<string, number>): string {
+  if (!Array.isArray(block.children) || block.children.length === 0) return ''
+  return `<div class="indent">${renderBlocks(block.children, seen)}</div>`
+}
+
+function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): string {
   let out = ''
   let i = 0
   while (i < blocks.length) {
@@ -98,14 +112,20 @@ function renderBlocks(blocks: Block[]): string {
       case 'heading': {
         const level = Number(block.props?.level) || 1
         const h = Math.min(Math.max(level + 1, 2), 4) // page title owns h1
-        out += `<h${h}>${renderInline(block.content)}</h${h}>`
+        const inner = renderInline(block.content)
+        const id = headingId(inlinePlain(block.content), seen)
+        // the anchor is a real link so it works without JS; CHROME_JS upgrades
+        // it to copy-to-clipboard
+        out += `<h${h} id="${escapeHtml(id)}">${inner}<a class="hanchor" href="#${escapeHtml(id)}" aria-label="Link to this section">#</a></h${h}>`
         break
       }
       case 'codeBlock': {
-        const language =
-          typeof block.props?.language === 'string' ? escapeHtml(block.props.language) : ''
-        const code = escapeHtml(codeText(block.content))
-        out += `<pre><code${language ? ` class="language-${language}"` : ''}>${code}</code></pre>`
+        const rawLang = typeof block.props?.language === 'string' ? block.props.language : ''
+        const language = escapeHtml(rawLang)
+        const code = highlightCode(codeText(block.content), rawLang)
+        out += `<pre${language ? ` data-lang="${language}"` : ''}><code${
+          language ? ` class="language-${language}"` : ''
+        }>${code}</code></pre>`
         break
       }
       case 'quote':
@@ -123,7 +143,7 @@ function renderBlocks(blocks: Block[]): string {
       default:
         out += `<p>${renderInline(block.content)}</p>`
     }
-    out += renderChildren(block)
+    out += renderChildren(block, seen)
     i++
   }
   return out
@@ -132,6 +152,36 @@ function renderBlocks(blocks: Block[]): string {
 function renderChildrenAsList(block: Block, tag: 'ul' | 'ol'): string {
   if (!Array.isArray(block.children) || block.children.length === 0) return ''
   return renderBlocks(block.children).replace(/^/, '') // nested lists render as their own <ul>/<ol> inside the <li>
+}
+
+export type TocEntry = { level: number; text: string; id: string }
+
+/**
+ * The "On this page" list. Walks the same blocks in the same order with the
+ * same id rules as the renderer, so ids always line up with the baked HTML.
+ */
+export function extractHeadings(contentJson: string): TocEntry[] {
+  let blocks: Block[]
+  try {
+    const parsed = JSON.parse(contentJson)
+    blocks = Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+  const seen = new Map<string, number>()
+  const out: TocEntry[] = []
+  const walk = (list: Block[]) => {
+    for (const block of list) {
+      if (block?.type === 'heading') {
+        const text = inlinePlain(block.content)
+        const level = Math.min(Math.max((Number(block.props?.level) || 1) + 1, 2), 4)
+        out.push({ level, text, id: headingId(text, seen) })
+      }
+      if (Array.isArray(block?.children)) walk(block.children)
+    }
+  }
+  walk(blocks)
+  return out
 }
 
 function codeText(content: unknown): string {

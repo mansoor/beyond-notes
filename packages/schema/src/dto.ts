@@ -496,6 +496,16 @@ export const pageTagInput = z.object({ pageId: z.string(), tag: tagName })
 
 export type PinView = { pageId: string; title: string; pageType: 'doc' | 'blog' | 'gallery' }
 
+export type StalePage = {
+  id: string
+  title: string
+  spaceName: string
+  updatedAt: string
+  /** whole days since the last edit */
+  ageDays: number
+  isLive: boolean
+}
+
 export type RecentPage = {
   id: string
   title: string
