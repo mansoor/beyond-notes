@@ -180,6 +180,7 @@ function SpaceItem(props: { space: SpaceView }) {
           pages={tree.data}
           parentId={null}
           depth={0}
+          category={props.space.category}
           onAddChild={addPage}
           onAction={(a) => setAction(a)}
         />
@@ -263,156 +264,240 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     tagline !== (s.publicTagline ?? '') ||
     headerLayout !== s.publicHeaderLayout
 
+  const isSite = s.category === 'site'
+  const tabs = [
+    { id: 'general', label: 'General', icon: '🌐' },
+    { id: 'appearance', label: 'Appearance', icon: '🎨' },
+    ...(isSite ? [{ id: 'branding', label: 'Branding', icon: '✦' }] : []),
+  ] as const
+  const [tab, setTab] = useState<(typeof tabs)[number]['id']>('general')
+
   return (
-    <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty}>
+    <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty} width="lg">
       <form onSubmit={onSubmit}>
-        <label className="flex items-center gap-2 mb-4 text-sm">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          Publish this space as a docs site
-        </label>
-        <Field label="Host (e.g. docs.example.com)" value={host} onChange={setHost} />
-        <Field label="Site title (defaults to the space name)" value={title} onChange={setTitle} />
-        <Field label="Footer" value={footer} onChange={setFooter} />
-        <label className="block mb-4">
-          <span className="block text-sm font-medium mb-1">Theme</span>
-          <select
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={theme}
-            onChange={(e) => setTheme(e.target.value as SpaceView['publicTheme'])}
+        <div className="flex gap-5">
+          <div
+            className="flex flex-col gap-1 shrink-0 w-36 border-r pr-3"
+            style={{ borderColor: 'var(--border)' }}
           >
-            <option value="paper">Paper — warm, easy on the eyes</option>
-            <option value="ink">Ink — moody blue-gray</option>
-            <option value="mist">Mist — cool and airy</option>
-            <option value="sand">Sand — warm earth tones</option>
-            <option value="bloom">Bloom — bright white, vivid accent</option>
-          </select>
-        </label>
-        <label className="block mb-4">
-          <span className="block text-sm font-medium mb-1">Appearance</span>
-          <select
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={appearance}
-            onChange={(e) => setAppearance(e.target.value as SpaceView['publicAppearance'])}
-          >
-            <option value="auto">Auto — follow each visitor&apos;s device</option>
-            <option value="light">Always light</option>
-            <option value="dark">Always dark</option>
-          </select>
-        </label>
-        <Field label="Tagline (shown under the site title)" value={tagline} onChange={setTagline} />
-        <div className="mb-4 flex items-center gap-3">
-          <span className="text-sm font-medium">Logo</span>
-          {logoId ? (
-            <>
-              <img
-                src={`/api/files/${logoId}/thumb`}
-                alt="logo"
-                className="h-9 w-auto rounded"
-                style={{ background: 'var(--bg)' }}
-              />
+            {tabs.map((t) => (
               <button
+                key={t.id}
                 type="button"
-                className="text-xs underline"
-                style={{ color: 'var(--danger)' }}
-                onClick={() => setLogoId(null)}
+                onClick={() => setTab(t.id)}
+                className="text-left rounded-lg px-3 py-1.5 text-sm"
+                style={{
+                  background: tab === t.id ? 'var(--accent-soft)' : undefined,
+                  color: tab === t.id ? 'var(--accent)' : 'var(--text-2)',
+                  fontWeight: tab === t.id ? 600 : undefined,
+                }}
               >
-                remove
+                <span className="mr-1.5">{t.icon}</span>
+                {t.label}
               </button>
-            </>
-          ) : (
-            <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
-              {logoBusy ? 'uploading…' : '+ upload logo'}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                disabled={logoBusy}
-                onChange={(e) => uploadLogo(e.target.files)}
+            ))}
+          </div>
+          <div className="flex-1 min-w-0 min-h-[320px]">
+            {tab === 'general' && (
+              <>
+                <label className="flex items-center gap-2 mb-4 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                  />
+                  {isSite ? 'Publish this space as a website' : 'Publish this space as a docs site'}
+                </label>
+                <Field label="Host (e.g. docs.example.com)" value={host} onChange={setHost} />
+                <Field
+                  label="Site title (defaults to the space name)"
+                  value={title}
+                  onChange={setTitle}
+                />
+                <Field label="Footer" value={footer} onChange={setFooter} />
+                <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  Only pages you explicitly publish appear, and only when every parent is published
+                  too. Preview without DNS at /s/&lt;host&gt;/.
+                </p>
+              </>
+            )}
+            {tab === 'appearance' && (
+              <>
+                <label className="block mb-4">
+                  <span className="block text-sm font-medium mb-1">Theme</span>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value as SpaceView['publicTheme'])}
+                  >
+                    <option value="paper">Paper — warm, easy on the eyes</option>
+                    <option value="ink">Ink — moody blue-gray</option>
+                    <option value="mist">Mist — cool and airy</option>
+                    <option value="sand">Sand — warm earth tones</option>
+                    <option value="bloom">Bloom — bright white, vivid accent</option>
+                  </select>
+                </label>
+                <label className="block mb-4">
+                  <span className="block text-sm font-medium mb-1">Appearance</span>
+                  <select
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                    value={appearance}
+                    onChange={(e) => setAppearance(e.target.value as SpaceView['publicAppearance'])}
+                  >
+                    <option value="auto">Auto — follow each visitor&apos;s device</option>
+                    <option value="light">Always light</option>
+                    <option value="dark">Always dark</option>
+                  </select>
+                </label>
+                {isSite && (
+                  <label className="block mb-4">
+                    <span className="block text-sm font-medium mb-1">Header style</span>
+                    <select
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                      value={headerLayout}
+                      onChange={(e) =>
+                        setHeaderLayout(e.target.value as SpaceView['publicHeaderLayout'])
+                      }
+                    >
+                      <option value="classic">Classic — logo left, menu right</option>
+                      <option value="centered">
+                        Centered — logo centered, menu below left + socials right
+                      </option>
+                      <option value="split">Split — logo left, menu center, socials right</option>
+                      <option value="minimal">Minimal — everything centered, stacked</option>
+                    </select>
+                  </label>
+                )}
+              </>
+            )}
+            {tab === 'branding' && (
+              <BrandingTab
+                tagline={tagline}
+                setTagline={setTagline}
+                logoId={logoId}
+                setLogoId={setLogoId}
+                logoBusy={logoBusy}
+                uploadLogo={uploadLogo}
+                social={social}
+                setSocial={setSocial}
               />
-            </label>
-          )}
+            )}
+          </div>
         </div>
-        <label className="block mb-4">
-          <span className="block text-sm font-medium mb-1">Header style</span>
-          <select
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={headerLayout}
-            onChange={(e) => setHeaderLayout(e.target.value as SpaceView['publicHeaderLayout'])}
-          >
-            <option value="classic">Classic — logo left, menu right</option>
-            <option value="centered">
-              Centered — logo centered, menu below left + socials right
-            </option>
-            <option value="split">Split — logo left, menu center, socials right</option>
-            <option value="minimal">Minimal — everything centered, stacked</option>
-          </select>
-        </label>
-        <div className="mb-4">
-          <span className="block text-sm font-medium mb-1">Social links (site header)</span>
-          {social.map((link, i) => (
-            <div key={`${link.platform}-${String(i)}`} className="flex gap-2 mb-1.5">
-              <select
-                className="rounded-lg border px-2 py-1.5 text-xs"
-                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                value={link.platform}
-                onChange={(e) =>
-                  setSocial(
-                    social.map((l, j) =>
-                      j === i
-                        ? { ...l, platform: e.target.value as (typeof social)[number]['platform'] }
-                        : l,
-                    ),
-                  )
-                }
-              >
-                {SOCIAL_PLATFORMS.map((platform) => (
-                  <option key={platform} value={platform}>
-                    {platform}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="flex-1 rounded-lg border px-2 py-1.5 text-xs"
-                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                placeholder={link.platform === 'email' ? 'mailto:you@example.com' : 'https://...'}
-                value={link.url}
-                onChange={(e) =>
-                  setSocial(social.map((l, j) => (j === i ? { ...l, url: e.target.value } : l)))
-                }
-              />
-              <button
-                type="button"
-                className="text-xs px-1"
-                style={{ color: 'var(--danger)' }}
-                title="Remove"
-                onClick={() => setSocial(social.filter((_, j) => j !== i))}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          {social.length < 10 && (
+        <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          <ErrorNote message={error} />
+          <SubmitButton label="Save" busy={busy} />
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function BrandingTab(props: {
+  tagline: string
+  setTagline: (v: string) => void
+  logoId: string | null
+  setLogoId: (v: string | null) => void
+  logoBusy: boolean
+  uploadLogo: (files: FileList | null) => void
+  social: SpaceView['publicSocial']
+  setSocial: (v: SpaceView['publicSocial']) => void
+}) {
+  const { tagline, setTagline, logoId, setLogoId, logoBusy, uploadLogo, social, setSocial } = props
+  return (
+    <>
+      <Field label="Tagline (shown under the site title)" value={tagline} onChange={setTagline} />
+      <div className="mb-4 flex items-center gap-3">
+        <span className="text-sm font-medium">Logo</span>
+        {logoId ? (
+          <>
+            <img
+              src={`/api/files/${logoId}/thumb`}
+              alt="logo"
+              className="h-9 w-auto rounded"
+              style={{ background: 'var(--bg)' }}
+            />
             <button
               type="button"
               className="text-xs underline"
-              style={{ color: 'var(--text-2)' }}
-              onClick={() => setSocial([...social, { platform: 'github', url: '' }])}
+              style={{ color: 'var(--danger)' }}
+              onClick={() => setLogoId(null)}
             >
-              + add link
+              remove
             </button>
-          )}
-        </div>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
-          Only pages you explicitly publish appear, and only when every parent is published too.
-          Preview without DNS at /s/&lt;host&gt;/.
-        </p>
-        <ErrorNote message={error} />
-        <SubmitButton label="Save" busy={busy} />
-      </form>
-    </Modal>
+          </>
+        ) : (
+          <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
+            {logoBusy ? 'uploading…' : '+ upload logo'}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              disabled={logoBusy}
+              onChange={(e) => uploadLogo(e.target.files)}
+            />
+          </label>
+        )}
+      </div>
+      <div className="mb-4">
+        <span className="block text-sm font-medium mb-1">Social links (site header)</span>
+        {social.map((link, i) => (
+          <div key={`${link.platform}-${String(i)}`} className="flex gap-2 mb-1.5">
+            <select
+              className="rounded-lg border px-2 py-1.5 text-xs"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={link.platform}
+              onChange={(e) =>
+                setSocial(
+                  social.map((l, j) =>
+                    j === i
+                      ? { ...l, platform: e.target.value as (typeof social)[number]['platform'] }
+                      : l,
+                  ),
+                )
+              }
+            >
+              {SOCIAL_PLATFORMS.map((platform) => (
+                <option key={platform} value={platform}>
+                  {platform}
+                </option>
+              ))}
+            </select>
+            <input
+              className="flex-1 rounded-lg border px-2 py-1.5 text-xs"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              placeholder={link.platform === 'email' ? 'mailto:you@example.com' : 'https://...'}
+              value={link.url}
+              onChange={(e) =>
+                setSocial(social.map((l, j) => (j === i ? { ...l, url: e.target.value } : l)))
+              }
+            />
+            <button
+              type="button"
+              className="text-xs px-1"
+              style={{ color: 'var(--danger)' }}
+              title="Remove"
+              onClick={() => setSocial(social.filter((_, j) => j !== i))}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        {social.length < 10 && (
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: 'var(--text-2)' }}
+            onClick={() => setSocial([...social, { platform: 'github', url: '' }])}
+          >
+            + add link
+          </button>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -420,6 +505,7 @@ function PageTreeLevel(props: {
   pages: PageMeta[]
   parentId: string | null
   depth: number
+  category: SpaceCategory
   onAddChild: (parentId: string) => void
   onAction: (a: PageAction) => void
 }) {
@@ -459,13 +545,14 @@ function PageTreeLevel(props: {
               >
                 ＋
               </button>
-              <PageMenu page={page} onAction={props.onAction} />
+              <PageMenu page={page} category={props.category} onAction={props.onAction} />
             </span>
           </div>
           <PageTreeLevel
             pages={props.pages}
             parentId={page.id}
             depth={props.depth + 1}
+            category={props.category}
             onAddChild={props.onAddChild}
             onAction={props.onAction}
           />
@@ -475,7 +562,20 @@ function PageTreeLevel(props: {
   )
 }
 
-function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) {
+// What a page is allowed to become depends on the section it lives in — wikis
+// are docs-only, notebooks add galleries, sites get the full set (mirrors the
+// server-side rule in pages.setPageType).
+const TYPES_BY_CATEGORY: Record<SpaceCategory, ReadonlyArray<PageMeta['pageType']>> = {
+  wiki: ['doc'],
+  notebook: ['doc', 'gallery'],
+  site: ['doc', 'blog', 'gallery'],
+}
+
+function PageMenu(props: {
+  page: PageMeta
+  category: SpaceCategory
+  onAction: (a: PageAction) => void
+}) {
   const [open, setOpen] = useState(false)
   const utils = trpc.useUtils()
   const setType = trpc.pages.setType.useMutation({
@@ -545,7 +645,7 @@ function PageMenu(props: { page: PageMeta; onAction: (a: PageAction) => void }) 
           >
             Delete
           </button>
-          {(['doc', 'blog', 'gallery'] as const)
+          {TYPES_BY_CATEGORY[props.category]
             .filter((t) => t !== props.page.pageType)
             .map((t) => (
               <button

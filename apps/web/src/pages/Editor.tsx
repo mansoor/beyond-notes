@@ -109,6 +109,11 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
   const page = props.page
   const isGallery = page.pageType === 'gallery'
   const stripLayout = page.galleryLayout === 'carousel' || page.galleryLayout === 'filmstrip'
+  // Which options exist depends on the section: share bars and listing images
+  // are website concepts, so wikis and notebooks don't show them.
+  const spaces = trpc.spaces.list.useQuery()
+  const category = spaces.data?.find((s) => s.id === page.spaceId)?.category
+  const isSite = category === 'site'
 
   const uploadCover = async (files: FileList | null) => {
     const file = files?.[0]
@@ -129,15 +134,17 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
   return (
     <Modal title="Page settings" onClose={props.onClose}>
       <div className="flex flex-col gap-4 text-sm">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={page.shareEnabled}
-            disabled={update.isPending}
-            onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
-          />
-          Social share buttons on the published page
-        </label>
+        {isSite && (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={page.shareEnabled}
+              disabled={update.isPending}
+              onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
+            />
+            Social share buttons on the published page
+          </label>
+        )}
 
         {isGallery && (
           <>
@@ -196,7 +203,13 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
           </>
         )}
 
-        {!isGallery && (
+        {!isGallery && !isSite && (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            No settings apply to this page yet.
+          </p>
+        )}
+
+        {!isGallery && isSite && (
           <div>
             <span className="block font-medium mb-1">Listing image (shown in blog lists)</span>
             {page.coverAttachmentId ? (
@@ -233,10 +246,12 @@ function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
           </div>
         )}
 
-        <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-          Content-affecting settings (layout, autoplay, images) apply to the public site on the next
-          publish; the share toggle applies immediately.
-        </p>
+        {(isSite || isGallery) && (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            Content-affecting settings (layout, autoplay, images) apply to the public site on the
+            next publish; the share toggle applies immediately.
+          </p>
+        )}
       </div>
     </Modal>
   )
