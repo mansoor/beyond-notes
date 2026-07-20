@@ -1,0 +1,1 @@
+ALTER TABLE `spaces` ADD `public_appearance` text DEFAULT 'auto' NOT NULL;

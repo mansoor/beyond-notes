@@ -1,9 +1,23 @@
 import { nanoid } from 'nanoid'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
+import { reconcileTags } from './tags'
 import { reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
 const DOC_SCHEMA_VERSION = 1
+
+/**
+ * The sections share one tree structure but are different products: wikis are
+ * plain docs, notebooks can hold photo galleries, and only sites publish blogs.
+ */
+export const PAGE_TYPES_BY_CATEGORY: Record<
+  SpaceRow['category'],
+  ReadonlyArray<'doc' | 'blog' | 'gallery'>
+> = {
+  wiki: ['doc'],
+  notebook: ['doc', 'gallery'],
+  site: ['doc', 'blog', 'gallery'],
+}
 
 export class PagesError extends Error {
   constructor(
@@ -12,6 +26,20 @@ export class PagesError extends Error {
   ) {
     super(message)
   }
+}
+
+/** A page id plus every descendant's, walked over one space's page list. */
+function subtreeIds(all: PageRow[], rootId: string): string[] {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parentId = queue.shift()
+    for (const child of all.filter((p) => p.parentId === parentId)) {
+      ids.push(child.id)
+      queue.push(child.id)
+    }
+  }
+  return ids
 }
 
 function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space is SpaceRow {
@@ -60,6 +88,11 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicTitle: null,
         publicFooter: null,
         publicTheme: 'paper',
+        publicAppearance: 'auto',
+        publicSocial: '[]',
+        publicLogoAttachmentId: null,
+        publicTagline: null,
+        publicHeaderLayout: 'classic',
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -81,7 +114,52 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
     async tree(user: UserRow, spaceId: string): Promise<PageRow[]> {
       assertSpaceAccess(await repo.getSpace(spaceId), user)
       const pages = await repo.listPagesInSpace(spaceId)
-      return pages.sort((a, b) => a.position - b.position)
+      return pages.filter((p) => p.archivedAt === null).sort((a, b) => a.position - b.position)
+    },
+
+    // ---- archive ----
+
+    /** Archive a page and its whole subtree. Publish state is untouched. */
+    async archivePage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      const all = await repo.listPagesInSpace(page.spaceId)
+      const ids = subtreeIds(all, pageId)
+      await repo.setPagesArchived(ids, now(), user.id)
+    },
+
+    /**
+     * Restore a page and its subtree to where they were. If the original
+     * parent is itself still archived (or gone), the page surfaces at the
+     * space root rather than staying invisible under an archived ancestor.
+     */
+    async restorePage(user: UserRow, pageId: string): Promise<void> {
+      const { page } = await requirePage(pageId, user)
+      if (!page.archivedAt) return
+      const all = await repo.listPagesInSpace(page.spaceId)
+      const ids = subtreeIds(all, pageId)
+      await repo.setPagesArchived(ids, null, null)
+      const parent = page.parentId ? all.find((p) => p.id === page.parentId) : null
+      if (page.parentId && (!parent || (parent.archivedAt && !ids.includes(parent.id)))) {
+        const rootCount = all.filter((p) => p.parentId === null && !p.archivedAt).length
+        await repo.updatePage(pageId, { parentId: null, position: rootCount, updatedAt: now() })
+      }
+    },
+
+    /**
+     * Archive roots visible to this user: archived pages whose parent is not
+     * itself archived — the units that were archived, not every descendant.
+     */
+    async listArchived(user: UserRow): Promise<Array<{ page: PageRow; space: SpaceRow }>> {
+      const [archived, spaces] = await Promise.all([repo.listArchivedPages(), repo.listSpaces()])
+      const accessible = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
+      )
+      const archivedIds = new Set(archived.map((p) => p.id))
+      return archived
+        .filter((p) => accessible.has(p.spaceId))
+        .filter((p) => p.parentId === null || !archivedIds.has(p.parentId))
+        .sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0))
+        .map((p) => ({ page: p, space: accessible.get(p.spaceId) as SpaceRow }))
     },
 
     async createPage(
@@ -108,6 +186,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageType: 'doc',
         slug: null,
         liveVersionId: null,
+        galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
+        shareEnabled: false,
+        coverAttachmentId: null,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -128,6 +212,27 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       return { page, doc }
     },
 
+    async updatePageOptions(
+      user: UserRow,
+      input: {
+        pageId: string
+        galleryLayout?: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+        galleryAutoplaySecs?: number | null
+        shareEnabled?: boolean
+        coverAttachmentId?: string | null
+      },
+    ): Promise<void> {
+      await requirePage(input.pageId, user)
+      const patch: Parameters<Repo['updatePage']>[1] = { updatedAt: now() }
+      if (input.galleryLayout !== undefined) patch.galleryLayout = input.galleryLayout
+      if (input.galleryAutoplaySecs !== undefined) {
+        patch.galleryAutoplaySecs = input.galleryAutoplaySecs
+      }
+      if (input.shareEnabled !== undefined) patch.shareEnabled = input.shareEnabled
+      if (input.coverAttachmentId !== undefined) patch.coverAttachmentId = input.coverAttachmentId
+      await repo.updatePage(input.pageId, patch)
+    },
+
     async renamePage(user: UserRow, pageId: string, title: string): Promise<void> {
       await requirePage(pageId, user)
       await repo.updatePage(pageId, { title, updatedAt: now() })
@@ -145,6 +250,13 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       const { space } = await requirePage(pageId, user)
       if (space.kind !== 'tree')
         throw new PagesError('BAD_MOVE', 'Journal pages have no page type.')
+      if (!PAGE_TYPES_BY_CATEGORY[space.category].includes(pageType))
+        throw new PagesError(
+          'BAD_MOVE',
+          `A ${space.category} cannot contain ${pageType} pages — ${
+            pageType === 'blog' ? 'blogs live in Sites' : 'galleries live in Notebooks and Sites'
+          }.`,
+        )
       await repo.updatePage(pageId, { pageType, updatedAt: now() })
     },
 
@@ -282,6 +394,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       await repo.updatePage(input.pageId, { updatedAt: when })
       // keep the tasks index true to the blocks on every save
       await reconcileTasks(repo, input.pageId, input.content, when)
+      await reconcileTags(repo, input.pageId, input.content)
       return { updatedAt: when.toISOString() }
     },
   }

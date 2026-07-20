@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (
@@ -80,6 +81,8 @@ export function Modal(props: {
    * dismiss — only an explicit action does: save, the ✕ button, or Escape.
    */
   dirty?: boolean
+  /** 'lg' for content-heavy dialogs (tabbed settings); default is a compact card. */
+  width?: 'sm' | 'lg'
   children: ReactNode
 }) {
   // Escape is an explicit cancel and always closes, dirty or not
@@ -96,7 +99,10 @@ export function Modal(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  return (
+  // Portaled to <body>: modals used to render inline in the React tree, where
+  // an ancestor stacking context (sidebar, editor) could trap z-50 and let
+  // page content paint over the dialog.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ background: 'rgba(0,0,0,0.4)' }}
@@ -108,7 +114,7 @@ export function Modal(props: {
     >
       <dialog
         open
-        className="w-full max-w-sm rounded-xl border p-6 relative m-0"
+        className={`w-full ${props.width === 'lg' ? 'max-w-2xl' : 'max-w-sm'} rounded-xl border p-6 relative m-0 max-h-[85vh] overflow-y-auto`}
         style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text)' }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === 'Escape' && props.onClose()}
@@ -129,7 +135,8 @@ export function Modal(props: {
         </div>
         {props.children}
       </dialog>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

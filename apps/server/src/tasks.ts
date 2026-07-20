@@ -169,7 +169,7 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       const result = []
       for (const task of tasks.sort((a, b) => a.position - b.position)) {
         const page = await repo.getPage(task.pageId)
-        if (!page) continue
+        if (!page || page.archivedAt) continue // archived pages take their tasks with them
         const space = accessible.get(page.spaceId)
         if (!space) continue
         result.push({ task, page, space })

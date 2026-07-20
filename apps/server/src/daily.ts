@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { PagesError } from './pages'
 import type { MemoRow, PageRow, Repo, SpaceRow, UserRow } from './repo'
+import { reconcileTags } from './tags'
 import { appendBlocksToContent, makeCheckBlock, makeParagraphBlock, reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
@@ -24,6 +25,11 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       publicTitle: null,
       publicFooter: null,
       publicTheme: 'paper',
+      publicAppearance: 'auto',
+      publicSocial: '[]',
+      publicLogoAttachmentId: null,
+      publicTagline: null,
+      publicHeaderLayout: 'classic',
       createdAt: now(),
     }
     await repo.insertSpace(space)
@@ -31,7 +37,10 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
   }
 
   async function ensurePage(space: SpaceRow, dateKey: string, title: string): Promise<PageRow> {
-    const existing = await repo.getPageByDateKey(space.id, dateKey)
+    // several pages can share a dateKey (topic notes); the MAIN page is always
+    // the oldest one — it is created first, before any topic note can exist
+    const all = await repo.listPagesByDateKey(space.id, dateKey)
+    const existing = all.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
     if (existing) return existing
     const page: PageRow = {
       id: nanoid(),
@@ -43,6 +52,12 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       pageType: 'doc',
       slug: null,
       liveVersionId: null,
+      galleryLayout: 'grid',
+      galleryAutoplaySecs: null,
+      shareEnabled: false,
+      coverAttachmentId: null,
+      archivedAt: null,
+      archivedBy: null,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -64,6 +79,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
     await repo.updateDocument(pageId, next, when)
     await repo.updatePage(pageId, { updatedAt: when })
     await reconcileTasks(repo, pageId, next, when)
+    await reconcileTags(repo, pageId, next)
   }
 
   return {
@@ -76,6 +92,81 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       const doc = await repo.getDocument(page.id)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       return { page, doc }
+    },
+
+    /**
+     * Every note for a date: the main day page first (created on demand),
+     * then topic notes in creation order.
+     */
+    async dayNotes(user: UserRow, date: string) {
+      const space = await ensureJournalSpace(user)
+      const main = await ensurePage(space, date, date)
+      const pages = (await repo.listPagesByDateKey(space.id, date)).sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      )
+      const notes = []
+      for (const page of pages) {
+        const doc = await repo.getDocument(page.id)
+        if (!doc) continue
+        notes.push({ page, doc, main: page.id === main.id })
+      }
+      return notes
+    },
+
+    /** An extra named note on a day — personal/work/hobby streams side by side. */
+    async createDayNote(user: UserRow, date: string, title: string): Promise<PageRow> {
+      const space = await ensureJournalSpace(user)
+      await ensurePage(space, date, date) // the main page always exists first
+      const siblings = await repo.listPagesByDateKey(space.id, date)
+      const page: PageRow = {
+        id: nanoid(),
+        spaceId: space.id,
+        parentId: null,
+        title,
+        position: siblings.length,
+        dateKey: date,
+        pageType: 'doc',
+        slug: null,
+        liveVersionId: null,
+        galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
+        shareEnabled: false,
+        coverAttachmentId: null,
+        archivedAt: null,
+        archivedBy: null,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      await repo.insertPage(page)
+      await repo.insertDocument({
+        pageId: page.id,
+        content: EMPTY_DOC,
+        schemaVersion: DOC_SCHEMA_VERSION,
+        updatedAt: now(),
+      })
+      return page
+    },
+
+    /** Topic notes can go; the main day page cannot (it anchors the date). */
+    async deleteDayNote(user: UserRow, pageId: string): Promise<void> {
+      const page = await repo.getPage(pageId)
+      const space = page ? await repo.getSpace(page.spaceId) : null
+      if (!page || !space || space.ownerId !== user.id || space.kind !== 'journal') {
+        throw new PagesError('NOT_FOUND', 'Note not found.')
+      }
+      if (!page.dateKey) throw new PagesError('NOT_FOUND', 'Note not found.')
+      const all = await repo.listPagesByDateKey(space.id, page.dateKey)
+      const main = all.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
+      if (main?.id === page.id) {
+        throw new PagesError('BAD_MOVE', 'The main day note cannot be deleted.')
+      }
+      await repo.deletePage(pageId)
+    },
+
+    /** Append a paragraph to the main note of a day (webhooks use this). */
+    async appendToDay(user: UserRow, date: string, text: string): Promise<void> {
+      const { page } = await this.day(user, date)
+      await appendToPage(page.id, [makeParagraphBlock(text)])
     },
 
     /** Which days of a month ('YYYY-MM') have journal pages — calendar dots. */
@@ -150,6 +241,12 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageType: 'doc',
         slug: null,
         liveVersionId: null,
+        galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
+        shareEnabled: false,
+        coverAttachmentId: null,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }

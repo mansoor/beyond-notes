@@ -1,4 +1,22 @@
-import { type AnyPgColumn, boolean, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import {
+  type AnyPgColumn,
+  boolean,
+  customType,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+} from 'drizzle-orm/pg-core'
+
+// drizzle pg-core has no built-in bytea; the blob store needs one.
+// Uint8Array keeps this package free of node typings; the driver hands
+// back Buffers at runtime either way.
+const bytea = customType<{ data: Uint8Array }>({
+  dataType() {
+    return 'bytea'
+  },
+})
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -13,6 +31,8 @@ export const users = pgTable('users', {
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').notNull().default(false),
   recoveryCodes: text('recovery_codes'),
+  // per-user opt-in for the email notification channel (channel itself is env config)
+  emailNotifications: boolean('email_notifications').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -24,6 +44,17 @@ export const sessions = pgTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  // sha256 hex of the raw emailed token; the raw token is never stored
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true, mode: 'date' }),
 })
 
 export const spaces = pgTable('spaces', {
@@ -44,9 +75,23 @@ export const spaces = pgTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
-  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand', 'bloom'] })
     .notNull()
     .default('paper'),
+  // 'auto' follows the visitor's OS; 'light'/'dark' pin one palette
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+    .notNull()
+    .default('auto'),
+  // JSON array of {platform, url} shown in the published site header
+  publicSocial: text('public_social').notNull().default('[]'),
+  // site branding: uploaded logo (attachments id), short tagline, header style
+  publicLogoAttachmentId: text('public_logo_attachment_id'),
+  publicTagline: text('public_tagline'),
+  publicHeaderLayout: text('public_header_layout', {
+    enum: ['classic', 'centered', 'split', 'minimal'],
+  })
+    .notNull()
+    .default('classic'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -70,6 +115,21 @@ export const pages = pgTable('pages', {
   slug: text('slug'),
   // page-level "is this live right now" — soft ref into page_versions
   liveVersionId: text('live_version_id'),
+  // per-gallery presentation, chosen in the editor, baked into the snapshot at publish
+  galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
+    .notNull()
+    .default('grid'),
+  // carousel auto-rotate interval in seconds; null = off
+  galleryAutoplaySecs: integer('gallery_autoplay_secs'),
+  // opt-in social share bar on the published page
+  shareEnabled: boolean('share_enabled').notNull().default(false),
+  // gallery cover / blog-post listing image (an attachments id)
+  coverAttachmentId: text('cover_attachment_id'),
+  // archive: soft-removal from the app surfaces; restore puts it back where it
+  // was. Set on the whole subtree at once. Publish state is deliberately
+  // untouched — retiring is its own explicit act.
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
+  archivedBy: text('archived_by'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
@@ -89,6 +149,7 @@ export const pageVersions = pgTable('page_versions', {
   // JSON array of attachment ids referenced by this snapshot — the public
   // file route only serves attachments that appear in some live version
   attachmentIds: text('attachment_ids').notNull().default('[]'),
+  coverAttachmentId: text('cover_attachment_id'),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
@@ -200,3 +261,45 @@ export const invites = pgTable('invites', {
   usedBy: text('used_by'),
   revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
 })
+
+// runtime-editable server settings: one row per group, JSON value validated
+// by per-group zod schemas at the service boundary (TECH-PLAN settings split)
+export const settings = pgTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// blob storage, database driver: content-addressed like the other drivers
+export const blobs = pgTable('blobs', {
+  key: text('key').primaryKey(),
+  data: bytea('data').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// incoming webhooks: token-addressed writers into a user's capture surfaces
+export const webhooks = pgTable('webhooks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  target: text('target', { enum: ['inbox', 'today', 'tasks'] }).notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+})
+
+// tag index over page content: #tags are extracted from documents on every
+// save (same pattern as the tasks index) — the text is the source of truth
+export const pageTags = pgTable(
+  'page_tags',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)

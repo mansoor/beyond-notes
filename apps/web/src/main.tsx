@@ -4,8 +4,12 @@ import { httpBatchLink } from '@trpc/client'
 import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { router } from './router'
+import { applyTheme, currentTheme } from './theme'
 import { trpc } from './trpc'
 import './styles.css'
+
+// apply the saved theme before first paint so the login screen matches too
+applyTheme(currentTheme())
 
 function App() {
   const [queryClient] = useState(

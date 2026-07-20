@@ -1,6 +1,7 @@
 import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
+  ArchivedPageView,
   AuthStatus,
   DocumentView,
   GalleryItemView,
@@ -12,39 +13,54 @@ import type {
   SearchResult,
   SessionView,
   SpaceView,
+  TagCount,
+  TagItem,
   TaskView,
   UserView,
   VersionView,
+  WebhookView,
 } from '@bn/schema'
 import {
   acceptInviteInput,
   captureMemoInput,
   changePasswordInput,
+  createDayNoteInput,
   createInviteInput,
   createPageInput,
   createReminderInput,
   createSpaceInput,
+  createWebhookInput,
   journalDayInput,
   journalMonthInput,
   loginInput,
   movePageInput,
+  ntfySettings,
   promoteToJournalInput,
   promoteToNoteInput,
   promoteToTaskInput,
   quickAddTaskInput,
   renamePageInput,
+  requestPasswordResetInput,
+  resetPasswordInput,
   saveDocumentInput,
   setPageTypeInput,
   setupInput,
+  smtpSettings,
+  storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  updatePageOptionsInput,
+  updateProfileInput,
   updatePublishingInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AuthError } from './auth'
+import { createS3BlobStore } from './blobstore-s3'
+import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
-import type { InviteRow, PageRow, SpaceRow, UserRow } from './repo'
+import type { InviteRow, PageRow, SpaceRow, UserRow, WebhookRow } from './repo'
+import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
 
@@ -54,6 +70,7 @@ function toUserView(u: UserRow): UserView {
     email: u.email,
     name: u.name,
     role: u.role,
+    emailNotifications: u.emailNotifications,
     createdAt: u.createdAt.toISOString(),
   }
 }
@@ -122,7 +139,21 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicTitle: s.publicTitle,
     publicFooter: s.publicFooter,
     publicTheme: s.publicTheme,
+    publicAppearance: s.publicAppearance,
+    publicSocial: parseSocial(s.publicSocial),
+    publicLogoAttachmentId: s.publicLogoAttachmentId,
+    publicTagline: s.publicTagline,
+    publicHeaderLayout: s.publicHeaderLayout,
     createdAt: s.createdAt.toISOString(),
+  }
+}
+
+function parseSocial(raw: string): SpaceView['publicSocial'] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -134,6 +165,10 @@ function toPageMeta(p: PageRow): PageMeta {
     title: p.title,
     position: p.position,
     pageType: p.pageType,
+    galleryLayout: p.galleryLayout,
+    galleryAutoplaySecs: p.galleryAutoplaySecs,
+    shareEnabled: p.shareEnabled,
+    coverAttachmentId: p.coverAttachmentId,
   }
 }
 
@@ -142,6 +177,7 @@ const authRouter = router({
     return {
       needsSetup: await ctx.auth.needsSetup(),
       me: ctx.user ? toUserView(ctx.user) : null,
+      mailConfigured: ctx.mailer.configured,
     }
   }),
 
@@ -190,9 +226,50 @@ const authRouter = router({
     }
   }),
 
+  requestPasswordReset: publicProcedure
+    .input(requestPasswordResetInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await ctx.auth.requestPasswordReset(input.email)
+        if (result && ctx.mailer.configured) {
+          const mail = passwordResetEmail(ctx.config.BASE_URL, result.token)
+          await ctx.mailer.send(result.user.email, mail.subject, mail.text)
+        }
+        // identical response whether or not the account exists
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  resetPassword: publicProcedure.input(resetPasswordInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.auth.resetPassword(input.token, input.password)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  setEmailNotifications: authedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
+      return { ok: true }
+    }),
+
   changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
     try {
       await ctx.auth.changePassword(ctx.user, input.current, input.next)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  updateProfile: authedProcedure.input(updateProfileInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.auth.updateProfile(ctx.user, input)
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -298,10 +375,17 @@ const usersRouter = router({
 
   createInvite: adminProcedure.input(createInviteInput).mutation(async ({ ctx, input }) => {
     const { token, invite } = await ctx.auth.createInvite(ctx.user.id, input)
+    let emailed = false
+    if (input.sendEmail && input.suggestedEmail && ctx.mailer.configured) {
+      const mail = inviteEmail(ctx.config.BASE_URL, token, ctx.user.name)
+      await ctx.mailer.send(input.suggestedEmail, mail.subject, mail.text)
+      emailed = true
+    }
     return {
       token,
       invite: toInviteView(invite, new Date()),
       url: `${ctx.config.BASE_URL}/invite/${token}`,
+      emailed,
     }
   }),
 
@@ -437,6 +521,50 @@ const pagesRouter = router({
       }
     }),
 
+  updateOptions: authedProcedure.input(updatePageOptionsInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.pages.updatePageOptions(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  archive: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.archivePage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  restore: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.pages.restorePage(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  archived: authedProcedure.query(async ({ ctx }): Promise<ArchivedPageView[]> => {
+    const items = await ctx.pages.listArchived(ctx.user)
+    const users = new Map((await ctx.repo.listUsers()).map((u) => [u.id, u.name]))
+    return items.map(({ page, space }) => ({
+      id: page.id,
+      title: page.title,
+      pageType: page.pageType,
+      spaceName: space.name,
+      archivedAt: (page.archivedAt as Date).toISOString(),
+      archivedByName: (page.archivedBy && users.get(page.archivedBy)) || 'unknown',
+    }))
+  }),
+
   saveDoc: authedProcedure.input(saveDocumentInput).mutation(async ({ ctx, input }) => {
     try {
       return await ctx.pages.saveDocument(ctx.user, input)
@@ -529,6 +657,197 @@ const journalRouter = router({
   days: authedProcedure.input(journalMonthInput).query(async ({ ctx, input }) => {
     try {
       return await ctx.daily.days(ctx.user, input.month)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  /** All notes for one day: the main note plus any topic notes. */
+  notes: authedProcedure.input(journalDayInput).query(async ({ ctx, input }) => {
+    try {
+      const notes = await ctx.daily.dayNotes(ctx.user, input.date)
+      return notes.map(({ page, doc, main }) => ({
+        page: toPageMeta(page),
+        doc: {
+          content: doc.content,
+          schemaVersion: doc.schemaVersion,
+          updatedAt: doc.updatedAt.toISOString(),
+        },
+        main,
+      }))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  createNote: authedProcedure.input(createDayNoteInput).mutation(async ({ ctx, input }) => {
+    try {
+      const page = await ctx.daily.createDayNote(ctx.user, input.date, input.title)
+      return toPageMeta(page)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  deleteNote: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.daily.deleteDayNote(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
+const tagsRouter = router({
+  /** Every tag visible to this user, with counts (pages + own memos). */
+  all: authedProcedure.query(async ({ ctx }): Promise<TagCount[]> => {
+    const [tagRows, pages, spaces, memos] = await Promise.all([
+      ctx.repo.listAllPageTags(),
+      ctx.repo.listAllPages(),
+      ctx.repo.listSpaces(),
+      ctx.repo.listMemos(ctx.user.id),
+    ])
+    const accessible = new Set(
+      spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => s.id),
+    )
+    const visible = new Map(
+      pages.filter((p) => accessible.has(p.spaceId) && !p.archivedAt).map((p) => [p.id, p]),
+    )
+    const counts = new Map<string, number>()
+    for (const row of tagRows) {
+      if (!visible.has(row.pageId)) continue
+      counts.set(row.tag, (counts.get(row.tag) ?? 0) + 1)
+    }
+    for (const memo of memos) {
+      for (const tag of extractTagsFromText(memo.content)) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  }),
+
+  /** Everything carrying one tag: accessible pages plus the user's memos. */
+  items: authedProcedure
+    .input(z.object({ tag: z.string().trim().min(1).max(50) }))
+    .query(async ({ ctx, input }): Promise<TagItem[]> => {
+      const tag = input.tag.toLowerCase()
+      const [pageIds, pages, spaces, memos] = await Promise.all([
+        ctx.repo.listPageIdsByTag(tag),
+        ctx.repo.listAllPages(),
+        ctx.repo.listSpaces(),
+        ctx.repo.listMemos(ctx.user.id),
+      ])
+      const spaceById = new Map(
+        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+      )
+      const byId = new Map(pages.map((p) => [p.id, p]))
+      const items: TagItem[] = []
+      for (const id of pageIds) {
+        const page = byId.get(id)
+        const space = page ? spaceById.get(page.spaceId) : undefined
+        if (!page || !space || page.archivedAt) continue
+        // the user's own journal only; other users' journals are not accessible anyway
+        const isJournal = space.kind === 'journal'
+        items.push({
+          kind: 'page',
+          id: page.id,
+          title: page.title,
+          context: isJournal ? 'Journal' : space.name,
+          dateKey: isJournal ? page.dateKey : null,
+        })
+      }
+      for (const memo of memos) {
+        if (!extractTagsFromText(memo.content).includes(tag)) continue
+        items.push({
+          kind: 'memo',
+          id: memo.id,
+          title: memo.content.slice(0, 100),
+          context: 'Inbox',
+          dateKey: null,
+        })
+      }
+      return items
+    }),
+})
+
+const settingsRouter = router({
+  get: adminProcedure.query(async ({ ctx }) => ctx.settings.view()),
+
+  saveSmtp: adminProcedure.input(smtpSettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveSmtp(input)
+    return ctx.settings.view()
+  }),
+
+  saveNtfy: adminProcedure.input(ntfySettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveNtfy(input)
+    return ctx.settings.view()
+  }),
+
+  saveStorage: adminProcedure.input(storageSettings).mutation(async ({ ctx, input }) => {
+    if (input.driver === 's3') {
+      // probe before committing: a bad bucket must fail the save, not the
+      // next photo upload
+      const secret = input.s3SecretKey || ctx.settings.storage()?.s3SecretKey || ''
+      if (!input.s3Bucket) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'S3 needs a bucket name.' })
+      }
+      const probe = createS3BlobStore({
+        bucket: input.s3Bucket,
+        endpoint: input.s3Endpoint,
+        region: input.s3Region,
+        accessKey: input.s3AccessKey,
+        secretKey: secret,
+        forcePathStyle: input.s3ForcePathStyle,
+      })
+      const key = `probe-${Date.now().toString(36)}`
+      try {
+        await probe.put(key, Buffer.from('beyond-notes storage probe'))
+        await probe.read(key)
+        await probe.delete(key)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'connection failed'
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `S3 check failed: ${message}` })
+      }
+    }
+    await ctx.settings.saveStorage(input)
+    return ctx.settings.view()
+  }),
+})
+
+function toWebhookView(w: WebhookRow): WebhookView {
+  return {
+    id: w.id,
+    target: w.target,
+    label: w.label,
+    createdAt: w.createdAt.toISOString(),
+    lastUsedAt: w.lastUsedAt?.toISOString() ?? null,
+    revoked: w.revokedAt !== null,
+  }
+}
+
+const webhooksRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<WebhookView[]> => {
+    const rows = await ctx.webhooks.list(ctx.user.id)
+    return rows.map(toWebhookView)
+  }),
+
+  create: authedProcedure.input(createWebhookInput).mutation(async ({ ctx, input }) => {
+    const { token, row } = await ctx.webhooks.create(ctx.user.id, input)
+    return {
+      webhook: toWebhookView(row),
+      url: `${ctx.config.BASE_URL}/api/hooks/${token}`,
+    }
+  }),
+
+  revoke: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.webhooks.revoke(ctx.user.id, input.id)
+      return { ok: true }
     } catch (err) {
       rethrow(err)
     }
@@ -739,6 +1058,9 @@ export const appRouter = router({
   journal: journalRouter,
   memos: memosRouter,
   tasks: tasksRouter,
+  settings: settingsRouter,
+  webhooks: webhooksRouter,
+  tags: tagsRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

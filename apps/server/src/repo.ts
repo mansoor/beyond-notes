@@ -10,6 +10,7 @@ export type UserRow = {
   totpSecret: string | null
   totpEnabled: boolean
   recoveryCodes: string | null
+  emailNotifications: boolean
   createdAt: Date
 }
 
@@ -18,6 +19,14 @@ export type SessionRow = {
   userId: string
   createdAt: Date
   expiresAt: Date
+}
+
+export type ResetTokenRow = {
+  id: string
+  userId: string
+  createdAt: Date
+  expiresAt: Date
+  usedAt: Date | null
 }
 
 export type SpaceRow = {
@@ -30,7 +39,12 @@ export type SpaceRow = {
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
-  publicTheme: 'paper' | 'ink' | 'mist' | 'sand'
+  publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
+  publicAppearance: 'auto' | 'light' | 'dark'
+  publicSocial: string
+  publicLogoAttachmentId: string | null
+  publicTagline: string | null
+  publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
   createdAt: Date
 }
 
@@ -44,6 +58,12 @@ export type PageRow = {
   pageType: 'doc' | 'blog' | 'gallery'
   slug: string | null
   liveVersionId: string | null
+  galleryLayout: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+  galleryAutoplaySecs: number | null
+  shareEnabled: boolean
+  coverAttachmentId: string | null
+  archivedAt: Date | null
+  archivedBy: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -58,6 +78,7 @@ export type PageVersionRow = {
   html: string
   textPlain: string
   attachmentIds: string
+  coverAttachmentId: string | null
   createdBy: string
   createdAt: Date
 }
@@ -134,6 +155,17 @@ export type DocumentRow = {
   updatedAt: Date
 }
 
+export type WebhookRow = {
+  id: string
+  userId: string
+  target: 'inbox' | 'today' | 'tasks'
+  tokenHash: string
+  label: string
+  createdAt: Date
+  lastUsedAt: Date | null
+  revokedAt: Date | null
+}
+
 export type InviteRow = {
   id: string
   tokenHash: string
@@ -181,10 +213,46 @@ export function createRepo(appDb: AppDb) {
     async updateUser(
       id: string,
       patch: Partial<
-        Pick<UserRow, 'passwordHash' | 'totpSecret' | 'totpEnabled' | 'recoveryCodes' | 'name'>
+        Pick<
+          UserRow,
+          | 'passwordHash'
+          | 'totpSecret'
+          | 'totpEnabled'
+          | 'recoveryCodes'
+          | 'name'
+          | 'email'
+          | 'emailNotifications'
+        >
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    async insertResetToken(row: ResetTokenRow): Promise<void> {
+      await db.insert(t.passwordResetTokens).values(row)
+    },
+
+    async getResetToken(id: string): Promise<ResetTokenRow | null> {
+      const rows = await db
+        .select()
+        .from(t.passwordResetTokens)
+        .where(eq(t.passwordResetTokens.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    /** CAS: only one caller can consume a token, even under a double-click. */
+    async markResetTokenUsed(id: string, when: Date): Promise<boolean> {
+      const rows = await db
+        .update(t.passwordResetTokens)
+        .set({ usedAt: when })
+        .where(and(eq(t.passwordResetTokens.id, id), isNull(t.passwordResetTokens.usedAt)))
+        .returning({ id: t.passwordResetTokens.id })
+      return rows.length === 1
+    },
+
+    async deleteResetTokensForUser(userId: string): Promise<void> {
+      await db.delete(t.passwordResetTokens).where(eq(t.passwordResetTokens.userId, userId))
     },
 
     async insertSession(session: SessionRow): Promise<void> {
@@ -278,7 +346,17 @@ export function createRepo(appDb: AppDb) {
       patch: Partial<
         Pick<
           PageRow,
-          'title' | 'parentId' | 'position' | 'updatedAt' | 'spaceId' | 'pageType' | 'slug'
+          | 'title'
+          | 'parentId'
+          | 'position'
+          | 'updatedAt'
+          | 'spaceId'
+          | 'pageType'
+          | 'slug'
+          | 'galleryLayout'
+          | 'galleryAutoplaySecs'
+          | 'shareEnabled'
+          | 'coverAttachmentId'
         >
       >,
     ): Promise<void> {
@@ -288,6 +366,20 @@ export function createRepo(appDb: AppDb) {
     async deletePage(id: string): Promise<void> {
       // FK cascade removes the subtree and documents on both dialects
       await db.delete(t.pages).where(eq(t.pages.id, id))
+    },
+
+    async setPagesArchived(
+      ids: string[],
+      archivedAt: Date | null,
+      archivedBy: string | null,
+    ): Promise<void> {
+      for (const id of ids) {
+        await db.update(t.pages).set({ archivedAt, archivedBy }).where(eq(t.pages.id, id))
+      }
+    },
+
+    async listArchivedPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages).where(sqlOp`${t.pages.archivedAt} is not null`)
     },
 
     // ---- documents ----
@@ -389,7 +481,16 @@ export function createRepo(appDb: AppDb) {
       patch: Partial<
         Pick<
           SpaceRow,
-          'publicEnabled' | 'publicHost' | 'publicTitle' | 'publicFooter' | 'publicTheme'
+          | 'publicEnabled'
+          | 'publicHost'
+          | 'publicTitle'
+          | 'publicFooter'
+          | 'publicTheme'
+          | 'publicAppearance'
+          | 'publicSocial'
+          | 'publicLogoAttachmentId'
+          | 'publicTagline'
+          | 'publicHeaderLayout'
         >
       >,
     ): Promise<void> {
@@ -426,6 +527,10 @@ export function createRepo(appDb: AppDb) {
 
     async insertAttachment(row: AttachmentRow): Promise<void> {
       await db.insert(t.attachments).values(row)
+    },
+
+    async listAttachments(): Promise<AttachmentRow[]> {
+      return db.select().from(t.attachments)
     },
 
     async getAttachment(id: string): Promise<AttachmentRow | null> {
@@ -521,7 +626,7 @@ export function createRepo(appDb: AppDb) {
         .from(t.pages)
         .innerJoin(t.documents, eq(t.documents.pageId, t.pages.id))
         .where(
-          sqlOp`lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}`,
+          sqlOp`(lower(${t.pages.title}) like ${lowered} or lower(${t.documents.content}) like ${lowered}) and ${t.pages.archivedAt} is null`,
         )
         .limit(50)
       return rows as Array<{ page: PageRow; content: string }>
@@ -541,6 +646,140 @@ export function createRepo(appDb: AppDb) {
       await db
         .delete(t.scheduledJobs)
         .where(and(eq(t.scheduledJobs.refId, refId), eq(t.scheduledJobs.status, 'pending')))
+    },
+
+    // ---- server settings ----
+
+    async getSetting(key: string): Promise<string | null> {
+      const rows = await db.select().from(t.settings).where(eq(t.settings.key, key)).limit(1)
+      return rows[0]?.value ?? null
+    },
+
+    async listSettings(): Promise<Array<{ key: string; value: string; updatedAt: Date }>> {
+      return db.select().from(t.settings)
+    },
+
+    async listAllWebhooks(): Promise<WebhookRow[]> {
+      return db.select().from(t.webhooks)
+    },
+
+    async putSetting(key: string, value: string, when: Date): Promise<void> {
+      const updated = await db
+        .update(t.settings)
+        .set({ value, updatedAt: when })
+        .where(eq(t.settings.key, key))
+        .returning({ key: t.settings.key })
+      if (updated.length === 0) {
+        await db.insert(t.settings).values({ key, value, updatedAt: when })
+      }
+    },
+
+    // ---- blob rows (database storage driver) ----
+
+    async putBlob(key: string, data: Buffer, when: Date): Promise<void> {
+      if (await this.getBlob(key)) return // content-addressed: same key, same bytes
+      await db.insert(t.blobs).values({ key, data, createdAt: when })
+    },
+
+    async getBlob(key: string): Promise<Buffer | null> {
+      const rows = await db.select().from(t.blobs).where(eq(t.blobs.key, key)).limit(1)
+      return rows[0] ? Buffer.from(rows[0].data) : null
+    },
+
+    async deleteBlob(key: string): Promise<void> {
+      await db.delete(t.blobs).where(eq(t.blobs.key, key))
+    },
+
+    async listBlobKeys(): Promise<string[]> {
+      const rows = await db.select({ key: t.blobs.key }).from(t.blobs)
+      return rows.map((r: { key: string }) => r.key)
+    },
+
+    // ---- webhooks ----
+
+    async insertWebhook(row: WebhookRow): Promise<void> {
+      await db.insert(t.webhooks).values(row)
+    },
+
+    async getWebhookByTokenHash(tokenHash: string): Promise<WebhookRow | null> {
+      const rows = await db
+        .select()
+        .from(t.webhooks)
+        .where(eq(t.webhooks.tokenHash, tokenHash))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listWebhooksForUser(userId: string): Promise<WebhookRow[]> {
+      return db.select().from(t.webhooks).where(eq(t.webhooks.userId, userId))
+    },
+
+    async touchWebhook(id: string, when: Date): Promise<void> {
+      await db.update(t.webhooks).set({ lastUsedAt: when }).where(eq(t.webhooks.id, id))
+    },
+
+    async revokeWebhook(id: string, when: Date): Promise<void> {
+      await db.update(t.webhooks).set({ revokedAt: when }).where(eq(t.webhooks.id, id))
+    },
+
+    // ---- tag index ----
+
+    async setPageTags(pageId: string, tags: string[]): Promise<void> {
+      await db.delete(t.pageTags).where(eq(t.pageTags.pageId, pageId))
+      if (tags.length > 0) {
+        await db.insert(t.pageTags).values(tags.map((tag) => ({ pageId, tag })))
+      }
+    },
+
+    async listAllPageTags(): Promise<Array<{ pageId: string; tag: string }>> {
+      return db.select().from(t.pageTags)
+    },
+
+    async listPageIdsByTag(tag: string): Promise<string[]> {
+      const rows = await db
+        .select({ pageId: t.pageTags.pageId })
+        .from(t.pageTags)
+        .where(eq(t.pageTags.tag, tag))
+      return rows.map((r: { pageId: string }) => r.pageId)
+    },
+
+    // ---- journal day notes ----
+
+    async listPagesByDateKey(spaceId: string, dateKey: string): Promise<PageRow[]> {
+      return db
+        .select()
+        .from(t.pages)
+        .where(and(eq(t.pages.spaceId, spaceId), eq(t.pages.dateKey, dateKey)))
+    },
+
+    // ---- whole-table reads for export (export.ts is the only caller) ----
+
+    async listAllPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages)
+    },
+
+    async listAllDocuments(): Promise<DocumentRow[]> {
+      return db.select().from(t.documents)
+    },
+
+    async listAllVersions(): Promise<PageVersionRow[]> {
+      return db.select().from(t.pageVersions)
+    },
+
+    async listAllMemos(): Promise<MemoRow[]> {
+      return db.select().from(t.memos)
+    },
+
+    async listAllGalleryItems(): Promise<GalleryItemRow[]> {
+      return db.select().from(t.galleryItems)
+    },
+
+    async listAllReminders(): Promise<ReminderRow[]> {
+      return db.select().from(t.reminders)
+    },
+
+    async listAllJobs(): Promise<JobRow[]> {
+      return db.select().from(t.scheduledJobs)
     },
   }
 }

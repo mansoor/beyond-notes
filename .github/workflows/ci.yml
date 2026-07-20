@@ -24,6 +24,10 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      # a step, not a service: service containers cannot override the command,
+      # and minio/minio needs `server /data`; the test creates its own bucket
+      - name: Start MinIO
+        run: docker run -d --name minio -p 9000:9000 minio/minio server /data
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -32,10 +36,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - name: Tests (SQLite + Postgres)
+      - name: Tests (SQLite + Postgres + MinIO)
         run: pnpm test
         env:
           TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/bn_test
+          TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TEST_S3_BUCKET: bn-test
       - run: pnpm build
 
   docker:

@@ -1,11 +1,14 @@
 import { Outlet, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { AcceptInvitePage } from './pages/AcceptInvite'
+import { ArchivePage } from './pages/Archive'
 import { EditorPage } from './pages/Editor'
 import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
 import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
+import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
+import { TagsPage } from './pages/Tags'
 import { TasksPage } from './pages/Tasks'
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> })
@@ -14,6 +17,12 @@ const inviteRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
   component: AcceptInvitePage,
+})
+
+const resetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reset/$token',
+  component: ResetPasswordPage,
 })
 
 // pathless layout: everything below requires auth and renders inside the shell
@@ -59,10 +68,32 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 })
 
+const archiveRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/archive',
+  component: ArchivePage,
+})
+
+const tagsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/tags',
+  component: TagsPage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
-    appRoute.addChildren([indexRoute, pageRoute, dayRoute, inboxRoute, tasksRoute, settingsRoute]),
+    resetRoute,
+    appRoute.addChildren([
+      indexRoute,
+      pageRoute,
+      dayRoute,
+      inboxRoute,
+      tasksRoute,
+      settingsRoute,
+      archiveRoute,
+      tagsRoute,
+    ]),
   ]),
 })
 

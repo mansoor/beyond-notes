@@ -1,15 +1,19 @@
 import {
+  albumCardsHtml,
   buildRss,
   buildSitemap,
   docs404,
   docsSearchResults,
   docsShell,
+  sectionListHtml,
+  shareBarHtml,
   site404,
   siteBlogIndex,
   sitePage,
   sitePost,
+  siteSearchResults,
 } from '@bn/renderer'
-import type { SiteNavItem } from '@bn/renderer'
+import type { AlbumCard, Crumb, SiteNavItem, SocialLink } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
@@ -42,7 +46,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // 'site' category spaces render with the website theme; everything else
     // gets the docs renderer. Same read model underneath.
     if (space.category === 'site') {
-      await serveWebsite(space, host, path, basePath, reply)
+      await serveWebsite(space, host, path, query, basePath, reply)
       return true
     }
 
@@ -126,21 +130,49 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     space: SpaceRow,
     host: string,
     path: string,
+    query: Record<string, unknown>,
     basePath: string,
     reply: FastifyReply,
   ): Promise<void> {
     const site = await publishing.publicSite(space, path)
     const theme = space.publicTheme
+    const appearance = space.publicAppearance
+    const socials = parseSocialLinks(space.publicSocial)
+    const branding = {
+      logoUrl: space.publicLogoAttachmentId ? `/api/files/${space.publicLogoAttachmentId}` : null,
+      tagline: space.publicTagline,
+      headerLayout: space.publicHeaderLayout,
+    }
     const siteTitle = site.siteTitle
     const footer = site.footer
+    const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
 
-    // top nav = root-level live pages, in order
+    // Hierarchical nav from the live tree. Children of blog pages are posts —
+    // the blog index (dated, complete) is their menu, so they stay out of the
+    // dropdowns; everything else nests. Parents light up on the active trail.
+    const toNav = (nodes: typeof site.nav): SiteNavItem[] =>
+      nodes.map((n) => {
+        const entry = site.byPath.get(n.path)
+        const isBlog = entry?.entry.page.pageType === 'blog'
+        return {
+          title: n.title,
+          path: n.path,
+          active: path === n.path || path.startsWith(`${n.path}/`),
+          children: isBlog ? [] : toNav(n.children),
+        }
+      })
+    const nav = toNav(site.nav)
     const roots = site.flat.filter((f) => f.entry.page.parentId === null)
-    const nav: SiteNavItem[] = roots.map((r) => ({
-      title: r.title,
-      path: r.path,
-      active: path === r.path || path.startsWith(`${r.path}/`),
-    }))
+
+    const crumbsFor = (item: (typeof site.flat)[number]): Crumb[] => {
+      const chain: Crumb[] = []
+      let cursor = item.entry.page.parentId ? byId.get(item.entry.page.parentId) : undefined
+      while (cursor) {
+        chain.unshift({ title: cursor.title, path: cursor.path })
+        cursor = cursor.entry.page.parentId ? byId.get(cursor.entry.page.parentId) : undefined
+      }
+      return chain
+    }
     const blogEntries = site.flat.filter((f) => f.entry.page.pageType === 'blog')
     const rssPath = blogEntries.length > 0 ? '/rss.xml' : undefined
 
@@ -153,16 +185,59 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           path: c.path,
           date: dates.get(c.entry.page.id) ?? c.entry.version.createdAt,
           snippet: c.entry.version.textPlain.slice(0, 160),
+          cover: c.entry.version.coverAttachmentId
+            ? `/api/files/${c.entry.version.coverAttachmentId}/thumb`
+            : null,
           blogPath,
         }))
         .sort((a, b) => b.date.getTime() - a.date.getTime())
     }
+
+    // per-page opt-in share buttons, composed at serve time (needs the host)
+    const shareFor = (entry: (typeof site.flat)[number]) =>
+      entry.entry.page.shareEnabled
+        ? shareBarHtml({ url: `https://${host}${entry.path}`, title: entry.title })
+        : ''
 
     reply.type('text/html; charset=utf-8')
 
     if (path === '/sitemap.xml') {
       reply.type('application/xml; charset=utf-8')
       reply.send(buildSitemap(site.flat.map((f) => `https://${host}${f.path}`)))
+      return
+    }
+
+    if (path === '/_search') {
+      const q = typeof query.q === 'string' ? query.q.trim().slice(0, 100) : ''
+      const needle = q.toLowerCase()
+      const results = q
+        ? site.flat
+            .filter(
+              (f) =>
+                f.entry.version.title.toLowerCase().includes(needle) ||
+                f.entry.version.textPlain.toLowerCase().includes(needle),
+            )
+            .slice(0, 30)
+            .map((f) => ({
+              title: f.title,
+              path: f.path,
+              snippet: snippetAround(f.entry.version.textPlain, needle),
+            }))
+        : []
+      reply.send(
+        siteSearchResults({
+          siteTitle,
+          footer,
+          theme,
+          appearance,
+          socials,
+          ...branding,
+          nav,
+          basePath,
+          query: q,
+          results,
+        }),
+      )
       return
     }
 
@@ -192,7 +267,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // '/' renders the first root page as the home page
     const hit = path === '/' ? roots[0] : site.byPath.get(path)
     if (!hit) {
-      reply.code(404).send(site404({ siteTitle, footer, theme, basePath }))
+      reply.code(404).send(site404({ siteTitle, footer, theme, appearance, basePath }))
       return
     }
     if (path === '/' && roots[0]) {
@@ -209,16 +284,21 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           siteTitle,
           footer,
           theme,
+          appearance,
+          socials,
+          ...branding,
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: hit.entry.version.html,
+          introHtml: hit.entry.version.html + shareFor(hit),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
             date: p.date.toISOString().slice(0, 10),
             snippet: p.snippet,
+            cover: p.cover,
           })),
+          crumbs: crumbsFor(hit),
           rssPath: '/rss.xml',
         }),
       )
@@ -232,16 +312,28 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     if (parentEntry && parentEntry.entry.page.pageType === 'blog') {
       const dates = await publishing.firstPublishedAt([hit.entry.page.id])
       const date = dates.get(hit.entry.page.id) ?? hit.entry.version.createdAt
+      // a post's live sub-pages are only reachable forward from here — list
+      // them below the content (breadcrumbs cover the way back)
+      const postChildren = site.flat.filter((f) => f.entry.page.parentId === hit.entry.page.id)
       reply.send(
         sitePost({
           siteTitle,
           footer,
           theme,
+          appearance,
+          socials,
+          ...branding,
           nav,
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
-          contentHtml: hit.entry.version.html,
+          contentHtml:
+            hit.entry.version.html +
+            shareFor(hit) +
+            sectionListHtml(
+              postChildren.map((c) => ({ title: c.title, path: c.path })),
+              basePath,
+            ),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
@@ -250,22 +342,65 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       return
     }
 
-    // standard page (home, about, contact, ...)
+    // standard page (home, about, contact, gallery, ...) — children compose
+    // at SERVE time, like the blog's post list: publishing a sub-page must
+    // surface on the parent without republishing it (snapshots stay frozen)
+    const children = site.flat.filter((f) => f.entry.page.parentId === hit.entry.page.id)
+    let extras = ''
+    if (hit.entry.page.pageType === 'gallery') {
+      const albums: AlbumCard[] = children
+        .filter((c) => c.entry.page.pageType === 'gallery')
+        .map((c) => ({
+          title: c.title,
+          path: c.path,
+          // cover + count come from the child's published grid — the snapshot
+          // is the source of truth, so drafts never leak a cover image
+          coverUrl:
+            c.entry.version.html.match(/class="cell" href="[^"]*"><img src="([^"]+)"/)?.[1] ?? null,
+          count: (c.entry.version.html.match(/class="cell"/g) ?? []).length,
+        }))
+      const rest = children.filter((c) => c.entry.page.pageType !== 'gallery')
+      extras =
+        albumCardsHtml(albums, basePath) +
+        sectionListHtml(
+          rest.map((c) => ({ title: c.title, path: c.path })),
+          basePath,
+        )
+    } else {
+      extras = sectionListHtml(
+        children.map((c) => ({ title: c.title, path: c.path })),
+        basePath,
+      )
+    }
+
     reply.send(
       sitePage({
         siteTitle,
         footer,
         theme,
+        appearance,
+        socials,
+        ...branding,
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml: hit.entry.version.html,
+        contentHtml: hit.entry.version.html + shareFor(hit) + extras,
+        crumbs: crumbsFor(hit),
         rssPath,
       }),
     )
   }
 
   return { serve, resolveSpace }
+}
+
+function parseSocialLinks(raw: string): SocialLink[] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as SocialLink[]) : []
+  } catch {
+    return []
+  }
 }
 
 function snippetAround(text: string, needle: string): string {

@@ -5,11 +5,14 @@ import type { AttachmentsService } from './attachments'
 import type { AuthService } from './auth'
 import type { Config } from './config'
 import type { DailyService } from './daily'
+import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
 import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
+import type { SettingsService } from './settings'
 import type { TasksService } from './tasks'
+import type { WebhooksService } from './webhooks'
 
 export const SESSION_COOKIE = 'bn_session'
 
@@ -25,6 +28,9 @@ export type Context = {
   publishing: PublishingService
   attachments: AttachmentsService
   reminders: RemindersService
+  mailer: Mailer
+  settings: SettingsService
+  webhooks: WebhooksService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -39,6 +45,9 @@ export function makeCreateContext(deps: {
   publishing: PublishingService
   attachments: AttachmentsService
   reminders: RemindersService
+  mailer: Mailer
+  settings: SettingsService
+  webhooks: WebhooksService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

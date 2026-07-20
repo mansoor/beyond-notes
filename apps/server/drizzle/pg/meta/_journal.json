@@ -57,6 +57,55 @@
       "when": 1784404928604,
       "tag": "0007_wild_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784429975922,
+      "tag": "0008_sharp_charles_xavier",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784434365674,
+      "tag": "0009_gigantic_shockwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784442128348,
+      "tag": "0010_jazzy_onslaught",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784443352322,
+      "tag": "0011_perfect_famine",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784446603742,
+      "tag": "0012_flashy_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784518101655,
+      "tag": "0013_fast_psylocke",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784519771433,
+      "tag": "0014_tough_mauler",
+      "breakpoints": true
     }
   ]
 }

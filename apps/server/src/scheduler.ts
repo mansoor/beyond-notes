@@ -1,19 +1,38 @@
+import type { Mailer } from './mailer'
 import type { Repo } from './repo'
+import type { SettingsService } from './settings'
+
+/** Who a notification is for. Channels that can target a person use it. */
+export type Recipient = { email: string; emailOptIn: boolean } | null
 
 export interface Notifier {
-  send(title: string, body: string): Promise<void>
+  send(title: string, body: string, recipient: Recipient): Promise<void>
 }
 
-/** ntfy: the plan's first notification channel — self-hosted push, trivial API. */
-export function createNtfyNotifier(url: string, topic: string): Notifier {
+/** ntfy: the plan's first notification channel — self-hosted push, trivial API.
+ *  Topic is instance-wide (household model), so the recipient is ignored.
+ *  Config resolves per send (settings UI, env fallback); unconfigured = no-op. */
+export function createNtfyNotifier(settings: SettingsService): Notifier {
   return {
     async send(title, body) {
-      const res = await fetch(`${url.replace(/\/$/, '')}/${topic}`, {
+      const ntfy = settings.effectiveNtfy()
+      if (!ntfy) return
+      const res = await fetch(`${ntfy.url.replace(/\/$/, '')}/${ntfy.topic}`, {
         method: 'POST',
         headers: { Title: title },
         body,
       })
       if (!res.ok) throw new Error(`ntfy responded ${res.status}`)
+    },
+  }
+}
+
+/** Email channel: only fires when SMTP exists and the recipient opted in. */
+export function createEmailNotifier(mailer: Mailer): Notifier {
+  return {
+    async send(title, body, recipient) {
+      if (!mailer.configured || !recipient?.emailOptIn) return
+      await mailer.send(recipient.email, title, body)
     },
   }
 }
@@ -64,8 +83,12 @@ export function createScheduler(
           ? { title: `Heads-up: ${reminder.title}`, body: `Due ${reminder.dueDate}${when}` }
           : { title: `Reminder: ${reminder.title}`, body: `Due today${when}` }
 
+      const owner = await repo.getUserById(reminder.userId)
+      const recipient: Recipient = owner
+        ? { email: owner.email, emailOptIn: owner.emailNotifications }
+        : null
       for (const notifier of notifiers) {
-        await notifier.send(message.title, message.body)
+        await notifier.send(message.title, message.body, recipient)
       }
       await repo.finishJob(job.id, 'done', job.attempts + 1, null)
     } catch (err) {

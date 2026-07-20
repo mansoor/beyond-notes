@@ -53,7 +53,7 @@ function PageView(props: {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-10 py-8">
+    <div className="max-w-5xl mx-auto px-10 py-8">
       <PublishBar page={props.page} publishing={props.publishing} />
       <div className="flex items-center gap-3 mb-2">
         <input
@@ -65,6 +65,7 @@ function PageView(props: {
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
         <SaveBadge state={state} />
+        <PageSettingsButton page={props.page} />
       </div>
       <DocumentEditor
         pageId={props.page.id}
@@ -72,18 +73,208 @@ function PageView(props: {
         onStateChange={setState}
         onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
       />
-      {props.page.pageType === 'gallery' && <GalleryManager pageId={props.page.id} />}
+      {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
     </div>
   )
 }
 
-function GalleryManager(props: { pageId: string }) {
+/**
+ * The one home for per-page settings — the gear next to the save badge.
+ * Shows only what applies to this page type; future options land here too.
+ */
+function PageSettingsButton(props: { page: PageMeta }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        title="Page settings"
+        onClick={() => setOpen(true)}
+        className="rounded-md border px-2 py-1 text-sm"
+        style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+      >
+        ⚙
+      </button>
+      {open && <PageSettingsModal page={props.page} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function PageSettingsModal(props: { page: PageMeta; onClose: () => void }) {
   const utils = trpc.useUtils()
-  const items = trpc.gallery.list.useQuery({ pageId: props.pageId })
-  const invalidate = () => utils.gallery.list.invalidate({ pageId: props.pageId })
+  const update = trpc.pages.updateOptions.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
+  })
+  const [uploading, setUploading] = useState(false)
+  const page = props.page
+  const isGallery = page.pageType === 'gallery'
+  const stripLayout = page.galleryLayout === 'carousel' || page.galleryLayout === 'filmstrip'
+  // Which options exist depends on the section: share bars and listing images
+  // are website concepts, so wikis and notebooks don't show them.
+  const spaces = trpc.spaces.list.useQuery()
+  const category = spaces.data?.find((s) => s.id === page.spaceId)?.category
+  const isSite = category === 'site'
+
+  const uploadCover = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
+      if (!res.ok) return
+      const json = (await res.json()) as { id: string }
+      await update.mutateAsync({ pageId: page.id, coverAttachmentId: json.id })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <Modal title="Page settings" onClose={props.onClose}>
+      <div className="flex flex-col gap-4 text-sm">
+        {isSite && (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={page.shareEnabled}
+              disabled={update.isPending}
+              onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
+            />
+            Social share buttons on the published page
+          </label>
+        )}
+
+        {isGallery && (
+          <>
+            <label className="block">
+              <span className="block font-medium mb-1">Gallery layout</span>
+              <select
+                className="w-full rounded-lg border px-3 py-2"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                value={page.galleryLayout}
+                onChange={(e) =>
+                  update.mutate({
+                    pageId: page.id,
+                    galleryLayout: e.target.value as PageMeta['galleryLayout'],
+                  })
+                }
+              >
+                {LAYOUTS.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {stripLayout && (
+              <label className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="checkbox"
+                  checked={page.galleryAutoplaySecs !== null}
+                  onChange={(e) =>
+                    update.mutate({
+                      pageId: page.id,
+                      galleryAutoplaySecs: e.target.checked ? 5 : null,
+                    })
+                  }
+                />
+                Auto-rotate every
+                <input
+                  type="number"
+                  min={2}
+                  max={60}
+                  className="w-16 rounded-lg border px-2 py-1"
+                  style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                  disabled={page.galleryAutoplaySecs === null}
+                  value={page.galleryAutoplaySecs ?? 5}
+                  onChange={(e) => {
+                    const n = Math.min(60, Math.max(2, Number(e.target.value) || 5))
+                    update.mutate({ pageId: page.id, galleryAutoplaySecs: n })
+                  }}
+                />
+                seconds
+              </label>
+            )}
+            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+              The cover image is picked on a photo in the gallery below (hover → Set cover).
+            </p>
+          </>
+        )}
+
+        {!isGallery && !isSite && (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            No settings apply to this page yet.
+          </p>
+        )}
+
+        {!isGallery && isSite && (
+          <div>
+            <span className="block font-medium mb-1">Listing image (shown in blog lists)</span>
+            {page.coverAttachmentId ? (
+              <span className="flex items-center gap-2">
+                <img
+                  src={`/api/files/${page.coverAttachmentId}/thumb`}
+                  alt="listing"
+                  className="w-14 h-10 object-cover rounded"
+                />
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => update.mutate({ pageId: page.id, coverAttachmentId: null })}
+                >
+                  remove
+                </button>
+              </span>
+            ) : (
+              <label
+                className="text-xs underline cursor-pointer"
+                style={{ color: 'var(--text-2)' }}
+              >
+                {uploading ? 'uploading…' : '+ upload image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => uploadCover(e.target.files)}
+                />
+              </label>
+            )}
+          </div>
+        )}
+
+        {(isSite || isGallery) && (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            Content-affecting settings (layout, autoplay, images) apply to the public site on the
+            next publish; the share toggle applies immediately.
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+const LAYOUTS = [
+  { value: 'grid', label: 'Grid' },
+  { value: 'mosaic', label: 'Mosaic' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'filmstrip', label: 'Filmstrip' },
+] as const
+
+function GalleryManager(props: { page: PageMeta }) {
+  const pageId = props.page.id
+  const utils = trpc.useUtils()
+  const items = trpc.gallery.list.useQuery({ pageId })
+  const invalidate = () => utils.gallery.list.invalidate({ pageId })
   const add = trpc.gallery.add.useMutation({ onSuccess: invalidate })
   const remove = trpc.gallery.remove.useMutation({ onSuccess: invalidate })
   const caption = trpc.gallery.caption.useMutation({ onSuccess: invalidate })
+  const options = trpc.pages.updateOptions.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId }),
+  })
   const [busy, setBusy] = useState(false)
 
   const onFiles = async (files: FileList | null) => {
@@ -96,7 +287,7 @@ function GalleryManager(props: { pageId: string }) {
         const res = await fetch('/api/upload', { method: 'POST', body: form })
         if (!res.ok) continue
         const json = (await res.json()) as { id: string }
-        await add.mutateAsync({ pageId: props.pageId, attachmentId: json.id })
+        await add.mutateAsync({ pageId, attachmentId: json.id })
       }
     } finally {
       setBusy(false)
@@ -144,10 +335,28 @@ function GalleryManager(props: { pageId: string }) {
               title="Remove from gallery"
               className="absolute top-1 right-1 hidden group-hover:block rounded px-1.5 text-xs text-white"
               style={{ background: 'rgba(0,0,0,0.6)' }}
-              onClick={() => remove.mutate({ pageId: props.pageId, itemId: item.id })}
+              onClick={() => remove.mutate({ pageId, itemId: item.id })}
             >
               ✕
             </button>
+            {props.page.coverAttachmentId === item.attachmentId ? (
+              <span
+                className="absolute top-1 left-1 rounded px-1.5 text-[10px] font-semibold text-white"
+                style={{ background: 'var(--accent)' }}
+              >
+                COVER
+              </span>
+            ) : (
+              <button
+                type="button"
+                title="Use as the album cover"
+                className="absolute top-1 left-1 hidden group-hover:block rounded px-1.5 text-[10px] text-white"
+                style={{ background: 'rgba(0,0,0,0.6)' }}
+                onClick={() => options.mutate({ pageId, coverAttachmentId: item.attachmentId })}
+              >
+                Set cover
+              </button>
+            )}
             <input
               className="w-full mt-1 bg-transparent text-xs outline-none"
               style={{ color: 'var(--text-2)' }}
@@ -155,7 +364,7 @@ function GalleryManager(props: { pageId: string }) {
               defaultValue={item.caption}
               onBlur={(e) => {
                 if (e.target.value !== item.caption) {
-                  caption.mutate({ pageId: props.pageId, itemId: item.id, caption: e.target.value })
+                  caption.mutate({ pageId, itemId: item.id, caption: e.target.value })
                 }
               }}
             />
@@ -163,8 +372,8 @@ function GalleryManager(props: { pageId: string }) {
         ))}
       </div>
       <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-        Images are recompressed on upload and GPS metadata is stripped. The grid publishes with the
-        page.
+        Images are recompressed on upload and GPS metadata is stripped. Layout and cover apply on
+        the next publish.
       </p>
     </section>
   )

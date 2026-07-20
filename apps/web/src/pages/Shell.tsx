@@ -1,10 +1,11 @@
 import type { UserView } from '@bn/schema'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
+import { THEME_LABEL, applyTheme, currentTheme, nextTheme } from '../theme'
 import { trpc } from '../trpc'
 
 export function Shell(props: { me: UserView; children: ReactNode }) {
@@ -12,7 +13,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   const logout = trpc.auth.logout.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
-  const [dark, setDark] = useState(false)
+  const [theme, setTheme] = useState(currentTheme)
   const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
@@ -26,15 +27,16 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const toggleDark = () => {
-    document.documentElement.classList.toggle('dark', !dark)
-    setDark(!dark)
+  const cycleTheme = () => {
+    const next = nextTheme(theme)
+    applyTheme(next)
+    setTheme(next)
   }
 
   return (
     <div className="min-h-screen flex">
       <aside
-        className="w-64 shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0 overflow-y-auto"
+        className="w-64 shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0"
         style={{ background: 'var(--sidebar)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 px-1">
@@ -47,12 +49,12 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <span className="font-semibold">Beyond Notes</span>
           <button
             type="button"
-            onClick={toggleDark}
-            title="Toggle theme"
+            onClick={cycleTheme}
+            title={`Theme: ${THEME_LABEL[theme]} — click for ${THEME_LABEL[nextTheme(theme)]}`}
             className="ml-auto w-6 h-6 rounded border text-xs"
             style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
           >
-            ◐
+            {theme === 'dark' ? '☾' : theme === 'paper' ? '❧' : '☀'}
           </button>
         </div>
 
@@ -75,36 +77,91 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           </kbd>
         </button>
 
-        <DailyNav />
-
-        <SpacesNav />
-
-        <div
-          className="mt-auto text-sm flex items-center justify-between px-1 pt-3 gap-2"
-          style={{ color: 'var(--text-2)' }}
-        >
-          <span className="truncate">
-            {props.me.name}
-            {props.me.role === 'admin' ? ' · admin' : ''}
-          </span>
-          <span className="flex items-center gap-2 whitespace-nowrap">
-            <Link to="/settings" title="Settings" style={{ color: 'var(--text-3)' }}>
-              ⚙
-            </Link>
-            <button
-              type="button"
-              className="underline"
-              onClick={() => logout.mutate()}
-              disabled={logout.isPending}
-            >
-              Sign out
-            </button>
-          </span>
+        {/* only this region scrolls; logo, search, and the user menu stay put */}
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
+          <DailyNav />
+          <SpacesNav />
         </div>
+
+        <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
       </aside>
 
       <main className="flex-1 min-w-0">{props.children}</main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+    </div>
+  )
+}
+
+function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: boolean }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // click-away and Escape both close; the menu is small enough that a
+  // full-screen backdrop would be heavier than the interaction deserves
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const itemClass = 'block w-full text-left px-3 py-1.5 text-sm rounded hover:bg-black/5'
+
+  return (
+    <div ref={rootRef} className="relative pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+      {open && (
+        <div
+          className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border py-1 shadow-lg z-40"
+          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+        >
+          <Link to="/settings" className={itemClass} onClick={() => setOpen(false)}>
+            ⚙ Settings
+          </Link>
+          <Link to="/archive" className={itemClass} onClick={() => setOpen(false)}>
+            🗄 Archive
+          </Link>
+          <div className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />
+          <button
+            type="button"
+            className={itemClass}
+            onClick={props.onSignOut}
+            disabled={props.signingOut}
+          >
+            ↩ Sign out
+          </button>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-black/5"
+        style={{ color: 'var(--text-2)' }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <span
+          className="w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-semibold shrink-0"
+          style={{ background: 'var(--accent)' }}
+        >
+          {props.me.name.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="truncate">
+          {props.me.name}
+          {props.me.role === 'admin' ? ' · admin' : ''}
+        </span>
+        <span className="ml-auto text-xs" style={{ color: 'var(--text-3)' }}>
+          {open ? '▾' : '▴'}
+        </span>
+      </button>
     </div>
   )
 }
@@ -172,6 +229,7 @@ function DailyNav() {
     { label: 'Today', to: '/day/$date', params: { date: today }, count: null as number | null },
     { label: 'Inbox', to: '/inbox', params: {}, count: inboxCount },
     { label: 'Tasks', to: '/tasks', params: {}, count: dueCount },
+    { label: 'Tags', to: '/tags', params: {}, count: null as number | null },
   ]
 
   return (

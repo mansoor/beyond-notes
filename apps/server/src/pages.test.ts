@@ -164,6 +164,29 @@ for (const dialect of dialects) {
       await appDb.close()
     })
 
+    it('page types follow the section: wiki docs-only, notebook no blog, site anything', async () => {
+      const { appDb, pages, admin } = await setup()
+      const mk = async (category: 'wiki' | 'notebook' | 'site') => {
+        const space = await pages.createSpace(admin, { name: category, category, personal: false })
+        return pages.createPage(admin, { spaceId: space.id, parentId: null, title: 'p' })
+      }
+      const wikiPage = await mk('wiki')
+      const notePage = await mk('notebook')
+      const sitePage = await mk('site')
+
+      await expect(pages.setPageType(admin, wikiPage.id, 'blog')).rejects.toThrow('cannot contain')
+      await expect(pages.setPageType(admin, wikiPage.id, 'gallery')).rejects.toThrow(
+        'cannot contain',
+      )
+      await expect(pages.setPageType(admin, notePage.id, 'blog')).rejects.toThrow('cannot contain')
+      await pages.setPageType(admin, notePage.id, 'gallery')
+      await pages.setPageType(admin, sitePage.id, 'blog')
+      await pages.setPageType(admin, sitePage.id, 'gallery')
+      // the way back to a plain page is always open
+      await pages.setPageType(admin, notePage.id, 'doc')
+      await appDb.close()
+    })
+
     it('saveDocument enforces the optimistic lock', async () => {
       const { appDb, pages, admin } = await setup()
       const { a } = await makeTree(pages, admin)

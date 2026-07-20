@@ -219,6 +219,128 @@ for (const dialect of dialects) {
       expect(rss.body).toContain('Why I left my old notes app')
     })
 
+    it('nav nests structural sub-pages; posts stay out of the menu', async () => {
+      const services = await makePage(siteSpaceId, null, 'Services', 'What I offer')
+      const consulting = await makePage(siteSpaceId, services.id, 'Consulting', 'Hourly')
+      const rates = await makePage(siteSpaceId, consulting.id, 'Rates', 'Per project')
+      await makePage(siteSpaceId, services.id, 'Secret draft', 'DRAFT-CHILD-CONTENT')
+      await publishing.publish(user, services.id)
+      await publishing.publish(user, consulting.id)
+      await publishing.publish(user, rates.id)
+
+      const home = await get('/')
+      // Services became a dropdown with its live subtree, indented by depth
+      expect(home.body).toContain('class="navitem"')
+      expect(home.body).toContain('class="caret"')
+      expect(home.body).toContain('class="lvl1" href="/services/consulting"')
+      expect(home.body).toContain('class="lvl2" href="/services/consulting/rates"')
+      // drafts and posts never reach the menu
+      expect(home.body).not.toContain('Secret draft')
+      expect(home.body).not.toContain('Shipping Beyond Notes<')
+      // Blog renders as a bare link: no caret, no dropdown wrapper of its own
+      expect(home.body).not.toContain('>Blog<span class="caret"')
+    })
+
+    it('sub-pages get breadcrumbs and parents get an In-this-section list', async () => {
+      const rates = await get('/services/consulting/rates')
+      expect(rates.statusCode).toBe(200)
+      expect(rates.body).toContain('class="crumbs"')
+      expect(rates.body).toContain('href="/services">Services</a>')
+      expect(rates.body).toContain('href="/services/consulting">Consulting</a>')
+
+      const services = await get('/services')
+      expect(services.body).toContain('In this section')
+      expect(services.body).toContain('/services/consulting')
+      expect(services.body).not.toContain('Secret draft')
+      // root pages carry no breadcrumb trail
+      expect(services.body).not.toContain('class="crumbs"')
+    })
+
+    it('a gallery lists child galleries as album cards with covers from the published grid', async () => {
+      const photos = await makePage(siteSpaceId, null, 'Photos', 'All my photos')
+      await pagesSvc.setPageType(user, photos.id, 'gallery')
+      const trips = await makePage(siteSpaceId, photos.id, 'Trips', 'On the road')
+      await pagesSvc.setPageType(user, trips.id, 'gallery')
+      const readme = await makePage(siteSpaceId, photos.id, 'About these photos', 'Shot on film')
+
+      // the child gallery gets two published photos (rows only; files not needed)
+      await repo.insertAttachment({
+        id: 'photatt111111111111111',
+        hash: 'h1',
+        filename: 'a.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertAttachment({
+        id: 'photatt222222222222222',
+        hash: 'h2',
+        filename: 'b.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertGalleryItem({
+        id: 'gi1',
+        pageId: trips.id,
+        attachmentId: 'photatt111111111111111',
+        position: 0,
+        caption: 'dunes',
+      })
+      await repo.insertGalleryItem({
+        id: 'gi2',
+        pageId: trips.id,
+        attachmentId: 'photatt222222222222222',
+        position: 1,
+        caption: '',
+      })
+      await publishing.publish(user, photos.id)
+      await publishing.publish(user, trips.id)
+      await publishing.publish(user, readme.id)
+
+      const parent = await get('/photos')
+      expect(parent.statusCode).toBe(200)
+      expect(parent.body).toContain('class="albums"')
+      expect(parent.body).toContain('class="album" href="/photos/trips"')
+      expect(parent.body).toContain('src="/api/files/photatt111111111111111/thumb"')
+      expect(parent.body).toContain('2 photos')
+      // the non-gallery child lands in the section list, not the album grid
+      expect(parent.body).toContain('In this section')
+      expect(parent.body).toContain('/photos/about-these-photos')
+
+      // publishing composed at serve time: the parent snapshot was never touched
+      const child = await get('/photos/trips')
+      expect(child.body).toContain('class="crumbs"')
+      expect(child.body).toContain('href="/photos">Photos</a>')
+    })
+
+    it('a post lists its live sub-pages below the content', async () => {
+      const post = await makePage(siteSpaceId, blogId, 'Deep dive', 'The details')
+      const appendix = await makePage(siteSpaceId, post.id, 'Appendix', 'Extra data')
+      await makePage(siteSpaceId, post.id, 'Hidden appendix', 'NOT-PUBLISHED')
+      await publishing.publish(user, post.id)
+      await publishing.publish(user, appendix.id)
+
+      const page = await get('/blog/deep-dive')
+      expect(page.body).toContain('In this section')
+      expect(page.body).toContain('/blog/deep-dive/appendix')
+      expect(page.body).not.toContain('Hidden appendix')
+
+      // the sub-page carries breadcrumbs back through the post and blog
+      const sub = await get('/blog/deep-dive/appendix')
+      expect(sub.statusCode).toBe(200)
+      expect(sub.body).toContain('href="/blog/deep-dive">Deep dive</a>')
+
+      // the nav menu still excludes the whole blog subtree
+      expect(page.body).not.toContain('class="lvl1" href="/blog/')
+    })
+
     it('cross-space move resets colliding slugs so publish stays unambiguous', async () => {
       // a note whose slug collides with the existing 'about' slug
       const clash = await makePage(notebookSpaceId, null, 'About', 'A different about note')
@@ -238,6 +360,167 @@ for (const dialect of dialects) {
       await publishing.publish(user, clash.id)
       const republished = await repo.getPage(clash.id)
       expect(republished?.slug).toBe('about-2')
+    })
+
+    it('gallery layout + cover + share + socials flow through publish and serve', async () => {
+      // social links on the space land in every page header
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+        social: [{ platform: 'github', url: 'https://github.com/mansoor' }],
+      })
+
+      const gallery = await makePage(siteSpaceId, null, 'Shots', 'best of')
+      await pagesSvc.setPageType(user, gallery.id, 'gallery')
+      await repo.insertAttachment({
+        id: 'coverpick111111111111',
+        hash: 'ch1',
+        filename: 'c.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertGalleryItem({
+        id: 'sg1',
+        pageId: gallery.id,
+        attachmentId: 'coverpick111111111111',
+        position: 0,
+        caption: 'the one',
+      })
+      await pagesSvc.updatePageOptions(user, {
+        pageId: gallery.id,
+        galleryLayout: 'filmstrip',
+        shareEnabled: true,
+        coverAttachmentId: 'coverpick111111111111',
+      })
+      await publishing.publish(user, gallery.id)
+
+      const page = await get('/shots')
+      expect(page.body).toContain('class="gallery filmstrip"')
+      expect(page.body).toContain('class="track"')
+      expect(page.body).toContain('class="sharebar"')
+      expect(page.body).toContain(`https%3A%2F%2F${HOST}%2Fshots`)
+      expect(page.body).toContain('class="socials"')
+      expect(page.body).toContain('https://github.com/mansoor')
+      expect(page.body).toContain('.lightbox') // chrome css+js shipped inline
+
+      // pages without the toggle show no share bar
+      const home = await get('/')
+      expect(home.body).not.toContain('class="sharebar"')
+
+      // the published cover is servable and rides the version snapshot
+      const version = await repo.getVersion(
+        (await repo.getPage(gallery.id))?.liveVersionId as string,
+      )
+      expect(version?.coverAttachmentId).toBe('coverpick111111111111')
+      expect(JSON.parse(version?.attachmentIds ?? '[]')).toContain('coverpick111111111111')
+
+      // a blog post with a listing image shows it on the blog index
+      const post = await makePage(siteSpaceId, blogId, 'Illustrated post', 'look at this')
+      await pagesSvc.updatePageOptions(user, {
+        pageId: post.id,
+        coverAttachmentId: 'coverpick111111111111',
+      })
+      await publishing.publish(user, post.id)
+      const blog = await get('/blog')
+      expect(blog.body).toContain('class="postcover"')
+      expect(blog.body).toContain('/api/files/coverpick111111111111/thumb')
+    })
+
+    it('branding renders (logo, tagline, header layout) and site search finds live content', async () => {
+      await repo.insertAttachment({
+        id: 'logoatt1111111111111',
+        hash: 'lg1',
+        filename: 'logo.png',
+        mime: 'image/png',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+        logoAttachmentId: 'logoatt1111111111111',
+        tagline: 'Notes from the lab',
+        headerLayout: 'centered',
+      })
+
+      const home = await get('/')
+      expect(home.body).toContain('class="hl-centered"')
+      expect(home.body).toContain('/api/files/logoatt1111111111111')
+      expect(home.body).toContain('Notes from the lab')
+      expect(home.body).toContain('class="sitesearch"')
+      // the logo is publicly servable while the site is enabled
+      expect(await publishing.publicAttachmentIds()).toContain('logoatt1111111111111')
+
+      // search: finds live content, never drafts
+      const hits = await get('/_search?q=container')
+      expect(hits.statusCode).toBe(200)
+      expect(hits.body).toContain('Shipping Beyond Notes')
+      const draft = await get('/_search?q=UNPUBLISHED-POST-CONTENT')
+      expect(draft.body).not.toContain('Draft post')
+      expect(draft.body).toContain('No results')
+
+      // restore the plain config for later tests
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+      })
+    })
+
+    it('appearance pins a palette; bloom theme renders bright', async () => {
+      // ink on auto is always dark (its identity)
+      let home = await get('/')
+      expect(home.body).toContain('--bg:#15161a')
+      expect(home.body).not.toContain('prefers-color-scheme')
+
+      // pinning light overrides even ink with its light palette
+      const base = {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+      }
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        theme: 'ink',
+        appearance: 'light',
+      })
+      home = await get('/')
+      expect(home.body).toContain('--bg:#f7f8fb')
+      expect(home.body).not.toContain('prefers-color-scheme')
+
+      // bloom on auto: bright white light palette + a dark variant for dark-OS visitors
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        theme: 'bloom',
+        appearance: 'auto',
+      })
+      home = await get('/')
+      expect(home.body).toContain('--bg:#ffffff')
+      expect(home.body).toContain('--accent:#c2318c')
+      expect(home.body).toContain('prefers-color-scheme')
+
+      // restore for any later assertions
+      await publishing.updateSpacePublishing(user, { ...base, theme: 'ink', appearance: 'auto' })
     })
   })
 }

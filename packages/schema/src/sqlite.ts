@@ -1,4 +1,11 @@
-import { type AnySQLiteColumn, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  type AnySQLiteColumn,
+  blob,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core'
 
 // Mirrors pg.ts exactly; dates are stored as integer epoch-ms and surfaced as Date.
 
@@ -13,6 +20,7 @@ export const users = sqliteTable('users', {
   totpSecret: text('totp_secret'),
   totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
   recoveryCodes: text('recovery_codes'),
+  emailNotifications: integer('email_notifications', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -23,6 +31,16 @@ export const sessions = sqliteTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const passwordResetTokens = sqliteTable('password_reset_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  usedAt: integer('used_at', { mode: 'timestamp_ms' }),
 })
 
 export const spaces = sqliteTable('spaces', {
@@ -39,9 +57,22 @@ export const spaces = sqliteTable('spaces', {
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),
-  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand'] })
+  publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand', 'bloom'] })
     .notNull()
     .default('paper'),
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+    .notNull()
+    .default('auto'),
+  // JSON array of {platform, url} shown in the published site header
+  publicSocial: text('public_social').notNull().default('[]'),
+  // site branding: uploaded logo (attachments id), short tagline, header style
+  publicLogoAttachmentId: text('public_logo_attachment_id'),
+  publicTagline: text('public_tagline'),
+  publicHeaderLayout: text('public_header_layout', {
+    enum: ['classic', 'centered', 'split', 'minimal'],
+  })
+    .notNull()
+    .default('classic'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -59,6 +90,15 @@ export const pages = sqliteTable('pages', {
     .default('doc'),
   slug: text('slug'),
   liveVersionId: text('live_version_id'),
+  galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
+    .notNull()
+    .default('grid'),
+  // carousel auto-rotate interval in seconds; null = off
+  galleryAutoplaySecs: integer('gallery_autoplay_secs'),
+  shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
+  coverAttachmentId: text('cover_attachment_id'),
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  archivedBy: text('archived_by'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -75,6 +115,7 @@ export const pageVersions = sqliteTable('page_versions', {
   html: text('html').notNull(),
   textPlain: text('text_plain').notNull(),
   attachmentIds: text('attachment_ids').notNull().default('[]'),
+  coverAttachmentId: text('cover_attachment_id'),
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -181,3 +222,39 @@ export const invites = sqliteTable('invites', {
   usedBy: text('used_by'),
   revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
 })
+
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const blobs = sqliteTable('blobs', {
+  key: text('key').primaryKey(),
+  data: blob('data', { mode: 'buffer' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const webhooks = sqliteTable('webhooks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  target: text('target', { enum: ['inbox', 'today', 'tasks'] }).notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+})
+
+export const pageTags = sqliteTable(
+  'page_tags',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pageId, t.tag] })],
+)

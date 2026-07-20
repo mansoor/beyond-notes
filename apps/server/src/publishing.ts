@@ -77,6 +77,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
             thumbUrl: `/api/files/${i.attachmentId}/thumb`,
             caption: i.caption,
           })),
+          page.galleryLayout,
+          page.galleryAutoplaySecs,
         )
         for (const i of items) attachmentIds.add(i.attachmentId)
         textPlain += `\n${items
@@ -84,6 +86,10 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
           .filter(Boolean)
           .join('\n')}`
       }
+
+      // the cover rides the snapshot: it stays publicly servable exactly as
+      // long as this version is live, like every other referenced attachment
+      if (page.coverAttachmentId) attachmentIds.add(page.coverAttachmentId)
 
       const version: PageVersionRow = {
         id: nanoid(),
@@ -95,6 +101,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         html,
         textPlain,
         attachmentIds: JSON.stringify([...attachmentIds]),
+        coverAttachmentId: page.coverAttachmentId,
         createdBy: user.id,
         createdAt: now(),
       }
@@ -136,7 +143,12 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         host: string | null
         title: string | null
         footer: string | null
-        theme: 'paper' | 'ink' | 'mist' | 'sand'
+        theme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
+        appearance?: 'auto' | 'light' | 'dark'
+        social?: Array<{ platform: string; url: string }>
+        logoAttachmentId?: string | null
+        tagline?: string | null
+        headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
@@ -158,6 +170,11 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicTitle: input.title,
         publicFooter: input.footer,
         publicTheme: input.theme,
+        publicAppearance: input.appearance ?? 'auto',
+        publicSocial: JSON.stringify(input.social ?? []),
+        publicLogoAttachmentId: input.logoAttachmentId ?? null,
+        publicTagline: input.tagline ?? null,
+        publicHeaderLayout: input.headerLayout ?? 'classic',
       })
       invalidateAttachmentCache()
     },
@@ -170,6 +187,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       const ids = new Set<string>()
       const spaces = await repo.listSpaces()
       for (const space of spaces.filter((s) => s.publicEnabled)) {
+        // the site logo is public chrome, servable while the site is enabled
+        if (space.publicLogoAttachmentId) ids.add(space.publicLogoAttachmentId)
         const entries = await this.liveTree(space.id)
         for (const e of entries) {
           try {

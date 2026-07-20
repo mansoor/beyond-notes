@@ -2,39 +2,55 @@ import { useState } from 'react'
 import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
 import { trpc } from '../trpc'
 
-const TABS = ['Account', 'Security', 'Notifications', 'Users'] as const
+const TABS = ['Account', 'Security', 'Notifications', 'Integrations', 'Users', 'Storage'] as const
 type Tab = (typeof TABS)[number]
+const ADMIN_TABS: Tab[] = ['Users', 'Storage']
+const TAB_ICONS: Record<Tab, string> = {
+  Account: '👤',
+  Security: '🔒',
+  Notifications: '🔔',
+  Integrations: '🔗',
+  Users: '👥',
+  Storage: '🗄',
+}
 
 export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
   const isAdmin = status.data?.me?.role === 'admin'
   const [tab, setTab] = useState<Tab>('Account')
-  const tabs = TABS.filter((t) => t !== 'Users' || isAdmin)
+  const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
-    <div className="max-w-2xl mx-auto px-10 py-8">
-      <h1 className="text-2xl font-bold mb-4">Settings</h1>
-      <div className="flex gap-1 border-b mb-6" style={{ borderColor: 'var(--border)' }}>
-        {tabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className="px-3 py-1.5 text-sm rounded-t-lg"
-            style={{
-              color: tab === t ? 'var(--accent)' : 'var(--text-2)',
-              background: tab === t ? 'var(--accent-soft)' : undefined,
-              fontWeight: tab === t ? 600 : 400,
-            }}
-          >
-            {t}
-          </button>
-        ))}
+    <div className="max-w-4xl mx-auto px-10 py-8">
+      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+      <div className="flex gap-8 items-start">
+        <nav className="w-44 shrink-0 flex flex-col gap-0.5 sticky top-8">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
+              style={{
+                color: tab === t ? 'var(--accent)' : 'var(--text-2)',
+                background: tab === t ? 'var(--accent-soft)' : undefined,
+                fontWeight: tab === t ? 600 : 400,
+              }}
+            >
+              <span className="text-xs">{TAB_ICONS[t]}</span>
+              {t}
+            </button>
+          ))}
+        </nav>
+        <div className="flex-1 min-w-0">
+          {tab === 'Account' && <AccountTab />}
+          {tab === 'Security' && <SecurityTab />}
+          {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
+          {tab === 'Integrations' && <IntegrationsTab />}
+          {tab === 'Users' && isAdmin && <UsersTab />}
+          {tab === 'Storage' && isAdmin && <StorageTab />}
+        </div>
       </div>
-      {tab === 'Account' && <AccountTab />}
-      {tab === 'Security' && <SecurityTab />}
-      {tab === 'Notifications' && <NotificationsTab />}
-      {tab === 'Users' && isAdmin && <UsersTab />}
     </div>
   )
 }
@@ -52,44 +68,96 @@ function Card(props: { title: string; children: React.ReactNode }) {
 }
 
 function AccountTab() {
+  return (
+    <>
+      <ProfileCard />
+      <ChangePasswordCard />
+    </>
+  )
+}
+
+function ProfileCard() {
+  const utils = trpc.useUtils()
   const status = trpc.auth.status.useQuery()
+  const update = trpc.auth.updateProfile.useMutation()
+  const me = status.data?.me
+  const [name, setName] = useState(me?.name ?? '')
+  const [email, setEmail] = useState(me?.email ?? '')
+  const [loaded, setLoaded] = useState(Boolean(me))
+  const [done, setDone] = useState(false)
+  if (me && !loaded) {
+    setName(me.name)
+    setEmail(me.email)
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await update.mutateAsync({ name, email })
+    await utils.auth.status.invalidate()
+    setDone(true)
+  })
+  const dirty = me ? name !== me.name || email !== me.email : false
+
+  return (
+    <Card title="Profile">
+      <form onSubmit={onSubmit}>
+        <Field label="Name" value={name} onChange={setName} />
+        <Field label="Email (used to sign in)" type="email" value={email} onChange={setEmail} />
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          Role: {me?.role}
+        </p>
+        <ErrorNote message={error} />
+        {done && !dirty && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Profile saved.
+          </p>
+        )}
+        <SubmitButton label="Save profile" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+function ChangePasswordCard() {
   const change = trpc.auth.changePassword.useMutation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [done, setDone] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
+    if (next !== confirm) throw new Error('New passwords do not match.')
     await change.mutateAsync({ current, next })
     setCurrent('')
     setNext('')
+    setConfirm('')
     setDone(true)
   })
+  const mismatch = confirm !== '' && next !== confirm
 
   return (
-    <>
-      <Card title="Profile">
-        <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-          {status.data?.me?.name} · {status.data?.me?.email} · {status.data?.me?.role}
-        </p>
-      </Card>
-      <Card title="Change password">
-        <form onSubmit={onSubmit}>
-          <Field label="Current password" type="password" value={current} onChange={setCurrent} />
-          <Field
-            label="New password (10+ characters)"
-            type="password"
-            value={next}
-            onChange={setNext}
-          />
-          <ErrorNote message={error} />
-          {done && (
-            <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
-              Password changed.
-            </p>
-          )}
-          <SubmitButton label="Change password" busy={busy} />
-        </form>
-      </Card>
-    </>
+    <Card title="Change password">
+      <form onSubmit={onSubmit}>
+        <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        <Field
+          label="New password (10+ characters)"
+          type="password"
+          value={next}
+          onChange={setNext}
+        />
+        <Field label="Confirm new password" type="password" value={confirm} onChange={setConfirm} />
+        {mismatch && (
+          <p className="text-sm mb-3" style={{ color: 'var(--danger)' }}>
+            Passwords do not match yet.
+          </p>
+        )}
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Password changed.
+          </p>
+        )}
+        <SubmitButton label="Change password" busy={busy} />
+      </form>
+    </Card>
   )
 }
 
@@ -275,31 +343,397 @@ function SessionsCard() {
   )
 }
 
-function NotificationsTab() {
+function NotificationsTab(props: { isAdmin: boolean }) {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const setEmail = trpc.auth.setEmailNotifications.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
+  const mailConfigured = status.data?.mailConfigured ?? false
+  const enabled = status.data?.me?.emailNotifications ?? false
+
   return (
-    <Card title="Channels">
-      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
-        Notifications are opt-in and configured on the server (a deployment fact, so it lives in
-        env, not here):
+    <>
+      <Card title="My email notifications">
+        {mailConfigured ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={setEmail.isPending}
+              onChange={(e) => setEmail.mutate({ enabled: e.target.checked })}
+            />
+            Email me reminders and heads-up notices ({status.data?.me?.email})
+          </label>
+        ) : (
+          <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+            No SMTP configured yet
+            {props.isAdmin
+              ? ' — fill in the channel below to enable email notifications, emailed invites, and the forgot-password flow.'
+              : '. Ask your admin to configure the email channel; that enables email notifications, emailed invites, and the forgot-password flow.'}
+          </p>
+        )}
+      </Card>
+      {props.isAdmin ? (
+        <>
+          <SmtpCard />
+          <NtfyCard />
+        </>
+      ) : (
+        <Card title="Push (ntfy)">
+          <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+            Channels are configured by an admin on this tab. Reminder and heads-up notifications
+            push to every device subscribed to the ntfy topic.
+          </p>
+          <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+            Without a channel configured, notifications appear in the server log only.
+          </p>
+        </Card>
+      )}
+    </>
+  )
+}
+
+function IntegrationsTab() {
+  const utils = trpc.useUtils()
+  const hooks = trpc.webhooks.list.useQuery()
+  const create = trpc.webhooks.create.useMutation({
+    onSuccess: () => utils.webhooks.list.invalidate(),
+  })
+  const revoke = trpc.webhooks.revoke.useMutation({
+    onSuccess: () => utils.webhooks.list.invalidate(),
+  })
+  const [target, setTarget] = useState<'inbox' | 'today' | 'tasks'>('inbox')
+  const [label, setLabel] = useState('')
+  const [lastUrl, setLastUrl] = useState<string | null>(null)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    const res = await create.mutateAsync({ target, label })
+    setLastUrl(res.url)
+    setLabel('')
+  })
+
+  return (
+    <Card title="Incoming webhooks">
+      <p className="text-sm mb-1" style={{ color: 'var(--text-2)' }}>
+        Give other apps a URL that drops text straight into your Inbox, Today note, or Tasks:
       </p>
-      <ul className="text-sm list-disc ml-5" style={{ color: 'var(--text-2)' }}>
-        <li>
-          <b>ntfy</b> — set <code>NTFY_URL</code> and <code>NTFY_TOPIC</code>; reminder and heads-up
-          notifications push to your devices.
-        </li>
-        <li>
-          <b>Email (SMTP)</b> — arrives in v0.2 together with the forgot-password flow.
-        </li>
+      <code
+        className="block mb-4 text-xs rounded border px-2 py-1.5 overflow-x-auto whitespace-nowrap"
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+      >
+        curl -X POST &lt;url&gt; -H "content-type: application/json" -d {'{'}"text": "from my
+        script"{'}'}
+      </code>
+      <form onSubmit={onSubmit} className="flex items-center gap-2 mb-3 flex-wrap">
+        <select
+          className="rounded-lg border px-3 py-1.5 text-sm"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={target}
+          onChange={(e) => setTarget(e.target.value as typeof target)}
+        >
+          <option value="inbox">→ Inbox</option>
+          <option value="today">→ Today</option>
+          <option value="tasks">→ Tasks</option>
+        </select>
+        <input
+          className="rounded-lg border px-3 py-1.5 text-sm flex-1 min-w-40"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          placeholder="label (e.g. Phone shortcut)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={busy || !label.trim()}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: 'var(--accent)' }}
+        >
+          Create
+        </button>
+      </form>
+      <ErrorNote message={error} />
+      {lastUrl && (
+        <div
+          className="rounded-lg border px-3 py-2 mb-4 text-xs font-mono break-all"
+          style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+        >
+          {lastUrl}
+          <div className="mt-1 font-sans" style={{ color: 'var(--text-3)' }}>
+            The URL is the credential and is shown once — copy it now.
+          </div>
+        </div>
+      )}
+      <ul className="text-sm">
+        {hooks.data?.map((h) => (
+          <li
+            key={h.id}
+            className="flex items-center justify-between py-2 border-b last:border-0"
+            style={{ borderColor: 'var(--border)', opacity: h.revoked ? 0.5 : 1 }}
+          >
+            <span>
+              {h.label} <span style={{ color: 'var(--text-3)' }}>→ {h.target}</span>
+              {h.revoked && (
+                <span className="ml-2 text-xs" style={{ color: 'var(--danger)' }}>
+                  revoked
+                </span>
+              )}
+            </span>
+            <span className="flex items-center gap-3">
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                {h.lastUsedAt
+                  ? `last used ${new Date(h.lastUsedAt).toLocaleDateString()}`
+                  : 'never used'}
+              </span>
+              {!h.revoked && (
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => revoke.mutate({ id: h.id })}
+                >
+                  revoke
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+        {hooks.data?.length === 0 && (
+          <li className="py-2 text-sm" style={{ color: 'var(--text-3)' }}>
+            No webhooks yet.
+          </li>
+        )}
       </ul>
-      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-        Without a channel configured, notifications appear in the server log only.
-      </p>
+    </Card>
+  )
+}
+
+function StorageTab() {
+  return <StorageCard />
+}
+
+function sourceLabel(source: 'db' | 'env' | 'off' | undefined): string {
+  if (source === 'db') return 'active (from these settings)'
+  if (source === 'env') return 'active (from env vars)'
+  return 'not configured'
+}
+
+function SmtpCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveSmtp.useMutation()
+  const s = settings.data?.smtp
+  const [form, setForm] = useState({
+    host: '',
+    port: 587,
+    secure: false,
+    user: '',
+    pass: '',
+    from: '',
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  if (s && !loaded) {
+    setForm({ host: s.host, port: s.port, secure: s.secure, user: s.user, pass: '', from: s.from })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await Promise.all([utils.settings.get.invalidate(), utils.auth.status.invalidate()])
+    setForm((f) => ({ ...f, pass: '' }))
+    setDone(true)
+  })
+
+  return (
+    <Card title={`Email (SMTP) — ${sourceLabel(settings.data?.mailSource)}`}>
+      <form onSubmit={onSubmit}>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Host" value={form.host} onChange={(v) => setForm({ ...form, host: v })} />
+          <Field
+            label="Port"
+            value={String(form.port)}
+            onChange={(v) => setForm({ ...form, port: Number(v) || 587 })}
+          />
+          <Field
+            label="Username (optional)"
+            value={form.user}
+            onChange={(v) => setForm({ ...form, user: v })}
+          />
+          <Field
+            label={s?.hasPass ? 'Password (blank = keep saved)' : 'Password'}
+            type="password"
+            value={form.pass}
+            onChange={(v) => setForm({ ...form, pass: v })}
+          />
+        </div>
+        <Field
+          label="From address (e.g. notes@example.com)"
+          value={form.from}
+          onChange={(v) => setForm({ ...form, from: v })}
+        />
+        <label className="flex items-center gap-2 mb-4 text-sm">
+          <input
+            type="checkbox"
+            checked={form.secure}
+            onChange={(e) => setForm({ ...form, secure: e.target.checked })}
+          />
+          Implicit TLS (port 465); off = STARTTLS
+        </label>
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved — applies immediately, no restart.
+          </p>
+        )}
+        <SubmitButton label="Save SMTP" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+function NtfyCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveNtfy.useMutation()
+  const s = settings.data?.ntfy
+  const [form, setForm] = useState({ url: '', topic: '' })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  if (s && !loaded) {
+    setForm({ url: s.url, topic: s.topic })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setDone(true)
+  })
+
+  return (
+    <Card title={`Push (ntfy) — ${sourceLabel(settings.data?.ntfySource)}`}>
+      <form onSubmit={onSubmit}>
+        <Field
+          label="ntfy server URL (e.g. https://ntfy.sh)"
+          value={form.url}
+          onChange={(v) => setForm({ ...form, url: v })}
+        />
+        <Field
+          label="Topic (treat it like a password)"
+          value={form.topic}
+          onChange={(v) => setForm({ ...form, topic: v })}
+        />
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved.
+          </p>
+        )}
+        <SubmitButton label="Save ntfy" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+function StorageCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveStorage.useMutation()
+  const s = settings.data?.storage
+  const [form, setForm] = useState({
+    driver: 'fs' as 'fs' | 'db' | 's3',
+    s3Bucket: '',
+    s3Endpoint: '',
+    s3Region: 'us-east-1',
+    s3AccessKey: '',
+    s3SecretKey: '',
+    s3ForcePathStyle: true,
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  if (s && !loaded) {
+    setForm({
+      driver: s.driver,
+      s3Bucket: s.s3Bucket,
+      s3Endpoint: s.s3Endpoint,
+      s3Region: s.s3Region,
+      s3AccessKey: s.s3AccessKey,
+      s3SecretKey: '',
+      s3ForcePathStyle: s.s3ForcePathStyle,
+    })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setForm((f) => ({ ...f, s3SecretKey: '' }))
+    setDone(true)
+  })
+
+  return (
+    <Card title="File storage">
+      <form onSubmit={onSubmit}>
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Where uploads live</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={form.driver}
+            onChange={(e) => setForm({ ...form, driver: e.target.value as typeof form.driver })}
+          >
+            <option value="fs">Filesystem (default) — the uploads folder/volume</option>
+            <option value="db">Database — everything in one backup</option>
+            <option value="s3">S3-compatible — MinIO, AWS, Wasabi, R2, B2</option>
+          </select>
+        </label>
+        {form.driver === 's3' && (
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field
+              label="Bucket"
+              value={form.s3Bucket}
+              onChange={(v) => setForm({ ...form, s3Bucket: v })}
+            />
+            <Field
+              label="Endpoint (blank = AWS)"
+              value={form.s3Endpoint}
+              onChange={(v) => setForm({ ...form, s3Endpoint: v })}
+            />
+            <Field
+              label="Region"
+              value={form.s3Region}
+              onChange={(v) => setForm({ ...form, s3Region: v })}
+            />
+            <Field
+              label="Access key"
+              value={form.s3AccessKey}
+              onChange={(v) => setForm({ ...form, s3AccessKey: v })}
+            />
+            <Field
+              label={s?.hasSecret ? 'Secret key (blank = keep saved)' : 'Secret key'}
+              type="password"
+              value={form.s3SecretKey}
+              onChange={(v) => setForm({ ...form, s3SecretKey: v })}
+            />
+          </div>
+        )}
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          Switching applies to new uploads immediately; existing files stay readable where they are.
+          Consolidate later with <code>cli blobs:migrate</code>. S3 settings are verified with a
+          real write before saving.
+        </p>
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved.
+          </p>
+        )}
+        <SubmitButton label="Save storage" busy={busy} />
+      </form>
     </Card>
   )
 }
 
 function UsersTab() {
   const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
   const users = trpc.users.list.useQuery()
   const invites = trpc.users.invites.useQuery()
   const createInvite = trpc.users.createInvite.useMutation({
@@ -309,15 +743,33 @@ function UsersTab() {
     onSuccess: () => utils.users.invites.invalidate(),
   })
   const [lastUrl, setLastUrl] = useState<string | null>(null)
+  const [emailedTo, setEmailedTo] = useState<string | null>(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const mailConfigured = status.data?.mailConfigured ?? false
 
   const makeInvite = async () => {
-    const res = await createInvite.mutateAsync({ role: 'member' })
+    const email = inviteEmail.trim() || undefined
+    const res = await createInvite.mutateAsync({
+      role: 'member',
+      suggestedEmail: email,
+      sendEmail: Boolean(email && mailConfigured),
+    })
     setLastUrl(`${window.location.origin}/invite/${res.token}`)
+    setEmailedTo(res.emailed ? (email ?? null) : null)
+    setInviteEmail('')
   }
 
   return (
     <Card title="Members & invites">
-      <div className="flex justify-end mb-3">
+      <div className="flex justify-end gap-2 mb-3">
+        <input
+          type="email"
+          className="rounded-lg border px-3 py-1.5 text-sm flex-1 max-w-60"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          placeholder={mailConfigured ? 'email (sends the link)' : 'email (optional)'}
+          value={inviteEmail}
+          onChange={(e) => setInviteEmail(e.target.value)}
+        />
         <button
           type="button"
           onClick={makeInvite}
@@ -335,7 +787,9 @@ function UsersTab() {
         >
           {lastUrl}
           <div className="mt-1 font-sans" style={{ color: 'var(--text-3)' }}>
-            Single use, expires in 7 days. Shown once — copy it now.
+            {emailedTo
+              ? `Emailed to ${emailedTo}. Single use, expires in 7 days.`
+              : 'Single use, expires in 7 days. Shown once — copy it now.'}
           </div>
         </div>
       )}

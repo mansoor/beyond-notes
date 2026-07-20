@@ -7,19 +7,30 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
-import { createFsBlobStore } from './blobstore'
+import { createDynamicBlobStore } from './blobstore-dynamic'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { exportSpaceZip } from './export'
+import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
 import { appRouter } from './routers'
-import { type Notifier, createLogNotifier, createNtfyNotifier, createScheduler } from './scheduler'
+import {
+  type Notifier,
+  createEmailNotifier,
+  createLogNotifier,
+  createNtfyNotifier,
+  createScheduler,
+} from './scheduler'
+import { loadOrCreateSecretsKey } from './secrets'
+import { createSettingsService } from './settings'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
+import { createWebhooksService } from './webhooks'
 
 export async function buildServer(config: Config, appDb: AppDb) {
   const server = Fastify({ logger: config.NODE_ENV !== 'test' })
@@ -27,21 +38,28 @@ export async function buildServer(config: Config, appDb: AppDb) {
   await server.register(fastifyCookie)
 
   const repo = createRepo(appDb)
+  const secretsKey = loadOrCreateSecretsKey(config)
+  const settings = createSettingsService(repo, config, { secretsKey })
+  await settings.load()
   const auth = createAuthService(repo)
   const pages = createPagesService(repo)
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
   const publicSrv = createPublicServer(repo, publishing)
-  const blobs = createFsBlobStore(config.UPLOADS_DIR)
+  const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
+  const webhooks = createWebhooksService(repo, daily)
 
-  const notifiers: Notifier[] = []
-  if (config.NTFY_URL && config.NTFY_TOPIC) {
-    notifiers.push(createNtfyNotifier(config.NTFY_URL, config.NTFY_TOPIC))
-  }
-  notifiers.push(createLogNotifier((msg) => server.log.info(msg)))
+  const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
+
+  // every channel resolves its config per send; unconfigured channels no-op
+  const notifiers: Notifier[] = [
+    createNtfyNotifier(settings),
+    createEmailNotifier(mailer),
+    createLogNotifier((msg) => server.log.info(msg)),
+  ]
   const scheduler = createScheduler(repo, notifiers)
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
@@ -81,14 +99,49 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(404).send({ error: 'not found' })
     }
     const key =
-      thumb && blobs.exists(thumbKey(attachment.hash)) ? thumbKey(attachment.hash) : attachment.hash
-    if (!blobs.exists(key)) return reply.code(404).send({ error: 'not found' })
+      thumb && (await blobs.exists(thumbKey(attachment.hash)))
+        ? thumbKey(attachment.hash)
+        : attachment.hash
+    if (!(await blobs.exists(key))) return reply.code(404).send({ error: 'not found' })
     reply.header('cache-control', 'private, max-age=31536000, immutable')
     reply.type(attachment.mime)
-    return reply.send(blobs.getStream(key))
+    return reply.send(await blobs.getStream(key))
   }
   server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
   server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))
+
+  // incoming webhooks: token-authenticated writers into capture surfaces.
+  // Accepts JSON {text} (or {content}) and raw text/plain bodies.
+  server.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, body)
+  })
+  server.post('/api/hooks/:token', async (req: any, reply) => {
+    const token = String(req.params.token ?? '')
+    let text = ''
+    if (typeof req.body === 'string') text = req.body
+    else if (req.body && typeof req.body === 'object') {
+      text = String(req.body.text ?? req.body.content ?? '')
+    }
+    text = text.trim().slice(0, 5000)
+    if (!text) return reply.code(400).send({ error: 'send JSON {"text": "..."} or plain text' })
+    const result = await webhooks.deliver(token, text)
+    if (!result) return reply.code(404).send({ error: 'not found' })
+    return { ok: true, target: result.target }
+  })
+
+  // one space as a Markdown+images zip — the UI's download-your-data button
+  server.get('/api/export/space/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    const space = await repo.getSpace(String(req.params.id ?? ''))
+    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      return reply.code(404).send({ error: 'not found' })
+    }
+    const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
+    reply.header('content-disposition', `attachment; filename="${filename}"`)
+    reply.type('application/zip')
+    return reply.send(data)
+  })
 
   // Host-header routing for published sites. Any GET whose Host matches a
   // publicEnabled space is answered from published snapshots and never reaches
@@ -141,6 +194,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
         publishing,
         attachments,
         reminders,
+        mailer,
+        settings,
+        webhooks,
       }),
     },
   })
@@ -159,6 +215,10 @@ export async function buildServer(config: Config, appDb: AppDb) {
     attachments,
     reminders,
     scheduler,
+    mailer,
+    settings,
+    webhooks,
+    blobs,
   })
 
   // the scheduler tick lives with the server lifecycle; runOnce on boot

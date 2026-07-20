@@ -151,19 +151,31 @@ export function blocknoteToHtml(contentJson: string): string {
 }
 
 export type GalleryRenderItem = { url: string; thumbUrl: string; caption: string }
+export type GalleryLayout = 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
 
-/** The gallery grid appended to a gallery page's rendered HTML at publish time. */
-export function galleryHtml(items: GalleryRenderItem[]): string {
+/** The gallery appended to a gallery page's rendered HTML at publish time.
+ *  Layout is a per-gallery setting, baked into the snapshot like everything
+ *  else; carousel/filmstrip get full-size images (they show one at a time). */
+export function galleryHtml(
+  items: GalleryRenderItem[],
+  layout: GalleryLayout = 'grid',
+  autoplaySecs?: number | null,
+): string {
   if (items.length === 0) return ''
+  const strip = layout === 'carousel' || layout === 'filmstrip'
   const cells = items
     .map(
       (i) =>
-        `<a class="cell" href="${escapeHtml(i.url)}"><img src="${escapeHtml(i.thumbUrl)}" alt="${escapeHtml(i.caption)}" loading="lazy">${
+        `<a class="cell" href="${escapeHtml(i.url)}"><img src="${escapeHtml(strip ? i.url : i.thumbUrl)}" alt="${escapeHtml(i.caption)}" loading="lazy">${
           i.caption ? `<span class="cap">${escapeHtml(i.caption)}</span>` : ''
         }</a>`,
     )
     .join('')
-  return `<div class="gallery">${cells}</div>`
+  if (strip) {
+    const auto = autoplaySecs ? ` data-autoplay="${Math.round(autoplaySecs)}"` : ''
+    return `<div class="gallery ${layout}"${auto}><div class="track">${cells}</div><button type="button" class="gnav prev" aria-label="Previous">‹</button><button type="button" class="gnav next" aria-label="Next">›</button></div>`
+  }
+  return `<div class="gallery ${layout}">${cells}</div>`
 }
 
 export function plainText(contentJson: string): string {

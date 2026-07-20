@@ -24,6 +24,15 @@ export const changePasswordInput = z.object({
 
 export const totpConfirmInput = z.object({ code: z.string().trim().min(6).max(20) })
 
+export const requestPasswordResetInput = z.object({ email: emailSchema })
+
+export const updateProfileInput = z.object({ name: nameSchema, email: emailSchema })
+
+export const resetPasswordInput = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+})
+
 export type SessionView = {
   id: string
   createdAt: string
@@ -43,6 +52,8 @@ export type LoginInput = z.infer<typeof loginInput>
 export const createInviteInput = z.object({
   suggestedEmail: emailSchema.optional(),
   role: z.enum(['admin', 'member']).default('member'),
+  // email the link to suggestedEmail (requires SMTP; ignored without it)
+  sendEmail: z.boolean().default(false),
 })
 export type CreateInviteInput = z.infer<typeof createInviteInput>
 
@@ -59,6 +70,7 @@ export type UserView = {
   email: string
   name: string
   role: 'admin' | 'member'
+  emailNotifications: boolean
   createdAt: string
 }
 
@@ -74,6 +86,8 @@ export type InviteView = {
 export type AuthStatus = {
   needsSetup: boolean
   me: UserView | null
+  // SMTP present on this deployment: gates "Forgot password?" and emailed invites
+  mailConfigured: boolean
 }
 
 // ---- spaces & pages (M1) ----
@@ -98,6 +112,11 @@ export type SpaceView = {
   publicTitle: string | null
   publicFooter: string | null
   publicTheme: SiteTheme
+  publicAppearance: SiteAppearance
+  publicSocial: SocialLinkValue[]
+  publicLogoAttachmentId: string | null
+  publicTagline: string | null
+  publicHeaderLayout: SiteHeaderLayoutName
   createdAt: string
 }
 
@@ -138,6 +157,32 @@ export type PageMeta = {
   title: string
   position: number
   pageType: 'doc' | 'blog' | 'gallery'
+  galleryLayout: GalleryLayoutName
+  galleryAutoplaySecs: number | null
+  shareEnabled: boolean
+  coverAttachmentId: string | null
+}
+
+export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
+export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
+
+export const updatePageOptionsInput = z.object({
+  pageId: z.string(),
+  galleryLayout: galleryLayoutName.optional(),
+  // null = autoplay off; only meaningful for carousel/filmstrip layouts
+  galleryAutoplaySecs: z.number().int().min(2).max(60).nullable().optional(),
+  shareEnabled: z.boolean().optional(),
+  // null clears the cover; undefined leaves it unchanged
+  coverAttachmentId: z.string().nullable().optional(),
+})
+
+export type ArchivedPageView = {
+  id: string
+  title: string
+  pageType: 'doc' | 'blog' | 'gallery'
+  spaceName: string
+  archivedAt: string
+  archivedByName: string
 }
 
 export const setPageTypeInput = z.object({
@@ -213,8 +258,34 @@ export const hostSchema = z
   .regex(/^[a-z0-9.-]+(:\d+)?$/, 'Host names only, e.g. docs.example.com')
   .max(255)
 
-export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand'])
+export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand', 'bloom'])
 export type SiteTheme = z.infer<typeof siteTheme>
+
+export const siteAppearance = z.enum(['auto', 'light', 'dark'])
+export type SiteAppearance = z.infer<typeof siteAppearance>
+
+export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])
+export type SiteHeaderLayoutName = z.infer<typeof siteHeaderLayout>
+
+export const socialPlatform = z.enum([
+  'github',
+  'x',
+  'instagram',
+  'youtube',
+  'linkedin',
+  'facebook',
+  'mastodon',
+  'bluesky',
+  'email',
+  'website',
+])
+export type SocialPlatformName = z.infer<typeof socialPlatform>
+
+export const socialLinkInput = z.object({
+  platform: socialPlatform,
+  url: z.string().trim().min(1).max(500),
+})
+export type SocialLinkValue = z.infer<typeof socialLinkInput>
 
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
@@ -223,6 +294,11 @@ export const updatePublishingInput = z.object({
   title: z.string().trim().max(120).nullable(),
   footer: z.string().trim().max(300).nullable(),
   theme: siteTheme.default('paper'),
+  appearance: siteAppearance.default('auto'),
+  social: z.array(socialLinkInput).max(10).default([]),
+  logoAttachmentId: z.string().nullable().default(null),
+  tagline: z.string().trim().max(160).nullable().default(null),
+  headerLayout: siteHeaderLayout.default('classic'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 
@@ -283,3 +359,86 @@ export type TaskView = {
   spaceName: string
   isJournal: boolean
 }
+
+// ---- server settings (admin-editable, stored in the settings table) ----
+
+export const smtpSettings = z.object({
+  host: z.string().trim().max(255).default(''),
+  port: z.number().int().min(1).max(65535).default(587),
+  secure: z.boolean().default(false),
+  user: z.string().max(255).default(''),
+  // empty string on save = keep the stored password (never echoed to the UI)
+  pass: z.string().max(255).default(''),
+  from: z.string().trim().max(255).default(''),
+})
+export type SmtpSettings = z.infer<typeof smtpSettings>
+
+export const ntfySettings = z.object({
+  url: z.string().trim().max(500).default(''),
+  topic: z.string().trim().max(200).default(''),
+})
+export type NtfySettings = z.infer<typeof ntfySettings>
+
+export const storageDriver = z.enum(['fs', 'db', 's3'])
+export type StorageDriver = z.infer<typeof storageDriver>
+
+export const storageSettings = z.object({
+  driver: storageDriver.default('fs'),
+  s3Bucket: z.string().trim().max(255).default(''),
+  s3Endpoint: z.string().trim().max(500).default(''),
+  s3Region: z.string().trim().max(100).default('us-east-1'),
+  s3AccessKey: z.string().max(255).default(''),
+  // empty string on save = keep the stored secret
+  s3SecretKey: z.string().max(255).default(''),
+  s3ForcePathStyle: z.boolean().default(true),
+})
+export type StorageSettings = z.infer<typeof storageSettings>
+
+export type ServerSettingsView = {
+  smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
+  ntfy: NtfySettings
+  storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
+  // which sources are effectively active right now (db beats env)
+  mailSource: 'db' | 'env' | 'off'
+  ntfySource: 'db' | 'env' | 'off'
+}
+
+// ---- webhooks ----
+
+export const webhookTarget = z.enum(['inbox', 'today', 'tasks'])
+export type WebhookTarget = z.infer<typeof webhookTarget>
+
+export const createWebhookInput = z.object({
+  target: webhookTarget,
+  label: z.string().trim().min(1).max(80),
+})
+
+export type WebhookView = {
+  id: string
+  target: WebhookTarget
+  label: string
+  createdAt: string
+  lastUsedAt: string | null
+  revoked: boolean
+}
+
+// ---- tags ----
+
+export type TagCount = { tag: string; count: number }
+
+export type TagItem = {
+  kind: 'page' | 'memo'
+  id: string
+  title: string
+  // where it lives: space name, 'Journal', or 'Inbox'
+  context: string
+  // set for journal day pages so the UI can link to /day/<date>
+  dateKey: string | null
+}
+
+// ---- journal day notes ----
+
+export const createDayNoteInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  title: z.string().trim().min(1).max(120),
+})

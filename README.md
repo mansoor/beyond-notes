@@ -3,15 +3,21 @@
 One block-page primitive, five surfaces. Notes that go beyond the note: they
 organize your day, hold your tasks, and publish to the web.
 
-**Status: v0.1.0** — all six milestones landed 2026-07-18. M6 closed it out:
-settings (Account / Security / Notifications / admin Users tabs), TOTP 2FA
+**Status: v0.2 in progress** — the three v0.2 items landed 2026-07-18/19:
+**SMTP + forgot-password** (mailer seam, single-use 1h reset tokens, sessions
+revoked on reset, TOTP deliberately survives a reset, emailed invites, email
+notification channel with per-user opt-in — every email-dependent flow hides
+in the UI until SMTP is configured), **S3-compatible blob storage** (MinIO/
+AWS/Wasabi/R2/B2 behind the same BlobStore seam; set `S3_BUCKET` to switch;
+`cli blobs:migrate fs s3` moves an existing library, idempotent), and
+**export/import** (portability section below). v0.1.0 closed all six
+milestones the same week: settings tabs, TOTP 2FA
 (hand-rolled RFC 6238, verified against published vectors; recovery codes
 shown once, single-use), session list/revoke, password change, the CLI
 rescue (`node dist/cli.js user:reset-password` — resets password, clears
 2FA, revokes sessions), global search (Ctrl+K, portable LIKE over titles/
 content/memos, access-filtered), PWA (installable, share-target → Inbox
-prefill), and backup/restore docs below. Deferred to v0.2: email
-forgot-password + SMTP channel, S3 blob driver, full export/import.
+prefill), and backup/restore docs below.
 Earlier: M5 (reminders + notifications) —
 Reminders are lightweight scheduled tasks: one-time or recurring (freq ×
 interval in pure date math — RRULE upgrade path open), optional heads-up
@@ -69,6 +75,20 @@ boot, so restoring an older dump into a newer app version is safe.
 
 Test the restore once before trusting it — a backup that has never been
 restored is a hope, not a backup.
+
+## Export & import (your data is yours)
+
+- **Full instance** — `node dist/cli.js export <dir>` writes `data.json` +
+  `blobs/` (sessions and reset tokens deliberately excluded); restore with
+  `node dist/cli.js import <dir>` into an **empty** database (it refuses
+  otherwise). Passwords, 2FA, page trees, tasks, reminders, and files all
+  survive; works across storage drivers (export from fs, import into S3).
+- **One space as Markdown** — the ⤓ button next to a space downloads a zip:
+  one `.md` per page mirroring the tree, images under `_attachments/` with
+  links rewritten. Readable anywhere, importable into Obsidian et al.
+- **Markdown folder in** — `node dist/cli.js import:markdown <dir> <space-name>
+  <owner-email>` creates a space from a folder of `.md` files (folders nest,
+  a leading H1 becomes the title, checkboxes land in the task index).
 
 **Locked out?** (lost password, lost 2FA device, broken everything):
 `docker compose exec app node dist/cli.js user:reset-password <email> <new>`
