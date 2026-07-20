@@ -18,6 +18,8 @@ export type ShellInput = {
   prev?: { title: string; path: string }
   next?: { title: string; path: string }
   searchQuery?: string
+  /** draft previews must never be indexed */
+  noindex?: boolean
 }
 
 const CSS = `
@@ -99,13 +101,20 @@ try{localStorage.setItem('bn-docs-sidew',w)}catch(err){}});
 bar.addEventListener('pointerup',function(){on=false;bar.classList.remove('active')});
 })();`
 
-function page(siteTitle: string, footer: string, basePath: string, body: string, title: string) {
+function page(
+  siteTitle: string,
+  footer: string,
+  basePath: string,
+  body: string,
+  title: string,
+  noindex = false,
+) {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
+${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
 <script>${SIDEBAR_RESTORE_JS}</script>
 <style>${CSS}${GALLERY_CSS}</style>
 </head>
@@ -143,7 +152,7 @@ ${input.contentHtml}
 <div class="prevnext">${prev}${next}</div>
 </div></main>
 </div>`
-  return page(input.siteTitle, input.footer, input.basePath, body, input.pageTitle)
+  return page(input.siteTitle, input.footer, input.basePath, body, input.pageTitle, input.noindex)
 }
 
 export function docsSearchResults(input: {

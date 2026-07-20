@@ -11,6 +11,7 @@ import type {
   PageMeta,
   PageTagView,
   PinView,
+  PreviewView,
   PublishingView,
   RecentPage,
   ReminderView,
@@ -51,6 +52,7 @@ import {
   requestPasswordResetInput,
   resetPasswordInput,
   saveDocumentInput,
+  schedulePublishInput,
   setPageTypeInput,
   setupInput,
   smtpSettings,
@@ -178,6 +180,7 @@ function toPageMeta(p: PageRow): PageMeta {
     galleryAutoplaySecs: p.galleryAutoplaySecs,
     shareEnabled: p.shareEnabled,
     coverAttachmentId: p.coverAttachmentId,
+    metaDescription: p.metaDescription,
   }
 }
 
@@ -476,7 +479,14 @@ const pagesRouter = router({
           const publishing =
             space.kind === 'tree'
               ? await ctx.publishing.status(page, space)
-              : { spaceEnabled: false, host: null, live: null, pending: false, slugPath: null }
+              : {
+                  spaceEnabled: false,
+                  host: null,
+                  live: null,
+                  pending: false,
+                  slugPath: null,
+                  scheduledAt: null,
+                }
           return {
             page: toPageMeta(page),
             doc: {
@@ -706,6 +716,68 @@ const publishRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         await ctx.publishing.republish(ctx.user, input.pageId, input.versionId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  /** Publish later: the scheduler tick does the publishing. */
+  schedule: authedProcedure.input(schedulePublishInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.publishing.schedulePublish(ctx.user, input.pageId, new Date(input.at))
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  cancelSchedule: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.publishing.cancelScheduledPublish(ctx.user, input.pageId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  /** Draft preview links — the token is returned once, hashed at rest. */
+  createPreview: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .mutation(async ({ ctx, input }): Promise<{ token: string; url: string }> => {
+      try {
+        const { token } = await ctx.publishing.createPreview(ctx.user, input.pageId)
+        const page = await ctx.repo.getPage(input.pageId)
+        const space = page ? await ctx.repo.getSpace(page.spaceId) : null
+        const host = space?.publicHost
+        // real host when the space is published; the dev escape otherwise
+        const url = host
+          ? `https://${host}/_preview/${token}`
+          : `${ctx.config.BASE_URL}/s/${host ?? 'unset'}/_preview/${token}`
+        return { token, url }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  previews: authedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }): Promise<PreviewView[]> => {
+      try {
+        const rows = await ctx.publishing.listPreviews(ctx.user, input.pageId)
+        return rows.map((r) => ({ id: r.id, createdAt: r.createdAt.toISOString() }))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  revokePreview: authedProcedure
+    .input(z.object({ pageId: z.string(), previewId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.publishing.revokePreview(ctx.user, input.pageId, input.previewId)
         return { ok: true }
       } catch (err) {
         rethrow(err)

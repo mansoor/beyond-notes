@@ -12,8 +12,9 @@ import {
   sitePage,
   sitePost,
   siteSearchResults,
+  siteTagPage,
 } from '@bn/renderer'
-import type { AlbumCard, Crumb, SiteNavItem, SocialLink } from '@bn/renderer'
+import type { AlbumCard, Crumb, SiteMeta, SiteNavItem, SocialLink } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
@@ -77,6 +78,18 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     if (!space) return false
 
     const path = rawPath === '' ? '/' : rawPath
+
+    if (path === '/robots.txt') {
+      reply.type('text/plain; charset=utf-8')
+      reply.send(`User-agent: *\nAllow: /\nSitemap: https://${host}/sitemap.xml\n`)
+      return true
+    }
+
+    // tokened draft preview: the working copy, noindex, revocable
+    if (path.startsWith('/_preview/')) {
+      await servePreview(space, path.slice('/_preview/'.length), basePath, reply)
+      return true
+    }
 
     // 'site' category spaces render with the website theme; everything else
     // gets the docs renderer. Same read model underneath.
@@ -182,6 +195,44 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       logoUrl: space.publicLogoAttachmentId ? `/api/files/${space.publicLogoAttachmentId}` : null,
       tagline: space.publicTagline,
       headerLayout: space.publicHeaderLayout,
+      faviconUrl: space.publicLogoAttachmentId
+        ? `/api/files/${space.publicLogoAttachmentId}/thumb`
+        : null,
+    }
+    const absUrl = (p2: string) => `https://${host}${p2}`
+    // og/meta head block: description falls back to the snapshot's text
+    const metaFor = (
+      entry: {
+        entry: {
+          version: {
+            metaDescription: string | null
+            textPlain: string
+            coverAttachmentId: string | null
+          }
+        }
+        path: string
+      },
+      type: 'website' | 'article' = 'website',
+    ): SiteMeta => ({
+      description:
+        entry.entry.version.metaDescription ||
+        entry.entry.version.textPlain.trim().replace(/\s+/g, ' ').slice(0, 160) ||
+        null,
+      ogImage: entry.entry.version.coverAttachmentId
+        ? absUrl(`/api/files/${entry.entry.version.coverAttachmentId}`)
+        : space.publicLogoAttachmentId
+          ? absUrl(`/api/files/${space.publicLogoAttachmentId}`)
+          : null,
+      url: absUrl(entry.path),
+      type,
+    })
+    const tagsOf = (entry: { entry: { version: { tags: string } } }): string[] => {
+      try {
+        const parsed = JSON.parse(entry.entry.version.tags)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
     }
     const siteTitle = site.siteTitle
     const footer = site.footer
@@ -281,6 +332,33 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       return
     }
 
+    if (path.startsWith('/tags/')) {
+      const tag = decodeURIComponent(path.slice('/tags/'.length)).toLowerCase()
+      const items = site.flat
+        .filter((f) => tagsOf(f).includes(tag))
+        .sort((a, b) => b.entry.version.createdAt.getTime() - a.entry.version.createdAt.getTime())
+        .map((f) => ({
+          title: f.title,
+          path: f.path,
+          snippet: f.entry.version.textPlain.trim().replace(/\s+/g, ' ').slice(0, 160),
+        }))
+      reply.send(
+        siteTagPage({
+          siteTitle,
+          footer,
+          theme,
+          appearance,
+          socials,
+          ...branding,
+          nav,
+          basePath,
+          tag,
+          items,
+        }),
+      )
+      return
+    }
+
     if (path === '/rss.xml') {
       const items = []
       for (const blog of blogEntries) {
@@ -323,7 +401,14 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
 
     // blog index page: own content + dated post list
     if (hit.entry.page.pageType === 'blog') {
-      const posts = await postsOfBlog(hit.entry.page.id, hit.path)
+      const POSTS_PER_PAGE = 10
+      const all = await postsOfBlog(hit.entry.page.id, hit.path)
+      const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE))
+      const pageNum = Math.min(
+        totalPages,
+        Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1),
+      )
+      const posts = all.slice((pageNum - 1) * POSTS_PER_PAGE, pageNum * POSTS_PER_PAGE)
       reply.send(
         siteBlogIndex({
           siteTitle,
@@ -345,6 +430,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           })),
           crumbs: crumbsFor(hit),
           rssPath: '/rss.xml',
+          meta: metaFor(hit),
+          pagination: { page: pageNum, totalPages, blogPath: hit.path },
         }),
       )
       return
@@ -382,6 +469,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
+          meta: metaFor(hit, 'article'),
+          tags: tagsOf(hit),
         }),
       )
       return
@@ -433,6 +522,58 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit) + extras,
         crumbs: crumbsFor(hit),
         rssPath,
+        meta: metaFor(hit),
+      }),
+    )
+  }
+
+  /** The working copy behind a preview token, rendered with the site chrome. */
+  async function servePreview(
+    space: SpaceRow,
+    token: string,
+    basePath: string,
+    reply: FastifyReply,
+  ): Promise<void> {
+    reply.type('text/html; charset=utf-8')
+    const page = await publishing.resolvePreviewToken(token)
+    if (!page || page.spaceId !== space.id) {
+      reply.code(404).send('<h1>Preview not found</h1><p>The link may have been revoked.</p>')
+      return
+    }
+    const { html, title } = await publishing.renderPreview(page)
+    // draft images are not public — tag their URLs with the token so the
+    // file route can authorize exactly this page's attachments
+    const tokened = html.replace(
+      /(src|href)="(\/api\/files\/[A-Za-z0-9_-]+(?:\/thumb)?)"/g,
+      `$1="$2?preview=${token}"`,
+    )
+    const banner =
+      '<p class="meta" style="border:1px dashed currentColor;border-radius:8px;padding:6px 12px">Draft preview — not published</p>'
+    if (space.category === 'site') {
+      reply.send(
+        sitePage({
+          siteTitle: space.publicTitle || space.name,
+          footer: space.publicFooter || '',
+          theme: space.publicTheme,
+          appearance: space.publicAppearance,
+          nav: [],
+          basePath,
+          title,
+          contentHtml: banner + tokened,
+          meta: { noindex: true },
+        }),
+      )
+      return
+    }
+    reply.send(
+      docsShell({
+        siteTitle: space.publicTitle || space.name,
+        footer: space.publicFooter || '',
+        pageTitle: title,
+        contentHtml: banner + tokened,
+        nav: [],
+        basePath,
+        noindex: true,
       }),
     )
   }

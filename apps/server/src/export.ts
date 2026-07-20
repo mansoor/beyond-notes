@@ -41,6 +41,7 @@ const DATE_COLUMNS: Record<string, string[]> = {
   pins: ['createdAt'],
   pageSlugs: ['createdAt'],
   pageTags: [],
+  previews: ['createdAt', 'revokedAt'],
 }
 
 type Dump = {
@@ -90,6 +91,7 @@ export async function exportInstance(
     pins: await repo.listAllPins(),
     pageSlugs: await repo.listAllPageSlugRows(),
     pageTags: await repo.listAllPageTagRows(),
+    previews: await repo.listAllPreviews(),
   } as unknown as Dump['tables']
 
   const dump: Dump = {
@@ -192,6 +194,7 @@ export async function importInstance(
   // tags carry manual rows, so they import verbatim; the link index is
   // derived and rebuilds from the documents
   for (const row of rows('pageTags')) await repo.insertPageTagRow(row as never)
+  for (const row of rows('previews')) await repo.insertPreview(row as never)
   for (const row of rows('documents') as Array<{ pageId: string; content: string }>) {
     await reconcileLinks(repo, row.pageId, row.content)
   }
