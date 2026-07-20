@@ -43,12 +43,58 @@ export function JournalPage() {
   const today = todayKey()
   const dueTasks = (agenda.data ?? []).filter((t) => !t.checked && t.due !== null && t.due <= date)
   const dueReminders = (reminders.data ?? []).filter((r) => !r.completed && r.dueDate <= date)
-  const upcoming = (reminders.data ?? [])
-    .filter((r) => !r.completed && r.dueDate > today)
-    .slice(0, 5)
   const capturedThisDay = (memos.data ?? []).filter(
     (m) => toDateKey(new Date(m.createdAt)) === date,
   )
+
+  // "Coming up" is real-world upcoming (relative to today, not the viewed
+  // day): tasks due within the next 7 days plus every future reminder, one
+  // list sorted by date. Overdue/today items live in the column, not here.
+  const horizon = shiftDateKey(today, 7)
+  type ComingUp =
+    | { kind: 'reminder'; key: string; icon: string; title: string; date: string; hint: string }
+    | {
+        kind: 'task'
+        key: string
+        icon: string
+        title: string
+        date: string
+        hint: string
+        pageId: string
+        pageTitle: string
+        isJournal: boolean
+      }
+  const comingUp: ComingUp[] = [
+    ...(reminders.data ?? [])
+      .filter((r) => !r.completed && r.dueDate > today)
+      .map(
+        (r): ComingUp => ({
+          kind: 'reminder',
+          key: `r:${r.id}`,
+          icon: r.icon || '🔔',
+          title: r.title,
+          date: r.dueDate,
+          hint: freqLabel(r),
+        }),
+      ),
+    ...(agenda.data ?? [])
+      .filter((t) => !t.checked && t.due !== null && t.due > today && (t.due as string) <= horizon)
+      .map(
+        (t): ComingUp => ({
+          kind: 'task',
+          key: `t:${t.id}`,
+          icon: '☐',
+          title: t.text.replace(/@\d{4}-\d{2}-\d{2}\b/, '').trim() || t.text,
+          date: t.due as string,
+          hint: t.pageTitle,
+          pageId: t.pageId,
+          pageTitle: t.pageTitle,
+          isJournal: t.isJournal,
+        }),
+      ),
+  ]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 12)
 
   return (
     <div className="flex min-h-screen">
@@ -214,7 +260,7 @@ export function JournalPage() {
           selected={date}
           onPick={(d) => navigate({ to: '/day/$date', params: { date: d } })}
         />
-        {upcoming.length > 0 && (
+        {comingUp.length > 0 && (
           <div
             className="rounded-xl border p-4 mt-4 text-sm"
             style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
@@ -225,20 +271,45 @@ export function JournalPage() {
             >
               Coming up
             </h4>
-            {upcoming.map((r) => (
-              <div key={r.id} className="flex justify-between gap-2 py-1">
-                <span className="truncate">
-                  {r.icon || '🔔'} {r.title}
-                </span>
-                <span
-                  className="text-xs whitespace-nowrap"
-                  style={{ color: 'var(--text-3)' }}
-                  title={freqLabel(r)}
-                >
-                  {r.dueDate.slice(5)}
-                </span>
-              </div>
-            ))}
+            {comingUp.map((item) => {
+              const dateLabel = item.date === today ? 'today' : item.date.slice(5)
+              const body = (
+                <>
+                  <span className="truncate">
+                    {item.icon} {item.title}
+                  </span>
+                  <span
+                    className="text-xs whitespace-nowrap"
+                    style={{ color: 'var(--text-3)' }}
+                    title={item.hint}
+                  >
+                    {dateLabel}
+                  </span>
+                </>
+              )
+              if (item.kind === 'task') {
+                const isDayPage = item.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(item.pageTitle)
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="flex w-full justify-between gap-2 py-1 text-left"
+                    onClick={() =>
+                      isDayPage
+                        ? navigate({ to: '/day/$date', params: { date: item.pageTitle } })
+                        : navigate({ to: '/p/$pageId', params: { pageId: item.pageId } })
+                    }
+                  >
+                    {body}
+                  </button>
+                )
+              }
+              return (
+                <div key={item.key} className="flex justify-between gap-2 py-1">
+                  {body}
+                </div>
+              )
+            })}
           </div>
         )}
         <RecentlyEdited />
