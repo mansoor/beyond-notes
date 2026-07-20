@@ -783,12 +783,15 @@ const publishRouter = router({
         const { token } = await ctx.publishing.createPreview(ctx.user, input.pageId)
         const page = await ctx.repo.getPage(input.pageId)
         const space = page ? await ctx.repo.getSpace(page.spaceId) : null
+        // previews resolve by host, so a space without one cannot serve them
         const host = space?.publicHost
-        // real host when the space is published; the dev escape otherwise
-        const url = host
-          ? `https://${host}/_preview/${token}`
-          : `${ctx.config.BASE_URL}/s/${host ?? 'unset'}/_preview/${token}`
-        return { token, url }
+        if (!host) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Set a public host for this space before sharing drafts.',
+          })
+        }
+        return { token, url: `https://${host}/_preview/${token}` }
       } catch (err) {
         rethrow(err)
       }

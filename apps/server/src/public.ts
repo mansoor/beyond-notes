@@ -5,6 +5,7 @@ import {
   docs404,
   docsSearchResults,
   docsShell,
+  docsTagPage,
   extractHeadings,
   sectionListHtml,
   shareBarHtml,
@@ -102,6 +103,17 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     }
 
     const site = await publishing.publicSite(space, path)
+    // wikis are themed like websites (same tokens, same appearance rule)
+    const theme = space.publicTheme
+    const appearance = space.publicAppearance
+    const tagsOfDoc = (entry: { entry: { version: { tags: string } } }): string[] => {
+      try {
+        const parsed = JSON.parse(entry.entry.version.tags)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
 
     reply.type('text/html; charset=utf-8')
 
@@ -134,8 +146,33 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           footer: site.footer,
           basePath,
           nav: site.nav,
+          theme,
+          appearance,
           query: q,
           results,
+        }),
+      )
+      return true
+    }
+
+    if (path.startsWith('/tags/')) {
+      const tag = decodeURIComponent(path.slice('/tags/'.length)).toLowerCase()
+      reply.send(
+        docsTagPage({
+          siteTitle: site.siteTitle,
+          footer: site.footer,
+          basePath,
+          nav: site.nav,
+          theme,
+          appearance,
+          tag,
+          items: site.flat
+            .filter((f) => tagsOfDoc(f).includes(tag))
+            .map((f) => ({
+              title: f.title,
+              path: f.path,
+              snippet: f.entry.version.textPlain.trim().replace(/\s+/g, ' ').slice(0, 160),
+            })),
         }),
       )
       return true
@@ -144,7 +181,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     if (path === '/') {
       const first = site.flat[0]
       if (!first) {
-        reply.code(404).send(docs404(site.siteTitle, site.footer, basePath))
+        reply.code(404).send(docs404(site.siteTitle, site.footer, basePath, theme, appearance))
         return true
       }
       reply.redirect(`${basePath}${first.path}`, 302)
@@ -158,7 +195,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         reply.redirect(`${basePath}${canonical}`, 301)
         return true
       }
-      reply.code(404).send(docs404(site.siteTitle, site.footer, basePath))
+      reply.code(404).send(docs404(site.siteTitle, site.footer, basePath, theme, appearance))
       return true
     }
 
@@ -192,6 +229,16 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         toc: extractHeadings(hit.entry.version.content),
         updatedAt: hit.entry.version.createdAt.toISOString(),
         editUrl: opts.editBase ? `${opts.editBase}/p/${hit.entry.page.id}` : null,
+        theme,
+        appearance,
+        tags: tagsOfDoc(hit),
+        meta: {
+          description:
+            hit.entry.version.metaDescription ||
+            hit.entry.version.textPlain.trim().replace(/\s+/g, ' ').slice(0, 160) ||
+            null,
+          url: `https://${host}${hit.path}`,
+        },
       }),
     )
     return true
@@ -592,6 +639,8 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         nav: [],
         basePath,
         noindex: true,
+        theme: space.publicTheme,
+        appearance: space.publicAppearance,
       }),
     )
   }

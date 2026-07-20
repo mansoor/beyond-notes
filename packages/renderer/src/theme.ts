@@ -1,5 +1,7 @@
 import { CHROME_JS, GALLERY_CSS } from './chrome'
 import { type TocEntry, escapeHtml } from './render'
+import type { SiteMeta } from './site'
+import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
 
 export type NavNode = {
   title: string
@@ -27,13 +29,15 @@ export type ShellInput = {
   updatedAt?: string | null
   /** app URL for "Edit this page"; only rendered for signed-in visitors */
   editUrl?: string | null
+  /** wikis pick a theme like websites do; defaults keep older sites unchanged */
+  theme?: ThemeName
+  appearance?: ThemeAppearance
+  meta?: SiteMeta
+  /** tags frozen into the snapshot, linked to /tags/<tag> */
+  tags?: string[]
 }
 
 const CSS = `
-:root{--bg:#faf9f7;--panel:#fff;--text:#1f1e1b;--text2:#6f6b62;--text3:#a09a8e;
---border:#e7e3da;--accent:#5b4fc7;--accent-soft:#eeecfa;--code:#f4f2ee}
-@media(prefers-color-scheme:dark){:root{--bg:#191817;--panel:#201f1d;--text:#e8e5df;
---text2:#a39e93;--text3:#736e64;--border:#34322e;--accent:#8478e0;--accent-soft:#2a2740;--code:#262523}}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:15px;line-height:1.65}
@@ -87,6 +91,9 @@ main figcaption{font-size:12px;color:var(--text3);margin-top:4px}
 .crumbs .sep{margin:0 6px;opacity:.6}
 .pagemeta{font-size:12.5px;color:var(--text3);margin:-4px 0 18px;display:flex;gap:14px;flex-wrap:wrap}
 .pagemeta a{color:var(--accent);text-decoration:none}
+.tagrow{margin:-6px 0 16px;display:flex;gap:8px;flex-wrap:wrap}
+.tagrow a{font-size:12px;color:var(--accent);text-decoration:none;background:var(--code);
+border-radius:999px;padding:2px 10px}
 main h2,main h3,main h4{scroll-margin-top:20px}
 .hanchor{margin-left:8px;color:var(--text3);text-decoration:none;opacity:0;font-weight:400}
 h2:hover .hanchor,h3:hover .hanchor,h4:hover .hanchor,.hanchor:focus{opacity:1}
@@ -188,8 +195,9 @@ function bnCopyFallback(text){
     }catch(e){rej(e)}
   });
 }
-// copy button on code blocks
-document.querySelectorAll('main pre').forEach(function(pre){
+// copy button on code blocks — never on mermaid diagrams: the button's text
+// would land inside the diagram source that the renderer reads back
+document.querySelectorAll('main pre:not(.mermaid)').forEach(function(pre){
   var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='copy';
   b.addEventListener('click',function(){
     var code=pre.querySelector('code');
@@ -238,6 +246,27 @@ try{localStorage.setItem('bn-docs-sidew',w)}catch(err){}});
 bar.addEventListener('pointerup',function(){on=false;bar.classList.remove('active')});
 })();`
 
+function docsMetaHtml(title: string, siteTitle: string, meta?: SiteMeta): string {
+  if (!meta) return ''
+  const lines: string[] = []
+  if (meta.description) {
+    lines.push(`<meta name="description" content="${escapeHtml(meta.description)}">`)
+    lines.push(`<meta property="og:description" content="${escapeHtml(meta.description)}">`)
+  }
+  lines.push(`<meta property="og:title" content="${escapeHtml(title)}">`)
+  lines.push(`<meta property="og:site_name" content="${escapeHtml(siteTitle)}">`)
+  lines.push('<meta property="og:type" content="article">')
+  if (meta.url) {
+    lines.push(`<meta property="og:url" content="${escapeHtml(meta.url)}">`)
+    lines.push(`<link rel="canonical" href="${escapeHtml(meta.url)}">`)
+  }
+  if (meta.ogImage) {
+    lines.push(`<meta property="og:image" content="${escapeHtml(meta.ogImage)}">`)
+    lines.push('<meta name="twitter:card" content="summary_large_image">')
+  }
+  return `${lines.join('\n')}\n`
+}
+
 function page(
   siteTitle: string,
   footer: string,
@@ -245,6 +274,9 @@ function page(
   body: string,
   title: string,
   noindex = false,
+  theme: ThemeName = 'paper',
+  appearance: ThemeAppearance = 'auto',
+  meta?: SiteMeta,
 ) {
   return `<!doctype html>
 <html lang="en">
@@ -252,10 +284,11 @@ function page(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
+${docsMetaHtml(title, siteTitle, meta)}
 <script>${SIDEBAR_RESTORE_JS}</script>
-<style>${CSS}${GALLERY_CSS}</style>
+<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}</style>
 </head>
-<body>
+<body data-appearance="${appearance}">
 ${body}
 <footer><span>${escapeHtml(footer)}</span><span>Built with Beyond Notes</span></footer>
 <script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}</script>
@@ -288,6 +321,11 @@ export function docsShell(input: ShellInput): string {
   if (input.editUrl) {
     meta.push(`<a href="${escapeHtml(input.editUrl)}">Edit this page ↗</a>`)
   }
+  const tagRow = input.tags?.length
+    ? `<div class="tagrow">${input.tags
+        .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
+        .join('')}</div>`
+    : ''
   const body = `${headerHtml(input.siteTitle, input.basePath)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
@@ -296,12 +334,23 @@ export function docsShell(input: ShellInput): string {
 ${docsCrumbs(input.crumbs ?? [], input.basePath)}
 <h1>${escapeHtml(input.pageTitle)}</h1>
 ${meta.length > 0 ? `<div class="pagemeta">${meta.join('')}</div>` : ''}
+${tagRow}
 ${input.contentHtml}
 <div class="prevnext">${prev}${next}</div>
 </div></main>
 ${tocHtml(input.toc ?? [])}
 </div>`
-  return page(input.siteTitle, input.footer, input.basePath, body, input.pageTitle, input.noindex)
+  return page(
+    input.siteTitle,
+    input.footer,
+    input.basePath,
+    body,
+    input.pageTitle,
+    input.noindex,
+    input.theme,
+    input.appearance,
+    input.meta,
+  )
 }
 
 export function docsSearchResults(input: {
@@ -311,6 +360,8 @@ export function docsSearchResults(input: {
   nav: NavNode[]
   query: string
   results: Array<{ title: string; path: string; snippet: string }>
+  theme?: ThemeName
+  appearance?: ThemeAppearance
 }): string {
   const list =
     input.results.length === 0
@@ -327,11 +378,64 @@ export function docsSearchResults(input: {
 <div class="dragbar" title="Drag to resize"></div>
 <main><div class="inner"><h1>Search: ${escapeHtml(input.query)}</h1>${list}</div></main>
 </div>`
-  return page(input.siteTitle, input.footer, input.basePath, body, `Search: ${input.query}`)
+  return page(
+    input.siteTitle,
+    input.footer,
+    input.basePath,
+    body,
+    `Search: ${input.query}`,
+    false,
+    input.theme,
+    input.appearance,
+  )
 }
 
-export function docs404(siteTitle: string, footer: string, basePath: string): string {
+export function docs404(
+  siteTitle: string,
+  footer: string,
+  basePath: string,
+  theme: ThemeName = 'paper',
+  appearance: ThemeAppearance = 'auto',
+): string {
   const body = `${headerHtml(siteTitle, basePath)}
 <div class="layout"><main><div class="inner"><h1>Not found</h1><p>This page does not exist or is not published.</p></div></main></div>`
-  return page(siteTitle, footer, basePath, body, 'Not found')
+  return page(siteTitle, footer, basePath, body, 'Not found', false, theme, appearance)
+}
+
+/** /tags/<tag> for wikis — same idea as the website's tag page. */
+export function docsTagPage(input: {
+  siteTitle: string
+  footer: string
+  basePath: string
+  nav: NavNode[]
+  tag: string
+  theme?: ThemeName
+  appearance?: ThemeAppearance
+  items: Array<{ title: string; path: string; snippet: string }>
+}): string {
+  const list =
+    input.items.length === 0
+      ? '<p>Nothing carries this tag.</p>'
+      : `<ul class="results">${input.items
+          .map(
+            (r) =>
+              `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
+          )
+          .join('')}</ul>`
+  const body = `${headerHtml(input.siteTitle, input.basePath)}
+<div class="layout">
+<nav class="side">${navHtml(input.nav, input.basePath)}</nav>
+<div class="dragbar" title="Drag to resize"></div>
+<main><div class="inner"><h1>#${escapeHtml(input.tag)}</h1>${list}</div></main>
+</div>`
+  return page(
+    input.siteTitle,
+    input.footer,
+    input.basePath,
+    body,
+    `#${input.tag}`,
+    false,
+    input.theme,
+    input.appearance,
+  )
 }

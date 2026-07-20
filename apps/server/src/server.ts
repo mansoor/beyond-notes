@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
@@ -124,6 +125,25 @@ export async function buildServer(config: Config, appDb: AppDb) {
   }
   server.get('/api/files/:id', (req, reply) => serveFile(req, reply, false))
   server.get('/api/files/:id/thumb', (req, reply) => serveFile(req, reply, true))
+
+  // Mermaid is served from this instance rather than a CDN: a wiki on an
+  // offline LAN must still draw its diagrams, and published pages should not
+  // phone home. Public by design — it is a static library, not user content.
+  const mermaidPath = (() => {
+    try {
+      return createRequire(import.meta.url).resolve('mermaid/dist/mermaid.min.js')
+    } catch {
+      return null
+    }
+  })()
+  server.get('/api/assets/mermaid.js', async (_req, reply) => {
+    if (!mermaidPath || !existsSync(mermaidPath)) {
+      return reply.code(404).send({ error: 'mermaid is not installed in this build' })
+    }
+    reply.type('application/javascript; charset=utf-8')
+    reply.header('cache-control', 'public, max-age=604800, immutable')
+    return reply.send(createReadStream(mermaidPath))
+  })
 
   // incoming webhooks: token-authenticated writers into capture surfaces.
   // Accepts JSON {text} (or {content}) and raw text/plain bodies.

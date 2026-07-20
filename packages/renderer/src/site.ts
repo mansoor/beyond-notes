@@ -251,7 +251,7 @@ ${metaHtml(input.title, input.siteTitle, input.meta)}${
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
 <style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}</style>
 </head>
-<body>
+<body data-appearance="${input.appearance ?? 'auto'}">
 ${header}
 <main>
 ${input.body}
