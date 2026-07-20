@@ -78,6 +78,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
             caption: i.caption,
           })),
           page.galleryLayout,
+          page.galleryAutoplaySecs,
         )
         for (const i of items) attachmentIds.add(i.attachmentId)
         textPlain += `\n${items
@@ -145,6 +146,9 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         theme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
         appearance?: 'auto' | 'light' | 'dark'
         social?: Array<{ platform: string; url: string }>
+        logoAttachmentId?: string | null
+        tagline?: string | null
+        headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
@@ -168,6 +172,9 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicTheme: input.theme,
         publicAppearance: input.appearance ?? 'auto',
         publicSocial: JSON.stringify(input.social ?? []),
+        publicLogoAttachmentId: input.logoAttachmentId ?? null,
+        publicTagline: input.tagline ?? null,
+        publicHeaderLayout: input.headerLayout ?? 'classic',
       })
       invalidateAttachmentCache()
     },
@@ -180,6 +187,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       const ids = new Set<string>()
       const spaces = await repo.listSpaces()
       for (const space of spaces.filter((s) => s.publicEnabled)) {
+        // the site logo is public chrome, servable while the site is enabled
+        if (space.publicLogoAttachmentId) ids.add(space.publicLogoAttachmentId)
         const entries = await this.liveTree(space.id)
         for (const e of entries) {
           try {

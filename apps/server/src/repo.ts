@@ -42,6 +42,9 @@ export type SpaceRow = {
   publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
   publicAppearance: 'auto' | 'light' | 'dark'
   publicSocial: string
+  publicLogoAttachmentId: string | null
+  publicTagline: string | null
+  publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
   createdAt: Date
 }
 
@@ -56,6 +59,7 @@ export type PageRow = {
   slug: string | null
   liveVersionId: string | null
   galleryLayout: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+  galleryAutoplaySecs: number | null
   shareEnabled: boolean
   coverAttachmentId: string | null
   archivedAt: Date | null
@@ -350,6 +354,7 @@ export function createRepo(appDb: AppDb) {
           | 'pageType'
           | 'slug'
           | 'galleryLayout'
+          | 'galleryAutoplaySecs'
           | 'shareEnabled'
           | 'coverAttachmentId'
         >
@@ -483,6 +488,9 @@ export function createRepo(appDb: AppDb) {
           | 'publicTheme'
           | 'publicAppearance'
           | 'publicSocial'
+          | 'publicLogoAttachmentId'
+          | 'publicTagline'
+          | 'publicHeaderLayout'
         >
       >,
     ): Promise<void> {

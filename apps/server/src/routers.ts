@@ -141,6 +141,9 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicTheme: s.publicTheme,
     publicAppearance: s.publicAppearance,
     publicSocial: parseSocial(s.publicSocial),
+    publicLogoAttachmentId: s.publicLogoAttachmentId,
+    publicTagline: s.publicTagline,
+    publicHeaderLayout: s.publicHeaderLayout,
     createdAt: s.createdAt.toISOString(),
   }
 }
@@ -163,6 +166,7 @@ function toPageMeta(p: PageRow): PageMeta {
     position: p.position,
     pageType: p.pageType,
     galleryLayout: p.galleryLayout,
+    galleryAutoplaySecs: p.galleryAutoplaySecs,
     shareEnabled: p.shareEnabled,
     coverAttachmentId: p.coverAttachmentId,
   }

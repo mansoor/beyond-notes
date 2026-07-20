@@ -22,9 +22,22 @@ const SITE_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
-header{display:flex;align-items:baseline;gap:22px;padding:20px 40px;max-width:820px;margin:0 auto;flex-wrap:wrap}
-header .logo{font-weight:700;font-size:17px;color:var(--text);text-decoration:none;margin-right:auto}
+header{padding:18px 40px;max-width:1140px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
+.brand img{height:44px;width:auto;border-radius:8px;display:block}
+.brand .bt{display:flex;flex-direction:column}
+.brand .title{font-weight:700;font-size:17px;line-height:1.25}
+.brand .tagline{font-size:12.5px;color:var(--text3)}
 header nav{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
+.hl-classic{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.hl-classic .brand{margin-right:auto}
+.hl-split{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.hl-split nav{margin-left:auto;margin-right:auto}
+.hl-centered .brand{justify-content:center;text-align:center;margin-bottom:14px}
+.hl-centered .navrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.hl-centered .navrow .tail{margin-left:auto;display:flex;align-items:center;gap:14px}
+.hl-minimal{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.tail{display:flex;align-items:center;gap:14px}
 header nav a{color:var(--text2);text-decoration:none;font-size:14px}
 header nav a.active{color:var(--text);font-weight:600}
 .navitem{position:relative;display:inline-flex;align-items:baseline}
@@ -60,7 +73,7 @@ background:var(--code);border:1px solid var(--border)}
 .albums .cover.empty{display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:24px}
 .albums .name{font-weight:600;font-size:15px;margin-top:7px}
 .albums .n{color:var(--text3);font-size:12px}
-main{max-width:680px;margin:0 auto;padding:26px 40px 60px}
+main{max-width:880px;margin:0 auto;padding:26px 40px 60px}
 main h1{font-size:30px;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
 main h2{font-size:21px;margin:26px 0 8px}
 main h3{font-size:18px;margin:20px 0 6px}
@@ -89,7 +102,7 @@ main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
-display:flex;justify-content:space-between;max-width:820px;margin:0 auto}
+display:flex;justify-content:space-between;max-width:1140px;margin:0 auto}
 `
 
 /** Dropdown panel body: the subtree as one indented list — no nested flyouts.
@@ -163,10 +176,31 @@ function shell(input: {
   basePath: string
   body: string
   socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
   rssPath?: string
 }): string {
   const nav = navHtml(input.nav, input.basePath)
   const socials = socialLinksHtml(input.socials ?? [])
+  const brand = `<a class="brand" href="${escapeHtml(input.basePath || '/')}">${
+    input.logoUrl
+      ? `<img src="${escapeHtml(input.logoUrl)}" alt="${escapeHtml(input.siteTitle)}">`
+      : ''
+  }<span class="bt"><span class="title">${escapeHtml(input.siteTitle)}</span>${
+    input.tagline ? `<span class="tagline">${escapeHtml(input.tagline)}</span>` : ''
+  }</span></a>`
+  const search = `<form class="sitesearch" action="${escapeHtml(`${input.basePath}/_search`)}" method="get"><input type="search" name="q" placeholder="Search"></form>`
+  const tail = `<span class="tail">${socials}${search}</span>`
+  const layout = input.headerLayout ?? 'classic'
+  const header =
+    layout === 'centered'
+      ? `<header class="hl-centered">${brand}<div class="navrow"><nav>${nav}</nav>${tail}</div></header>`
+      : layout === 'split'
+        ? `<header class="hl-split">${brand}<nav>${nav}</nav>${tail}</header>`
+        : layout === 'minimal'
+          ? `<header class="hl-minimal">${brand}<nav>${nav}</nav>${tail}</header>`
+          : `<header class="hl-classic">${brand}<nav>${nav}</nav>${tail}</header>`
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -177,7 +211,7 @@ ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${esc
 <style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}</style>
 </head>
 <body>
-<header><a class="logo" href="${escapeHtml(input.basePath || '/')}">${escapeHtml(input.siteTitle)}</a><nav>${nav}</nav>${socials}</header>
+${header}
 <main>
 ${input.body}
 </main>
@@ -189,6 +223,9 @@ ${input.body}
 
 export function sitePage(input: {
   socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -208,6 +245,9 @@ export function sitePage(input: {
 
 export function siteBlogIndex(input: {
   socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -238,6 +278,9 @@ export function siteBlogIndex(input: {
 
 export function sitePost(input: {
   socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -254,6 +297,36 @@ export function sitePost(input: {
   const body = `<a class="backlink" href="${escapeHtml(input.basePath + input.blogPath)}">← ${escapeHtml(input.blogTitle)}</a>
 <h1>${escapeHtml(input.title)}</h1><p class="meta">${escapeHtml(input.date)}</p>${input.contentHtml}`
   return shell({ ...input, body })
+}
+
+export function siteSearchResults(input: {
+  siteTitle: string
+  footer: string
+  theme: ThemeName
+  appearance?: ThemeAppearance
+  nav: SiteNavItem[]
+  basePath: string
+  socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  query: string
+  results: Array<{ title: string; path: string; snippet: string }>
+}): string {
+  const list =
+    input.results.length === 0
+      ? `<p class="meta">${input.query ? 'No results.' : 'Type something to search.'}</p>`
+      : `<div class="postlist">${input.results
+          .map(
+            (r) =>
+              `<div class="post"><span><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><p class="snippet">${escapeHtml(r.snippet)}</p></span></div>`,
+          )
+          .join('')}</div>`
+  return shell({
+    ...input,
+    title: `Search: ${input.query}`,
+    body: `<h1>Search${input.query ? `: ${escapeHtml(input.query)}` : ''}</h1>${list}`,
+  })
 }
 
 export function site404(input: {

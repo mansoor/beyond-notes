@@ -33,14 +33,14 @@ header .logo{font-weight:700;text-decoration:none;color:var(--text);font-size:15
 header form{margin-left:auto}
 header input{border:1px solid var(--border);background:var(--panel);color:var(--text);
 border-radius:6px;padding:4px 12px;font-size:13px;width:180px}
-.layout{display:flex;max-width:1100px;margin:0 auto;min-height:calc(100vh - 110px)}
-nav.side{width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:24px 16px;font-size:14px}
+.layout{display:flex;max-width:1400px;margin:0 auto;min-height:calc(100vh - 110px)}
+nav.side{width:220px;flex-shrink:0;border-right:1px solid var(--border);padding:24px 14px;font-size:14px}
 nav.side ul{list-style:none}
 nav.side li ul{padding-left:14px}
 nav.side a{display:block;padding:3px 10px;border-radius:5px;color:var(--text2);text-decoration:none}
 nav.side a.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
 nav.side a:hover{color:var(--text)}
-main{flex:1;min-width:0;padding:30px 40px;max-width:720px}
+main{flex:1;min-width:0;padding:30px 48px;max-width:980px}
 main h1{font-size:27px;letter-spacing:-.02em;margin-bottom:12px}
 main h2{font-size:20px;margin:24px 0 8px}
 main h3{font-size:17px;margin:20px 0 6px}

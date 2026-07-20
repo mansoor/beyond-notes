@@ -27,6 +27,9 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       publicTheme: 'paper',
       publicAppearance: 'auto',
       publicSocial: '[]',
+      publicLogoAttachmentId: null,
+      publicTagline: null,
+      publicHeaderLayout: 'classic',
       createdAt: now(),
     }
     await repo.insertSpace(space)
@@ -50,6 +53,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       slug: null,
       liveVersionId: null,
       galleryLayout: 'grid',
+      galleryAutoplaySecs: null,
       shareEnabled: false,
       coverAttachmentId: null,
       archivedAt: null,
@@ -125,6 +129,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         slug: null,
         liveVersionId: null,
         galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
         shareEnabled: false,
         coverAttachmentId: null,
         archivedAt: null,
@@ -237,6 +242,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         slug: null,
         liveVersionId: null,
         galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
         shareEnabled: false,
         coverAttachmentId: null,
         archivedAt: null,

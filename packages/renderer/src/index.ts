@@ -11,6 +11,7 @@ export {
   sitePage,
   siteBlogIndex,
   sitePost,
+  siteSearchResults,
   site404,
   buildRss,
   buildSitemap,

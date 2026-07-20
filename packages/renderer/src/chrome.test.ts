@@ -33,6 +33,14 @@ describe('gallery layouts', () => {
   })
 })
 
+describe('autoplay', () => {
+  it('carousel carries the interval as a data attribute; grid never does', () => {
+    expect(galleryHtml(items, 'carousel', 7)).toContain('data-autoplay="7"')
+    expect(galleryHtml(items, 'carousel', null)).not.toContain('data-autoplay')
+    expect(galleryHtml(items, 'grid', 7)).not.toContain('data-autoplay')
+  })
+})
+
 describe('social links + share bar', () => {
   it('renders known platforms as icon links and drops junk', () => {
     const html = socialLinksHtml([

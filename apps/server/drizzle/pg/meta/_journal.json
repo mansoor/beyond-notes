@@ -99,6 +99,13 @@
       "when": 1784518101655,
       "tag": "0013_fast_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784519771433,
+      "tag": "0014_tough_mauler",
+      "breakpoints": true
     }
   ]
 }

@@ -77,6 +77,9 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicTheme: 'paper',
         publicAppearance: 'auto',
         publicSocial: '[]',
+        publicLogoAttachmentId: null,
+        publicTagline: null,
+        publicHeaderLayout: 'classic',
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -171,6 +174,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         slug: null,
         liveVersionId: null,
         galleryLayout: 'grid',
+        galleryAutoplaySecs: null,
         shareEnabled: false,
         coverAttachmentId: null,
         archivedAt: null,
@@ -200,6 +204,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       input: {
         pageId: string
         galleryLayout?: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+        galleryAutoplaySecs?: number | null
         shareEnabled?: boolean
         coverAttachmentId?: string | null
       },
@@ -207,6 +212,9 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       await requirePage(input.pageId, user)
       const patch: Parameters<Repo['updatePage']>[1] = { updatedAt: now() }
       if (input.galleryLayout !== undefined) patch.galleryLayout = input.galleryLayout
+      if (input.galleryAutoplaySecs !== undefined) {
+        patch.galleryAutoplaySecs = input.galleryAutoplaySecs
+      }
       if (input.shareEnabled !== undefined) patch.shareEnabled = input.shareEnabled
       if (input.coverAttachmentId !== undefined) patch.coverAttachmentId = input.coverAttachmentId
       await repo.updatePage(input.pageId, patch)

@@ -114,6 +114,9 @@ export type SpaceView = {
   publicTheme: SiteTheme
   publicAppearance: SiteAppearance
   publicSocial: SocialLinkValue[]
+  publicLogoAttachmentId: string | null
+  publicTagline: string | null
+  publicHeaderLayout: SiteHeaderLayoutName
   createdAt: string
 }
 
@@ -155,6 +158,7 @@ export type PageMeta = {
   position: number
   pageType: 'doc' | 'blog' | 'gallery'
   galleryLayout: GalleryLayoutName
+  galleryAutoplaySecs: number | null
   shareEnabled: boolean
   coverAttachmentId: string | null
 }
@@ -165,6 +169,8 @@ export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
 export const updatePageOptionsInput = z.object({
   pageId: z.string(),
   galleryLayout: galleryLayoutName.optional(),
+  // null = autoplay off; only meaningful for carousel/filmstrip layouts
+  galleryAutoplaySecs: z.number().int().min(2).max(60).nullable().optional(),
   shareEnabled: z.boolean().optional(),
   // null clears the cover; undefined leaves it unchanged
   coverAttachmentId: z.string().nullable().optional(),
@@ -258,6 +264,9 @@ export type SiteTheme = z.infer<typeof siteTheme>
 export const siteAppearance = z.enum(['auto', 'light', 'dark'])
 export type SiteAppearance = z.infer<typeof siteAppearance>
 
+export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])
+export type SiteHeaderLayoutName = z.infer<typeof siteHeaderLayout>
+
 export const socialPlatform = z.enum([
   'github',
   'x',
@@ -287,6 +296,9 @@ export const updatePublishingInput = z.object({
   theme: siteTheme.default('paper'),
   appearance: siteAppearance.default('auto'),
   social: z.array(socialLinkInput).max(10).default([]),
+  logoAttachmentId: z.string().nullable().default(null),
+  tagline: z.string().trim().max(160).nullable().default(null),
+  headerLayout: siteHeaderLayout.default('classic'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

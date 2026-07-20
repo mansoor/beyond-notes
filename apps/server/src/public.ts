@@ -11,6 +11,7 @@ import {
   siteBlogIndex,
   sitePage,
   sitePost,
+  siteSearchResults,
 } from '@bn/renderer'
 import type { AlbumCard, Crumb, SiteNavItem, SocialLink } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
@@ -45,7 +46,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // 'site' category spaces render with the website theme; everything else
     // gets the docs renderer. Same read model underneath.
     if (space.category === 'site') {
-      await serveWebsite(space, host, path, basePath, reply)
+      await serveWebsite(space, host, path, query, basePath, reply)
       return true
     }
 
@@ -129,6 +130,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     space: SpaceRow,
     host: string,
     path: string,
+    query: Record<string, unknown>,
     basePath: string,
     reply: FastifyReply,
   ): Promise<void> {
@@ -136,6 +138,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     const theme = space.publicTheme
     const appearance = space.publicAppearance
     const socials = parseSocialLinks(space.publicSocial)
+    const branding = {
+      logoUrl: space.publicLogoAttachmentId ? `/api/files/${space.publicLogoAttachmentId}` : null,
+      tagline: space.publicTagline,
+      headerLayout: space.publicHeaderLayout,
+    }
     const siteTitle = site.siteTitle
     const footer = site.footer
     const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
@@ -200,6 +207,40 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
       return
     }
 
+    if (path === '/_search') {
+      const q = typeof query.q === 'string' ? query.q.trim().slice(0, 100) : ''
+      const needle = q.toLowerCase()
+      const results = q
+        ? site.flat
+            .filter(
+              (f) =>
+                f.entry.version.title.toLowerCase().includes(needle) ||
+                f.entry.version.textPlain.toLowerCase().includes(needle),
+            )
+            .slice(0, 30)
+            .map((f) => ({
+              title: f.title,
+              path: f.path,
+              snippet: snippetAround(f.entry.version.textPlain, needle),
+            }))
+        : []
+      reply.send(
+        siteSearchResults({
+          siteTitle,
+          footer,
+          theme,
+          appearance,
+          socials,
+          ...branding,
+          nav,
+          basePath,
+          query: q,
+          results,
+        }),
+      )
+      return
+    }
+
     if (path === '/rss.xml') {
       const items = []
       for (const blog of blogEntries) {
@@ -245,6 +286,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           theme,
           appearance,
           socials,
+          ...branding,
           nav,
           basePath,
           title: hit.entry.version.title,
@@ -280,6 +322,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           theme,
           appearance,
           socials,
+          ...branding,
           nav,
           basePath,
           title: hit.entry.version.title,
@@ -337,6 +380,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         theme,
         appearance,
         socials,
+        ...branding,
         nav,
         basePath,
         title: hit.entry.version.title,

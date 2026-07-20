@@ -213,6 +213,27 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const [theme, setTheme] = useState(s.publicTheme)
   const [appearance, setAppearance] = useState(s.publicAppearance)
   const [social, setSocial] = useState<SpaceView['publicSocial']>(s.publicSocial)
+  const [logoId, setLogoId] = useState(s.publicLogoAttachmentId)
+  const [tagline, setTagline] = useState(s.publicTagline ?? '')
+  const [headerLayout, setHeaderLayout] = useState(s.publicHeaderLayout)
+  const [logoBusy, setLogoBusy] = useState(false)
+
+  const uploadLogo = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    setLogoBusy(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
+      if (!res.ok) return
+      const json = (await res.json()) as { id: string }
+      setLogoId(json.id)
+    } finally {
+      setLogoBusy(false)
+    }
+  }
+
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
       spaceId: s.id,
@@ -223,6 +244,9 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
       theme,
       appearance,
       social: social.filter((l) => l.url.trim() !== ''),
+      logoAttachmentId: logoId,
+      tagline: tagline.trim() || null,
+      headerLayout,
     })
     await utils.spaces.list.invalidate()
     props.onClose()
@@ -234,7 +258,10 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     footer !== (s.publicFooter ?? '') ||
     theme !== s.publicTheme ||
     appearance !== s.publicAppearance ||
-    JSON.stringify(social) !== JSON.stringify(s.publicSocial)
+    JSON.stringify(social) !== JSON.stringify(s.publicSocial) ||
+    logoId !== s.publicLogoAttachmentId ||
+    tagline !== (s.publicTagline ?? '') ||
+    headerLayout !== s.publicHeaderLayout
 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty}>
@@ -272,6 +299,55 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             <option value="auto">Auto — follow each visitor&apos;s device</option>
             <option value="light">Always light</option>
             <option value="dark">Always dark</option>
+          </select>
+        </label>
+        <Field label="Tagline (shown under the site title)" value={tagline} onChange={setTagline} />
+        <div className="mb-4 flex items-center gap-3">
+          <span className="text-sm font-medium">Logo</span>
+          {logoId ? (
+            <>
+              <img
+                src={`/api/files/${logoId}/thumb`}
+                alt="logo"
+                className="h-9 w-auto rounded"
+                style={{ background: 'var(--bg)' }}
+              />
+              <button
+                type="button"
+                className="text-xs underline"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => setLogoId(null)}
+              >
+                remove
+              </button>
+            </>
+          ) : (
+            <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
+              {logoBusy ? 'uploading…' : '+ upload logo'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={logoBusy}
+                onChange={(e) => uploadLogo(e.target.files)}
+              />
+            </label>
+          )}
+        </div>
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Header style</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={headerLayout}
+            onChange={(e) => setHeaderLayout(e.target.value as SpaceView['publicHeaderLayout'])}
+          >
+            <option value="classic">Classic — logo left, menu right</option>
+            <option value="centered">
+              Centered — logo centered, menu below left + socials right
+            </option>
+            <option value="split">Split — logo left, menu center, socials right</option>
+            <option value="minimal">Minimal — everything centered, stacked</option>
           </select>
         </label>
         <div className="mb-4">

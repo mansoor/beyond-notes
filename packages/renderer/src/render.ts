@@ -156,7 +156,11 @@ export type GalleryLayout = 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
 /** The gallery appended to a gallery page's rendered HTML at publish time.
  *  Layout is a per-gallery setting, baked into the snapshot like everything
  *  else; carousel/filmstrip get full-size images (they show one at a time). */
-export function galleryHtml(items: GalleryRenderItem[], layout: GalleryLayout = 'grid'): string {
+export function galleryHtml(
+  items: GalleryRenderItem[],
+  layout: GalleryLayout = 'grid',
+  autoplaySecs?: number | null,
+): string {
   if (items.length === 0) return ''
   const strip = layout === 'carousel' || layout === 'filmstrip'
   const cells = items
@@ -168,7 +172,8 @@ export function galleryHtml(items: GalleryRenderItem[], layout: GalleryLayout = 
     )
     .join('')
   if (strip) {
-    return `<div class="gallery ${layout}"><div class="track">${cells}</div><button type="button" class="gnav prev" aria-label="Previous">‹</button><button type="button" class="gnav next" aria-label="Next">›</button></div>`
+    const auto = autoplaySecs ? ` data-autoplay="${Math.round(autoplaySecs)}"` : ''
+    return `<div class="gallery ${layout}"${auto}><div class="track">${cells}</div><button type="button" class="gnav prev" aria-label="Previous">‹</button><button type="button" class="gnav next" aria-label="Next">›</button></div>`
   }
   return `<div class="gallery ${layout}">${cells}</div>`
 }

@@ -434,6 +434,57 @@ for (const dialect of dialects) {
       expect(blog.body).toContain('/api/files/coverpick111111111111/thumb')
     })
 
+    it('branding renders (logo, tagline, header layout) and site search finds live content', async () => {
+      await repo.insertAttachment({
+        id: 'logoatt1111111111111',
+        hash: 'lg1',
+        filename: 'logo.png',
+        mime: 'image/png',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+        logoAttachmentId: 'logoatt1111111111111',
+        tagline: 'Notes from the lab',
+        headerLayout: 'centered',
+      })
+
+      const home = await get('/')
+      expect(home.body).toContain('class="hl-centered"')
+      expect(home.body).toContain('/api/files/logoatt1111111111111')
+      expect(home.body).toContain('Notes from the lab')
+      expect(home.body).toContain('class="sitesearch"')
+      // the logo is publicly servable while the site is enabled
+      expect(await publishing.publicAttachmentIds()).toContain('logoatt1111111111111')
+
+      // search: finds live content, never drafts
+      const hits = await get('/_search?q=container')
+      expect(hits.statusCode).toBe(200)
+      expect(hits.body).toContain('Shipping Beyond Notes')
+      const draft = await get('/_search?q=UNPUBLISHED-POST-CONTENT')
+      expect(draft.body).not.toContain('Draft post')
+      expect(draft.body).toContain('No results')
+
+      // restore the plain config for later tests
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+      })
+    })
+
     it('appearance pins a palette; bloom theme renders bright', async () => {
       // ink on auto is always dark (its identity)
       let home = await get('/')

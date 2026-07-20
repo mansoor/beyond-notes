@@ -65,6 +65,14 @@ export const spaces = sqliteTable('spaces', {
     .default('auto'),
   // JSON array of {platform, url} shown in the published site header
   publicSocial: text('public_social').notNull().default('[]'),
+  // site branding: uploaded logo (attachments id), short tagline, header style
+  publicLogoAttachmentId: text('public_logo_attachment_id'),
+  publicTagline: text('public_tagline'),
+  publicHeaderLayout: text('public_header_layout', {
+    enum: ['classic', 'centered', 'split', 'minimal'],
+  })
+    .notNull()
+    .default('classic'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -85,6 +93,8 @@ export const pages = sqliteTable('pages', {
   galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
     .notNull()
     .default('grid'),
+  // carousel auto-rotate interval in seconds; null = off
+  galleryAutoplaySecs: integer('gallery_autoplay_secs'),
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),

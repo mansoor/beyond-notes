@@ -84,6 +84,14 @@ export const spaces = pgTable('spaces', {
     .default('auto'),
   // JSON array of {platform, url} shown in the published site header
   publicSocial: text('public_social').notNull().default('[]'),
+  // site branding: uploaded logo (attachments id), short tagline, header style
+  publicLogoAttachmentId: text('public_logo_attachment_id'),
+  publicTagline: text('public_tagline'),
+  publicHeaderLayout: text('public_header_layout', {
+    enum: ['classic', 'centered', 'split', 'minimal'],
+  })
+    .notNull()
+    .default('classic'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -111,6 +119,8 @@ export const pages = pgTable('pages', {
   galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
     .notNull()
     .default('grid'),
+  // carousel auto-rotate interval in seconds; null = off
+  galleryAutoplaySecs: integer('gallery_autoplay_secs'),
   // opt-in social share bar on the published page
   shareEnabled: boolean('share_enabled').notNull().default(false),
   // gallery cover / blog-post listing image (an attachments id)
