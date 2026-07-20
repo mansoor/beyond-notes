@@ -1,7 +1,7 @@
 import type { ReminderFreq, ReminderView, TaskView } from '@bn/schema'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
 import { todayKey } from '../editor'
 import { trpc } from '../trpc'
 
@@ -277,11 +277,11 @@ function ReminderModal(props: { reminder?: ReminderView; onClose: () => void }) 
       dirty={dirty}
     >
       <form onSubmit={onSubmit}>
-        <div className="flex items-end gap-3 mb-4">
+        <div className="flex gap-3 mb-4">
           <label className="block">
             <span className="block text-sm font-medium mb-1">Icon</span>
             <select
-              className="rounded-lg border px-2 py-2 text-lg"
+              className="h-11 rounded-lg border px-2 text-lg"
               style={selectStyle}
               value={icon}
               onChange={(e) => setIcon(e.target.value)}
@@ -293,9 +293,17 @@ function ReminderModal(props: { reminder?: ReminderView; onClose: () => void }) 
               ))}
             </select>
           </label>
-          <div className="flex-1">
-            <Field label="What" value={title} onChange={setTitle} autoFocus />
-          </div>
+          <label className="block flex-1">
+            <span className="block text-sm font-medium mb-1">What</span>
+            <input
+              // biome-ignore lint/a11y/noAutofocus: the modal opens focused on the title
+              autoFocus
+              className="h-11 w-full rounded-lg border px-3 text-base outline-none focus:ring-2"
+              style={selectStyle}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block mb-4">
