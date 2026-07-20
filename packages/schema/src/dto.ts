@@ -378,8 +378,12 @@ export type VersionView = {
 export const reminderFreq = z.enum(['daily', 'weekly', 'monthly', 'yearly'])
 export type ReminderFreq = z.infer<typeof reminderFreq>
 
+/** One emoji, or null for the default bell. Kept short so it stays an icon. */
+export const reminderIcon = z.string().trim().min(1).max(8).nullable()
+
 export const createReminderInput = z.object({
   title: z.string().trim().min(1).max(200),
+  icon: reminderIcon.default(null),
   dueDate: dateKey,
   dueTime: z
     .string()
@@ -392,9 +396,26 @@ export const createReminderInput = z.object({
 })
 export type CreateReminderInput = z.infer<typeof createReminderInput>
 
+/** Everything about a reminder is editable after the fact. */
+export const updateReminderInput = createReminderInput.extend({ id: z.string() })
+export type UpdateReminderInput = z.infer<typeof updateReminderInput>
+
+/** Editing a task rewrites its checklist block: text plus an optional due. */
+export const updateTaskInput = z.object({
+  taskId: z.string(),
+  text: z.string().trim().min(1).max(500),
+  due: dateKey.nullable(),
+})
+
+export const updateMemoInput = z.object({
+  memoId: z.string(),
+  content: z.string().trim().min(1).max(5000),
+})
+
 export type ReminderView = {
   id: string
   title: string
+  icon: string | null
   dueDate: string
   dueTime: string | null
   freq: ReminderFreq | null

@@ -227,7 +227,9 @@ export function JournalPage() {
             </h4>
             {upcoming.map((r) => (
               <div key={r.id} className="flex justify-between gap-2 py-1">
-                <span className="truncate">{r.title}</span>
+                <span className="truncate">
+                  {r.icon || '🔔'} {r.title}
+                </span>
                 <span
                   className="text-xs whitespace-nowrap"
                   style={{ color: 'var(--text-3)' }}

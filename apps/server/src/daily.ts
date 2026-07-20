@@ -218,6 +218,16 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       await repo.deleteMemo(memoId)
     },
 
+    /** Fix a captured note's text. Promoted memos are frozen — edit the target. */
+    async updateMemo(user: UserRow, memoId: string, content: string): Promise<void> {
+      const memo = await repo.getMemo(memoId)
+      if (!memo || memo.userId !== user.id) throw new PagesError('NOT_FOUND', 'Memo not found.')
+      if (memo.promotedTo) {
+        throw new PagesError('BAD_MOVE', 'This note was already moved — edit it where it landed.')
+      }
+      await repo.updateMemo(memoId, { content })
+    },
+
     async requireMemo(user: UserRow, memoId: string): Promise<MemoRow> {
       const memo = await repo.getMemo(memoId)
       if (!memo || memo.userId !== user.id) throw new PagesError('NOT_FOUND', 'Memo not found.')

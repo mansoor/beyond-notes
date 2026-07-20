@@ -51,6 +51,38 @@ export function extractTasks(content: string): ExtractedTask[] {
   return found
 }
 
+/**
+ * Rewrite one checklist block's text (and its `@YYYY-MM-DD` due token) in the
+ * document. The block stays the source of truth — the agenda index follows on
+ * the next reconcile. Returns the new document, or null if the block is gone.
+ */
+export function setBlockTask(
+  content: string,
+  blockId: string,
+  text: string,
+  due: string | null,
+): string | null {
+  const blocks = JSON.parse(content) as Block[]
+  // one due token, appended; strip any the caller left in the text first
+  const cleaned = text
+    .replace(/@\d{4}-\d{2}-\d{2}\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const finalText = due ? `${cleaned} @${due}` : cleaned
+  let hit = false
+  const walk = (list: Block[]) => {
+    for (const block of list) {
+      if (block?.id === blockId && block.type === 'checkListItem') {
+        block.content = [{ type: 'text', text: finalText, styles: {} }]
+        hit = true
+      }
+      if (Array.isArray(block?.children)) walk(block.children)
+    }
+  }
+  walk(blocks)
+  return hit ? JSON.stringify(blocks) : null
+}
+
 /** Set the checked prop of one block, returning the new document or null if absent. */
 export function setBlockChecked(content: string, blockId: string, checked: boolean): string | null {
   const blocks = JSON.parse(content) as Block[]
@@ -191,6 +223,28 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       const next = setBlockChecked(doc.content, task.blockId, checked)
       if (next === null) {
         // index out of sync with the document — heal by reindexing
+        await reconcileTasks(repo, page.id, doc.content, now())
+        throw new PagesError('CONFLICT', 'Task block no longer exists. Refresh the list.')
+      }
+      const when = now()
+      await repo.updateDocument(page.id, next, when)
+      await repo.updatePage(page.id, { updatedAt: when })
+      await reconcileTasks(repo, page.id, next, when)
+    },
+
+    /** Edit a task's text and/or due date from the agenda. */
+    async edit(user: UserRow, taskId: string, text: string, due: string | null): Promise<void> {
+      const task = await repo.getTask(taskId)
+      if (!task) throw new PagesError('NOT_FOUND', 'Task not found.')
+      const page = await repo.getPage(task.pageId)
+      const space = page ? await repo.getSpace(page.spaceId) : null
+      if (!page || !space || (space.ownerId !== null && space.ownerId !== user.id)) {
+        throw new PagesError('NOT_FOUND', 'Task not found.')
+      }
+      const doc = await repo.getDocument(page.id)
+      if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
+      const next = setBlockTask(doc.content, task.blockId, text, due)
+      if (next === null) {
         await reconcileTasks(repo, page.id, doc.content, now())
         throw new PagesError('CONFLICT', 'Task block no longer exists. Refresh the list.')
       }

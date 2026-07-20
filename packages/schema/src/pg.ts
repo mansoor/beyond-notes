@@ -245,6 +245,8 @@ export const reminders = pgTable('reminders', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  // a single emoji shown in place of the default bell (birthday cake, etc.)
+  icon: text('icon'),
   // date-only scheduling (local dates); dueTime is display + notification time
   dueDate: text('due_date').notNull(),
   dueTime: text('due_time'),

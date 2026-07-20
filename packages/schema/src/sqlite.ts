@@ -201,6 +201,8 @@ export const reminders = sqliteTable('reminders', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  // a single emoji shown in place of the default bell (birthday cake, etc.)
+  icon: text('icon'),
   dueDate: text('due_date').notNull(),
   dueTime: text('due_time'),
   freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }),

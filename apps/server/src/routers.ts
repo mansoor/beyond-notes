@@ -60,9 +60,12 @@ import {
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  updateMemoInput,
   updatePageOptionsInput,
   updateProfileInput,
   updatePublishingInput,
+  updateReminderInput,
+  updateTaskInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
 import { nanoid } from 'nanoid'
@@ -1170,6 +1173,15 @@ const memosRouter = router({
     return { id: memo.id }
   }),
 
+  update: authedProcedure.input(updateMemoInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.daily.updateMemo(ctx.user, input.memoId, input.content)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
   promoteToNote: authedProcedure.input(promoteToNoteInput).mutation(async ({ ctx, input }) => {
     try {
       const page = await ctx.daily.promoteToNote(ctx.user, input.memoId, input.spaceId)
@@ -1244,6 +1256,15 @@ const tasksRouter = router({
       rethrow(err)
     }
   }),
+
+  edit: authedProcedure.input(updateTaskInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tasks.edit(ctx.user, input.taskId, input.text, input.due)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
 })
 
 const remindersRouter = router({
@@ -1252,6 +1273,7 @@ const remindersRouter = router({
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
+      icon: r.icon,
       dueDate: r.dueDate,
       dueTime: r.dueTime,
       freq: r.freq,
@@ -1265,6 +1287,15 @@ const remindersRouter = router({
     try {
       const reminder = await ctx.reminders.create(ctx.user, input)
       return { id: reminder.id }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  update: authedProcedure.input(updateReminderInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.reminders.update(ctx.user, input)
+      return { ok: true }
     } catch (err) {
       rethrow(err)
     }

@@ -7,6 +7,23 @@ import { trpc } from '../trpc'
 
 const DUE_TOKEN = /@(\d{4}-\d{2}-\d{2})\b/
 
+// Emoji a reminder can wear instead of the bell — the occasions people
+// actually set recurring reminders for.
+const REMINDER_ICONS = [
+  '🔔',
+  '🎂',
+  '💍',
+  '🎓',
+  '🏆',
+  '🎉',
+  '💊',
+  '💳',
+  '🩺',
+  '🚗',
+  '✈️',
+  '🌱',
+] as const
+
 export function TasksPage() {
   const agenda = trpc.tasks.agenda.useQuery()
   const utils = trpc.useUtils()
@@ -14,6 +31,7 @@ export function TasksPage() {
     onSuccess: () => utils.tasks.agenda.invalidate(),
   })
   const [text, setText] = useState('')
+  const [quickDue, setQuickDue] = useState('')
 
   const today = todayKey()
   const all = agenda.data ?? []
@@ -29,8 +47,11 @@ export function TasksPage() {
   const submit = async () => {
     const value = text.trim()
     if (!value) return
-    await quickAdd.mutateAsync({ text: value })
+    // strip any date the user typed by hand; the picker is the source of truth
+    const base = value.replace(DUE_TOKEN, '').trim()
+    await quickAdd.mutateAsync({ text: quickDue ? `${base} @${quickDue}` : base })
     setText('')
+    setQuickDue('')
   }
 
   return (
@@ -41,15 +62,23 @@ export function TasksPage() {
       </p>
 
       <div
-        className="flex gap-2 rounded-xl border p-3 mb-8"
+        className="flex items-center gap-2 rounded-xl border p-3 mb-8 flex-wrap"
         style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
       >
         <input
-          className="flex-1 bg-transparent text-sm outline-none"
-          placeholder="Quick task — lands in your Tasks inbox; @2026-07-25 sets a due date"
+          className="flex-1 min-w-[180px] bg-transparent text-sm outline-none"
+          placeholder="Quick task — lands in your Tasks inbox"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        <input
+          type="date"
+          title="Due date (optional)"
+          className="rounded-lg border px-2 py-1 text-xs"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={quickDue}
+          onChange={(e) => setQuickDue(e.target.value)}
         />
         <button
           type="button"
@@ -127,92 +156,147 @@ function RemindersSection() {
         heads-up reminders appear on Today.
       </p>
       {active.map((r) => (
-        <div
-          key={r.id}
-          className="flex items-center gap-2 py-1.5 border-b text-sm"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <button
-            type="button"
-            title={r.freq ? 'Done — re-arms to the next occurrence' : 'Done'}
-            disabled={complete.isPending}
-            onClick={() => complete.mutate({ id: r.id })}
-            className="text-sm"
-          >
-            🔔
-          </button>
-          <span>{r.title}</span>
-          <span
-            className="text-[11px] rounded px-1.5 whitespace-nowrap"
-            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-          >
-            {freqLabel(r)}
-            {r.headsUpDays ? ` · heads-up ${r.headsUpDays}d` : ''}
-          </span>
-          <span
-            className="ml-auto text-xs whitespace-nowrap"
-            style={{ color: r.dueDate < today ? 'var(--danger)' : 'var(--text-3)' }}
-          >
-            {r.dueDate === today ? 'today' : r.dueDate}
-            {r.dueTime ? ` ${r.dueTime}` : ''}
-          </span>
-          <button
-            type="button"
-            className="text-xs underline"
-            style={{ color: 'var(--danger)' }}
-            disabled={del.isPending}
-            onClick={() => del.mutate({ id: r.id })}
-          >
-            ✕
-          </button>
-        </div>
+        <ReminderRow key={r.id} reminder={r} />
       ))}
       {active.length === 0 && (
         <p className="text-sm" style={{ color: 'var(--text-3)' }}>
           No reminders yet.
         </p>
       )}
-      {creating && <NewReminderModal onClose={() => setCreating(false)} />}
+      {creating && <ReminderModal onClose={() => setCreating(false)} />}
     </section>
   )
 }
 
-function NewReminderModal(props: { onClose: () => void }) {
+function ReminderRow(props: { reminder: ReminderView }) {
+  const utils = trpc.useUtils()
+  const invalidate = () => utils.reminders.list.invalidate()
+  const complete = trpc.reminders.complete.useMutation({ onSuccess: invalidate })
+  const del = trpc.reminders.delete.useMutation({ onSuccess: invalidate })
+  const [editing, setEditing] = useState(false)
+  const r = props.reminder
+  const today = todayKey()
+
+  return (
+    <div
+      className="group flex items-center gap-2 py-1.5 border-b text-sm"
+      style={{ borderColor: 'var(--border)' }}
+    >
+      <button
+        type="button"
+        title={r.freq ? 'Done — re-arms to the next occurrence' : 'Done'}
+        disabled={complete.isPending}
+        onClick={() => complete.mutate({ id: r.id })}
+        className="text-sm"
+      >
+        {r.icon || '🔔'}
+      </button>
+      <span>{r.title}</span>
+      <span
+        className="text-[11px] rounded px-1.5 whitespace-nowrap"
+        style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+      >
+        {freqLabel(r)}
+        {r.headsUpDays ? ` · ${r.headsUpDays}d before` : ''}
+      </span>
+      <span
+        className="ml-auto text-xs whitespace-nowrap"
+        style={{ color: r.dueDate < today ? 'var(--danger)' : 'var(--text-3)' }}
+      >
+        {r.dueDate === today ? 'today' : r.dueDate}
+        {r.dueTime ? ` ${r.dueTime}` : ''}
+      </span>
+      <button
+        type="button"
+        title="Edit reminder"
+        className="opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+        style={{ color: 'var(--text-3)' }}
+        onClick={() => setEditing(true)}
+      >
+        ✎
+      </button>
+      <button
+        type="button"
+        className="text-xs"
+        style={{ color: 'var(--danger)' }}
+        disabled={del.isPending}
+        title="Delete reminder"
+        onClick={() => del.mutate({ id: r.id })}
+      >
+        ✕
+      </button>
+      {editing && <ReminderModal reminder={r} onClose={() => setEditing(false)} />}
+    </div>
+  )
+}
+
+function ReminderModal(props: { reminder?: ReminderView; onClose: () => void }) {
   const utils = trpc.useUtils()
   const create = trpc.reminders.create.useMutation()
-  const [title, setTitle] = useState('')
-  const [initialDueDate] = useState(todayKey())
+  const update = trpc.reminders.update.useMutation()
+  const existing = props.reminder
+  const [title, setTitle] = useState(existing?.title ?? '')
+  const [icon, setIcon] = useState(existing?.icon ?? '🔔')
+  const [initialDueDate] = useState(existing?.dueDate ?? todayKey())
   const [dueDate, setDueDate] = useState(initialDueDate)
-  const [dueTime, setDueTime] = useState('')
-  const [freq, setFreq] = useState<'' | ReminderFreq>('')
-  const [interval, setInterval] = useState('1')
-  const [headsUp, setHeadsUp] = useState('')
+  const [dueTime, setDueTime] = useState(existing?.dueTime ?? '')
+  const [freq, setFreq] = useState<'' | ReminderFreq>(existing?.freq ?? '')
+  const [interval, setInterval] = useState(String(existing?.interval ?? 1))
+  const [headsUp, setHeadsUp] = useState(existing?.headsUpDays ? String(existing.headsUpDays) : '')
   const { busy, error, onSubmit } = useSubmit(async () => {
-    await create.mutateAsync({
+    const payload = {
       title,
+      icon: icon === '🔔' ? null : icon,
       dueDate,
       dueTime: dueTime || null,
       freq: freq || null,
       interval: Math.max(1, Number(interval) || 1),
       headsUpDays: headsUp ? Number(headsUp) : null,
-    })
+    }
+    if (existing) await update.mutateAsync({ id: existing.id, ...payload })
+    else await create.mutateAsync(payload)
     await utils.reminders.list.invalidate()
     props.onClose()
   })
 
   const selectStyle = { background: 'var(--bg)', borderColor: 'var(--border)' }
-  const dirty =
-    title.trim() !== '' ||
-    dueDate !== initialDueDate ||
-    dueTime !== '' ||
-    freq !== '' ||
-    interval !== '1' ||
-    headsUp !== ''
+  const dirty = existing
+    ? true
+    : title.trim() !== '' ||
+      dueDate !== initialDueDate ||
+      dueTime !== '' ||
+      freq !== '' ||
+      interval !== '1' ||
+      headsUp !== '' ||
+      icon !== '🔔'
 
   return (
-    <Modal title="New reminder" onClose={props.onClose} dirty={dirty}>
+    <Modal
+      title={existing ? 'Edit reminder' : 'New reminder'}
+      onClose={props.onClose}
+      dirty={dirty}
+    >
       <form onSubmit={onSubmit}>
-        <Field label="What" value={title} onChange={setTitle} autoFocus />
+        <div className="flex items-end gap-3 mb-4">
+          <label className="block">
+            <span className="block text-sm font-medium mb-1">Icon</span>
+            <select
+              className="rounded-lg border px-2 py-2 text-lg"
+              style={selectStyle}
+              value={icon}
+              onChange={(e) => setIcon(e.target.value)}
+            >
+              {REMINDER_ICONS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex-1">
+            <Field label="What" value={title} onChange={setTitle} autoFocus />
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block mb-4">
             <span className="block text-sm font-medium mb-1">Due date</span>
@@ -273,16 +357,16 @@ function NewReminderModal(props: { onClose: () => void }) {
             onChange={(e) => setHeadsUp(e.target.value)}
           >
             <option value="">none — notify on the day</option>
-            <option value="1">1 day before</option>
-            <option value="3">3 days before</option>
-            <option value="7">1 week before</option>
-            <option value="14">2 weeks before</option>
-            <option value="30">30 days before</option>
-            <option value="60">60 days before</option>
+            <option value="1">1 day</option>
+            <option value="3">3 days</option>
+            <option value="7">1 week</option>
+            <option value="14">2 weeks</option>
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
           </select>
         </label>
         <ErrorNote message={error} />
-        <SubmitButton label="Create reminder" busy={busy} />
+        <SubmitButton label={existing ? 'Save reminder' : 'Create reminder'} busy={busy} />
       </form>
     </Modal>
   )
@@ -306,7 +390,9 @@ export function DueReminderRow(props: { reminder: ReminderView }) {
         onChange={() => complete.mutate({ id: r.id })}
         style={{ accentColor: 'var(--accent)' }}
       />
-      <span>🔔 {r.title}</span>
+      <span>
+        {r.icon || '🔔'} {r.title}
+      </span>
       <span
         className="text-[11px] rounded px-1.5"
         style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
@@ -324,12 +410,16 @@ export function DueReminderRow(props: { reminder: ReminderView }) {
 
 export function TaskRowItem(props: { task: TaskView }) {
   const utils = trpc.useUtils()
-  const toggle = trpc.tasks.toggle.useMutation({
-    onSuccess: () => utils.tasks.agenda.invalidate(),
-  })
+  const invalidate = () => utils.tasks.agenda.invalidate()
+  const toggle = trpc.tasks.toggle.useMutation({ onSuccess: invalidate })
+  const edit = trpc.tasks.edit.useMutation({ onSuccess: invalidate })
   const t = props.task
   const displayText = t.text.replace(DUE_TOKEN, '').trim() || t.text
   const today = todayKey()
+
+  const [editing, setEditing] = useState(false)
+  const [draftText, setDraftText] = useState(displayText)
+  const [draftDue, setDraftDue] = useState(t.due ?? '')
 
   const source = t.isJournal
     ? t.pageTitle === 'Tasks inbox'
@@ -338,9 +428,73 @@ export function TaskRowItem(props: { task: TaskView }) {
     : `${t.spaceName} / ${t.pageTitle}`
   const isDayPage = t.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(t.pageTitle)
 
+  const save = async () => {
+    const value = draftText.trim()
+    if (!value) return
+    await edit.mutateAsync({ taskId: t.id, text: value, due: draftDue || null })
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div
+        className="flex items-center gap-2 py-1.5 border-b text-sm flex-wrap"
+        style={{ borderColor: 'var(--border)' }}
+      >
+        <input
+          // biome-ignore lint/a11y/noAutofocus: the edit pencil hands off focus here
+          autoFocus
+          className="flex-1 min-w-[160px] rounded-lg border px-2 py-1 text-sm outline-none"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={draftText}
+          onChange={(e) => setDraftText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+        />
+        <input
+          type="date"
+          className="rounded-lg border px-2 py-1 text-xs"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={draftDue}
+          onChange={(e) => setDraftDue(e.target.value)}
+        />
+        {draftDue && (
+          <button
+            type="button"
+            title="Clear due date"
+            className="text-xs"
+            style={{ color: 'var(--text-3)' }}
+            onClick={() => setDraftDue('')}
+          >
+            ✕
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={save}
+          disabled={edit.isPending || !draftText.trim()}
+          className="rounded-md px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+          style={{ background: 'var(--accent)' }}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="text-xs"
+          style={{ color: 'var(--text-3)' }}
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
-      className="flex items-center gap-2 py-1.5 border-b text-sm"
+      className="group flex items-center gap-2 py-1.5 border-b text-sm"
       style={{ borderColor: 'var(--border)' }}
     >
       <input
@@ -351,6 +505,19 @@ export function TaskRowItem(props: { task: TaskView }) {
         style={{ accentColor: 'var(--accent)' }}
       />
       <span style={{ textDecoration: t.checked ? 'line-through' : undefined }}>{displayText}</span>
+      <button
+        type="button"
+        title="Edit task"
+        className="opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+        style={{ color: 'var(--text-3)' }}
+        onClick={() => {
+          setDraftText(displayText)
+          setDraftDue(t.due ?? '')
+          setEditing(true)
+        }}
+      >
+        ✎
+      </button>
       <span
         className="text-[11px] rounded px-1.5 whitespace-nowrap"
         style={{ background: 'var(--accent-soft)', color: 'var(--text-3)' }}
@@ -367,14 +534,19 @@ export function TaskRowItem(props: { task: TaskView }) {
           </Link>
         )}
       </span>
-      {t.due && (
-        <span
-          className="ml-auto text-xs whitespace-nowrap"
-          style={{ color: !t.checked && t.due < today ? 'var(--danger)' : 'var(--text-3)' }}
-        >
-          {t.due === today ? 'today' : t.due}
-        </span>
-      )}
+      <button
+        type="button"
+        className={`ml-auto text-xs whitespace-nowrap ${t.due ? '' : 'opacity-0 group-hover:opacity-100 transition-opacity'}`}
+        title="Edit due date"
+        style={{ color: !t.checked && t.due && t.due < today ? 'var(--danger)' : 'var(--text-3)' }}
+        onClick={() => {
+          setDraftText(displayText)
+          setDraftDue(t.due ?? '')
+          setEditing(true)
+        }}
+      >
+        {t.due ? (t.due === today ? 'today' : t.due) : '+ date'}
+      </button>
     </div>
   )
 }

@@ -221,5 +221,47 @@ for (const dialect of dialects) {
       await expect(tasks.toggle(member, adminTask.task.id, true)).rejects.toThrow('not found')
       await appDb.close()
     })
+
+    it('editing a task rewrites its text and due, preserving the checked state', async () => {
+      const { appDb, daily, tasks, admin } = await setup()
+      // the user typed a due date in the wrong format — no due was parsed
+      await daily.quickAddTask(admin, 'call plumber on 8/1')
+      let agenda = await tasks.agenda(admin)
+      const t = agenda[0]
+      if (!t) throw new Error('missing task')
+      expect(t.task.due).toBeNull()
+
+      // fix the text and set a real due date
+      await tasks.edit(admin, t.task.id, 'Call the plumber', '2026-08-01')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.text).toBe('Call the plumber @2026-08-01')
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+
+      // check it, then edit again — the checkbox state survives the rewrite
+      await tasks.toggle(admin, t.task.id, true)
+      await tasks.edit(admin, t.task.id, 'Call the plumber back', '2026-08-02')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.checked).toBe(true)
+      expect(agenda[0]?.task.due).toBe('2026-08-02')
+      expect(agenda[0]?.task.text).not.toContain('@2026-08-01') // old token gone
+
+      // clearing the due date drops the token entirely
+      await tasks.edit(admin, t.task.id, 'Call the plumber back', null)
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBeNull()
+      expect(agenda[0]?.task.text).toBe('Call the plumber back')
+      await appDb.close()
+    })
+
+    it('editing a memo rewrites it; a promoted memo refuses', async () => {
+      const { appDb, daily, admin } = await setup()
+      const memo = await daily.capture(admin, 'by milk')
+      await daily.updateMemo(admin, memo.id, 'buy milk')
+      expect((await daily.listMemos(admin))[0]?.content).toBe('buy milk')
+
+      await daily.promoteToTask(admin, memo.id)
+      await expect(daily.updateMemo(admin, memo.id, 'too late')).rejects.toThrow('already moved')
+      await appDb.close()
+    })
   })
 }
