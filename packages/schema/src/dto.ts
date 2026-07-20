@@ -113,6 +113,7 @@ export type SpaceView = {
   publicFooter: string | null
   publicTheme: SiteTheme
   publicAppearance: SiteAppearance
+  publicSocial: SocialLinkValue[]
   createdAt: string
 }
 
@@ -153,7 +154,21 @@ export type PageMeta = {
   title: string
   position: number
   pageType: 'doc' | 'blog' | 'gallery'
+  galleryLayout: GalleryLayoutName
+  shareEnabled: boolean
+  coverAttachmentId: string | null
 }
+
+export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
+export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
+
+export const updatePageOptionsInput = z.object({
+  pageId: z.string(),
+  galleryLayout: galleryLayoutName.optional(),
+  shareEnabled: z.boolean().optional(),
+  // null clears the cover; undefined leaves it unchanged
+  coverAttachmentId: z.string().nullable().optional(),
+})
 
 export type ArchivedPageView = {
   id: string
@@ -243,6 +258,26 @@ export type SiteTheme = z.infer<typeof siteTheme>
 export const siteAppearance = z.enum(['auto', 'light', 'dark'])
 export type SiteAppearance = z.infer<typeof siteAppearance>
 
+export const socialPlatform = z.enum([
+  'github',
+  'x',
+  'instagram',
+  'youtube',
+  'linkedin',
+  'facebook',
+  'mastodon',
+  'bluesky',
+  'email',
+  'website',
+])
+export type SocialPlatformName = z.infer<typeof socialPlatform>
+
+export const socialLinkInput = z.object({
+  platform: socialPlatform,
+  url: z.string().trim().min(1).max(500),
+})
+export type SocialLinkValue = z.infer<typeof socialLinkInput>
+
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
   enabled: z.boolean(),
@@ -251,6 +286,7 @@ export const updatePublishingInput = z.object({
   footer: z.string().trim().max(300).nullable(),
   theme: siteTheme.default('paper'),
   appearance: siteAppearance.default('auto'),
+  social: z.array(socialLinkInput).max(10).default([]),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

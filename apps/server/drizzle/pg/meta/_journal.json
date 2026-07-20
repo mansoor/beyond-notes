@@ -92,6 +92,13 @@
       "when": 1784446603742,
       "tag": "0012_flashy_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784518101655,
+      "tag": "0013_fast_psylocke",
+      "breakpoints": true
     }
   ]
 }

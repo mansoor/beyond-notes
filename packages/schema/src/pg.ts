@@ -82,6 +82,8 @@ export const spaces = pgTable('spaces', {
   publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
     .notNull()
     .default('auto'),
+  // JSON array of {platform, url} shown in the published site header
+  publicSocial: text('public_social').notNull().default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -105,6 +107,14 @@ export const pages = pgTable('pages', {
   slug: text('slug'),
   // page-level "is this live right now" — soft ref into page_versions
   liveVersionId: text('live_version_id'),
+  // per-gallery presentation, chosen in the editor, baked into the snapshot at publish
+  galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
+    .notNull()
+    .default('grid'),
+  // opt-in social share bar on the published page
+  shareEnabled: boolean('share_enabled').notNull().default(false),
+  // gallery cover / blog-post listing image (an attachments id)
+  coverAttachmentId: text('cover_attachment_id'),
   // archive: soft-removal from the app surfaces; restore puts it back where it
   // was. Set on the whole subtree at once. Publish state is deliberately
   // untouched — retiring is its own explicit act.
@@ -129,6 +139,7 @@ export const pageVersions = pgTable('page_versions', {
   // JSON array of attachment ids referenced by this snapshot — the public
   // file route only serves attachments that appear in some live version
   attachmentIds: text('attachment_ids').notNull().default('[]'),
+  coverAttachmentId: text('cover_attachment_id'),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

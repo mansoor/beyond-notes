@@ -1,3 +1,4 @@
+import { CHROME_JS, GALLERY_CSS } from './chrome'
 import { escapeHtml } from './render'
 
 export type NavNode = {
@@ -66,10 +67,6 @@ display:flex;justify-content:space-between}
 main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:8px}
 main figcaption{font-size:12px;color:var(--text3);margin-top:4px}
-main .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:16px 0}
-main .gallery .cell{display:block;text-decoration:none}
-main .gallery img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block}
-main .gallery .cap{font-size:12px;color:var(--text3)}
 `
 
 function navHtml(nodes: NavNode[], basePath: string): string {
@@ -90,11 +87,12 @@ function page(siteTitle: string, footer: string, basePath: string, body: string,
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
-<style>${CSS}</style>
+<style>${CSS}${GALLERY_CSS}</style>
 </head>
 <body>
 ${body}
 <footer><span>${escapeHtml(footer)}</span><span>Built with Beyond Notes</span></footer>
+<script>${CHROME_JS}</script>
 </body>
 </html>`
 }

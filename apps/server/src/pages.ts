@@ -76,6 +76,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicFooter: null,
         publicTheme: 'paper',
         publicAppearance: 'auto',
+        publicSocial: '[]',
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -169,6 +170,9 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageType: 'doc',
         slug: null,
         liveVersionId: null,
+        galleryLayout: 'grid',
+        shareEnabled: false,
+        coverAttachmentId: null,
         archivedAt: null,
         archivedBy: null,
         createdAt: now(),
@@ -189,6 +193,23 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       const doc = await repo.getDocument(pageId)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       return { page, doc }
+    },
+
+    async updatePageOptions(
+      user: UserRow,
+      input: {
+        pageId: string
+        galleryLayout?: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+        shareEnabled?: boolean
+        coverAttachmentId?: string | null
+      },
+    ): Promise<void> {
+      await requirePage(input.pageId, user)
+      const patch: Parameters<Repo['updatePage']>[1] = { updatedAt: now() }
+      if (input.galleryLayout !== undefined) patch.galleryLayout = input.galleryLayout
+      if (input.shareEnabled !== undefined) patch.shareEnabled = input.shareEnabled
+      if (input.coverAttachmentId !== undefined) patch.coverAttachmentId = input.coverAttachmentId
+      await repo.updatePage(input.pageId, patch)
     },
 
     async renamePage(user: UserRow, pageId: string, title: string): Promise<void> {

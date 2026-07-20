@@ -1,4 +1,7 @@
 import type { PageMeta, SpaceCategory, SpaceView } from '@bn/schema'
+import { socialPlatform } from '@bn/schema'
+
+const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from './components'
@@ -209,6 +212,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const [footer, setFooter] = useState(s.publicFooter ?? '')
   const [theme, setTheme] = useState(s.publicTheme)
   const [appearance, setAppearance] = useState(s.publicAppearance)
+  const [social, setSocial] = useState<SpaceView['publicSocial']>(s.publicSocial)
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
       spaceId: s.id,
@@ -218,6 +222,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
       footer: footer.trim() || null,
       theme,
       appearance,
+      social: social.filter((l) => l.url.trim() !== ''),
     })
     await utils.spaces.list.invalidate()
     props.onClose()
@@ -228,7 +233,8 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     title !== (s.publicTitle ?? '') ||
     footer !== (s.publicFooter ?? '') ||
     theme !== s.publicTheme ||
-    appearance !== s.publicAppearance
+    appearance !== s.publicAppearance ||
+    JSON.stringify(social) !== JSON.stringify(s.publicSocial)
 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty}>
@@ -268,6 +274,61 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             <option value="dark">Always dark</option>
           </select>
         </label>
+        <div className="mb-4">
+          <span className="block text-sm font-medium mb-1">Social links (site header)</span>
+          {social.map((link, i) => (
+            <div key={`${link.platform}-${String(i)}`} className="flex gap-2 mb-1.5">
+              <select
+                className="rounded-lg border px-2 py-1.5 text-xs"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                value={link.platform}
+                onChange={(e) =>
+                  setSocial(
+                    social.map((l, j) =>
+                      j === i
+                        ? { ...l, platform: e.target.value as (typeof social)[number]['platform'] }
+                        : l,
+                    ),
+                  )
+                }
+              >
+                {SOCIAL_PLATFORMS.map((platform) => (
+                  <option key={platform} value={platform}>
+                    {platform}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="flex-1 rounded-lg border px-2 py-1.5 text-xs"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                placeholder={link.platform === 'email' ? 'mailto:you@example.com' : 'https://...'}
+                value={link.url}
+                onChange={(e) =>
+                  setSocial(social.map((l, j) => (j === i ? { ...l, url: e.target.value } : l)))
+                }
+              />
+              <button
+                type="button"
+                className="text-xs px-1"
+                style={{ color: 'var(--danger)' }}
+                title="Remove"
+                onClick={() => setSocial(social.filter((_, j) => j !== i))}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {social.length < 10 && (
+            <button
+              type="button"
+              className="text-xs underline"
+              style={{ color: 'var(--text-2)' }}
+              onClick={() => setSocial([...social, { platform: 'github', url: '' }])}
+            >
+              + add link
+            </button>
+          )}
+        </div>
         <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
           Only pages you explicitly publish appear, and only when every parent is published too.
           Preview without DNS at /s/&lt;host&gt;/.

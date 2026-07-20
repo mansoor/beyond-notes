@@ -49,6 +49,7 @@ import {
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  updatePageOptionsInput,
   updateProfileInput,
   updatePublishingInput,
 } from '@bn/schema'
@@ -139,7 +140,17 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicFooter: s.publicFooter,
     publicTheme: s.publicTheme,
     publicAppearance: s.publicAppearance,
+    publicSocial: parseSocial(s.publicSocial),
     createdAt: s.createdAt.toISOString(),
+  }
+}
+
+function parseSocial(raw: string): SpaceView['publicSocial'] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -151,6 +162,9 @@ function toPageMeta(p: PageRow): PageMeta {
     title: p.title,
     position: p.position,
     pageType: p.pageType,
+    galleryLayout: p.galleryLayout,
+    shareEnabled: p.shareEnabled,
+    coverAttachmentId: p.coverAttachmentId,
   }
 }
 
@@ -502,6 +516,15 @@ const pagesRouter = router({
         rethrow(err)
       }
     }),
+
+  updateOptions: authedProcedure.input(updatePageOptionsInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.pages.updatePageOptions(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
 
   archive: authedProcedure
     .input(z.object({ pageId: z.string() }))

@@ -6,12 +6,13 @@ import {
   docsSearchResults,
   docsShell,
   sectionListHtml,
+  shareBarHtml,
   site404,
   siteBlogIndex,
   sitePage,
   sitePost,
 } from '@bn/renderer'
-import type { AlbumCard, Crumb, SiteNavItem } from '@bn/renderer'
+import type { AlbumCard, Crumb, SiteNavItem, SocialLink } from '@bn/renderer'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
@@ -134,6 +135,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     const site = await publishing.publicSite(space, path)
     const theme = space.publicTheme
     const appearance = space.publicAppearance
+    const socials = parseSocialLinks(space.publicSocial)
     const siteTitle = site.siteTitle
     const footer = site.footer
     const byId = new Map(site.flat.map((f) => [f.entry.page.id, f]))
@@ -176,10 +178,19 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           path: c.path,
           date: dates.get(c.entry.page.id) ?? c.entry.version.createdAt,
           snippet: c.entry.version.textPlain.slice(0, 160),
+          cover: c.entry.version.coverAttachmentId
+            ? `/api/files/${c.entry.version.coverAttachmentId}/thumb`
+            : null,
           blogPath,
         }))
         .sort((a, b) => b.date.getTime() - a.date.getTime())
     }
+
+    // per-page opt-in share buttons, composed at serve time (needs the host)
+    const shareFor = (entry: (typeof site.flat)[number]) =>
+      entry.entry.page.shareEnabled
+        ? shareBarHtml({ url: `https://${host}${entry.path}`, title: entry.title })
+        : ''
 
     reply.type('text/html; charset=utf-8')
 
@@ -233,15 +244,17 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           footer,
           theme,
           appearance,
+          socials,
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: hit.entry.version.html,
+          introHtml: hit.entry.version.html + shareFor(hit),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
             date: p.date.toISOString().slice(0, 10),
             snippet: p.snippet,
+            cover: p.cover,
           })),
           crumbs: crumbsFor(hit),
           rssPath: '/rss.xml',
@@ -266,12 +279,14 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           footer,
           theme,
           appearance,
+          socials,
           nav,
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
           contentHtml:
             hit.entry.version.html +
+            shareFor(hit) +
             sectionListHtml(
               postChildren.map((c) => ({ title: c.title, path: c.path })),
               basePath,
@@ -321,10 +336,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         footer,
         theme,
         appearance,
+        socials,
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml: hit.entry.version.html + extras,
+        contentHtml: hit.entry.version.html + shareFor(hit) + extras,
         crumbs: crumbsFor(hit),
         rssPath,
       }),
@@ -332,6 +348,15 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
   }
 
   return { serve, resolveSpace }
+}
+
+function parseSocialLinks(raw: string): SocialLink[] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as SocialLink[]) : []
+  } catch {
+    return []
+  }
 }
 
 function snippetAround(text: string, needle: string): string {

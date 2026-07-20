@@ -41,6 +41,7 @@ export type SpaceRow = {
   publicFooter: string | null
   publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
   publicAppearance: 'auto' | 'light' | 'dark'
+  publicSocial: string
   createdAt: Date
 }
 
@@ -54,6 +55,9 @@ export type PageRow = {
   pageType: 'doc' | 'blog' | 'gallery'
   slug: string | null
   liveVersionId: string | null
+  galleryLayout: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
+  shareEnabled: boolean
+  coverAttachmentId: string | null
   archivedAt: Date | null
   archivedBy: string | null
   createdAt: Date
@@ -70,6 +74,7 @@ export type PageVersionRow = {
   html: string
   textPlain: string
   attachmentIds: string
+  coverAttachmentId: string | null
   createdBy: string
   createdAt: Date
 }
@@ -337,7 +342,16 @@ export function createRepo(appDb: AppDb) {
       patch: Partial<
         Pick<
           PageRow,
-          'title' | 'parentId' | 'position' | 'updatedAt' | 'spaceId' | 'pageType' | 'slug'
+          | 'title'
+          | 'parentId'
+          | 'position'
+          | 'updatedAt'
+          | 'spaceId'
+          | 'pageType'
+          | 'slug'
+          | 'galleryLayout'
+          | 'shareEnabled'
+          | 'coverAttachmentId'
         >
       >,
     ): Promise<void> {
@@ -468,6 +482,7 @@ export function createRepo(appDb: AppDb) {
           | 'publicFooter'
           | 'publicTheme'
           | 'publicAppearance'
+          | 'publicSocial'
         >
       >,
     ): Promise<void> {

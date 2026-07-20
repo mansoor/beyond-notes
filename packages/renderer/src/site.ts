@@ -1,3 +1,4 @@
+import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
 import { escapeHtml } from './render'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
 
@@ -7,7 +8,13 @@ export type SiteNavItem = {
   active?: boolean
   children?: SiteNavItem[]
 }
-export type PostListItem = { title: string; path: string; date: string; snippet: string }
+export type PostListItem = {
+  title: string
+  path: string
+  date: string
+  snippet: string
+  cover?: string | null
+}
 export type Crumb = { title: string; path: string }
 export type AlbumCard = { title: string; path: string; coverUrl: string | null; count: number }
 
@@ -68,8 +75,11 @@ main blockquote{border-left:3px solid var(--border);padding-left:14px;color:var(
 main a{color:var(--accent)}
 .meta{color:var(--text3);font-size:13px;margin-bottom:18px}
 .postlist{margin-top:18px}
-.postlist .post{display:flex;justify-content:space-between;align-items:baseline;gap:16px;
+.postlist .post{display:flex;justify-content:space-between;align-items:center;gap:16px;
 padding:13px 0;border-top:1px solid var(--border)}
+.postlist .postcover{flex:0 0 92px}
+.postlist .postcover img{width:92px;height:64px;object-fit:cover;border-radius:8px;display:block}
+.postlist .post>span:not(.date){flex:1;min-width:0}
 .postlist .post a{font-size:17px;font-weight:600;color:var(--text);text-decoration:none}
 .postlist .post a:hover{color:var(--accent)}
 .postlist .date{color:var(--text3);font-size:13px;white-space:nowrap;font-family:ui-monospace,Consolas,monospace}
@@ -78,10 +88,6 @@ padding:13px 0;border-top:1px solid var(--border)}
 main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
-main .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:18px 0}
-main .gallery .cell{display:block;text-decoration:none}
-main .gallery img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block}
-main .gallery .cap{font-size:12px;color:var(--text3)}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
 display:flex;justify-content:space-between;max-width:820px;margin:0 auto}
 `
@@ -156,9 +162,11 @@ function shell(input: {
   nav: SiteNavItem[]
   basePath: string
   body: string
+  socials?: SocialLink[]
   rssPath?: string
 }): string {
   const nav = navHtml(input.nav, input.basePath)
+  const socials = socialLinksHtml(input.socials ?? [])
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -166,19 +174,21 @@ function shell(input: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(input.title)} — ${escapeHtml(input.siteTitle)}</title>
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}</style>
 </head>
 <body>
-<header><a class="logo" href="${escapeHtml(input.basePath || '/')}">${escapeHtml(input.siteTitle)}</a><nav>${nav}</nav></header>
+<header><a class="logo" href="${escapeHtml(input.basePath || '/')}">${escapeHtml(input.siteTitle)}</a><nav>${nav}</nav>${socials}</header>
 <main>
 ${input.body}
 </main>
 <footer><span>${escapeHtml(input.footer)}</span><span>Built with Beyond Notes</span></footer>
+<script>${CHROME_JS}</script>
 </body>
 </html>`
 }
 
 export function sitePage(input: {
+  socials?: SocialLink[]
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -197,6 +207,7 @@ export function sitePage(input: {
 }
 
 export function siteBlogIndex(input: {
+  socials?: SocialLink[]
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -212,7 +223,11 @@ export function siteBlogIndex(input: {
   const list = input.posts
     .map(
       (p) =>
-        `<div class="post"><span><a href="${escapeHtml(input.basePath + p.path)}">${escapeHtml(p.title)}</a>${
+        `<div class="post">${
+          p.cover
+            ? `<a class="postcover" href="${escapeHtml(input.basePath + p.path)}"><img src="${escapeHtml(p.cover)}" alt="" loading="lazy"></a>`
+            : ''
+        }<span><a href="${escapeHtml(input.basePath + p.path)}">${escapeHtml(p.title)}</a>${
           p.snippet ? `<p class="snippet">${escapeHtml(p.snippet)}</p>` : ''
         }</span><span class="date">${escapeHtml(p.date)}</span></div>`,
     )
@@ -222,6 +237,7 @@ export function siteBlogIndex(input: {
 }
 
 export function sitePost(input: {
+  socials?: SocialLink[]
   siteTitle: string
   footer: string
   theme: ThemeName

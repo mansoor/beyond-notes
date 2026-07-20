@@ -72,18 +72,107 @@ function PageView(props: {
         onStateChange={setState}
         onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
       />
-      {props.page.pageType === 'gallery' && <GalleryManager pageId={props.page.id} />}
+      {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
+      <PageOptions page={props.page} />
     </div>
   )
 }
 
-function GalleryManager(props: { pageId: string }) {
+/** Per-page presentation options; publish to apply them to the live site. */
+function PageOptions(props: { page: PageMeta }) {
   const utils = trpc.useUtils()
-  const items = trpc.gallery.list.useQuery({ pageId: props.pageId })
-  const invalidate = () => utils.gallery.list.invalidate({ pageId: props.pageId })
+  const update = trpc.pages.updateOptions.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
+  })
+  const [uploading, setUploading] = useState(false)
+
+  const uploadCover = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
+      if (!res.ok) return
+      const json = (await res.json()) as { id: string }
+      await update.mutateAsync({ pageId: props.page.id, coverAttachmentId: json.id })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <section
+      className="mt-8 rounded-lg border px-4 py-3 flex items-center gap-5 flex-wrap text-sm"
+      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+    >
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={props.page.shareEnabled}
+          disabled={update.isPending}
+          onChange={(e) => update.mutate({ pageId: props.page.id, shareEnabled: e.target.checked })}
+        />
+        Show social share buttons on the published page
+      </label>
+      {props.page.pageType !== 'gallery' && (
+        <span className="flex items-center gap-2 ml-auto">
+          {props.page.coverAttachmentId ? (
+            <>
+              <img
+                src={`/api/files/${props.page.coverAttachmentId}/thumb`}
+                alt="listing"
+                className="w-9 h-7 object-cover rounded"
+              />
+              <button
+                type="button"
+                className="text-xs underline"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => update.mutate({ pageId: props.page.id, coverAttachmentId: null })}
+              >
+                remove listing image
+              </button>
+            </>
+          ) : (
+            <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
+              {uploading ? 'uploading…' : '+ listing image (shown in blog lists)'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => uploadCover(e.target.files)}
+              />
+            </label>
+          )}
+        </span>
+      )}
+      <span className="w-full text-xs" style={{ color: 'var(--text-3)' }}>
+        Options apply to the public site on the next publish.
+      </span>
+    </section>
+  )
+}
+
+const LAYOUTS = [
+  { value: 'grid', label: 'Grid' },
+  { value: 'mosaic', label: 'Mosaic' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'filmstrip', label: 'Filmstrip' },
+] as const
+
+function GalleryManager(props: { page: PageMeta }) {
+  const pageId = props.page.id
+  const utils = trpc.useUtils()
+  const items = trpc.gallery.list.useQuery({ pageId })
+  const invalidate = () => utils.gallery.list.invalidate({ pageId })
   const add = trpc.gallery.add.useMutation({ onSuccess: invalidate })
   const remove = trpc.gallery.remove.useMutation({ onSuccess: invalidate })
   const caption = trpc.gallery.caption.useMutation({ onSuccess: invalidate })
+  const options = trpc.pages.updateOptions.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId }),
+  })
   const [busy, setBusy] = useState(false)
 
   const onFiles = async (files: FileList | null) => {
@@ -96,7 +185,7 @@ function GalleryManager(props: { pageId: string }) {
         const res = await fetch('/api/upload', { method: 'POST', body: form })
         if (!res.ok) continue
         const json = (await res.json()) as { id: string }
-        await add.mutateAsync({ pageId: props.pageId, attachmentId: json.id })
+        await add.mutateAsync({ pageId, attachmentId: json.id })
       }
     } finally {
       setBusy(false)
@@ -112,6 +201,24 @@ function GalleryManager(props: { pageId: string }) {
         >
           Gallery — {items.data?.length ?? 0} images
         </h3>
+        <select
+          className="rounded-md border px-2 py-1 text-xs mr-2"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          title="Layout on the published page"
+          value={props.page.galleryLayout}
+          onChange={(e) =>
+            options.mutate({
+              pageId,
+              galleryLayout: e.target.value as PageMeta['galleryLayout'],
+            })
+          }
+        >
+          {LAYOUTS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
         <label
           className="rounded-md px-3 py-1 text-xs font-medium text-white cursor-pointer"
           style={{ background: 'var(--accent)', opacity: busy ? 0.6 : 1 }}
@@ -144,10 +251,28 @@ function GalleryManager(props: { pageId: string }) {
               title="Remove from gallery"
               className="absolute top-1 right-1 hidden group-hover:block rounded px-1.5 text-xs text-white"
               style={{ background: 'rgba(0,0,0,0.6)' }}
-              onClick={() => remove.mutate({ pageId: props.pageId, itemId: item.id })}
+              onClick={() => remove.mutate({ pageId, itemId: item.id })}
             >
               ✕
             </button>
+            {props.page.coverAttachmentId === item.attachmentId ? (
+              <span
+                className="absolute top-1 left-1 rounded px-1.5 text-[10px] font-semibold text-white"
+                style={{ background: 'var(--accent)' }}
+              >
+                COVER
+              </span>
+            ) : (
+              <button
+                type="button"
+                title="Use as the album cover"
+                className="absolute top-1 left-1 hidden group-hover:block rounded px-1.5 text-[10px] text-white"
+                style={{ background: 'rgba(0,0,0,0.6)' }}
+                onClick={() => options.mutate({ pageId, coverAttachmentId: item.attachmentId })}
+              >
+                Set cover
+              </button>
+            )}
             <input
               className="w-full mt-1 bg-transparent text-xs outline-none"
               style={{ color: 'var(--text-2)' }}
@@ -155,7 +280,7 @@ function GalleryManager(props: { pageId: string }) {
               defaultValue={item.caption}
               onBlur={(e) => {
                 if (e.target.value !== item.caption) {
-                  caption.mutate({ pageId: props.pageId, itemId: item.id, caption: e.target.value })
+                  caption.mutate({ pageId, itemId: item.id, caption: e.target.value })
                 }
               }}
             />
@@ -163,8 +288,8 @@ function GalleryManager(props: { pageId: string }) {
         ))}
       </div>
       <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-        Images are recompressed on upload and GPS metadata is stripped. The grid publishes with the
-        page.
+        Images are recompressed on upload and GPS metadata is stripped. Layout and cover apply on
+        the next publish.
       </p>
     </section>
   )

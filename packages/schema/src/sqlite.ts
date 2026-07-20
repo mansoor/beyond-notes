@@ -63,6 +63,8 @@ export const spaces = sqliteTable('spaces', {
   publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
     .notNull()
     .default('auto'),
+  // JSON array of {platform, url} shown in the published site header
+  publicSocial: text('public_social').notNull().default('[]'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -80,6 +82,11 @@ export const pages = sqliteTable('pages', {
     .default('doc'),
   slug: text('slug'),
   liveVersionId: text('live_version_id'),
+  galleryLayout: text('gallery_layout', { enum: ['grid', 'carousel', 'filmstrip', 'mosaic'] })
+    .notNull()
+    .default('grid'),
+  shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
+  coverAttachmentId: text('cover_attachment_id'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   archivedBy: text('archived_by'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
@@ -98,6 +105,7 @@ export const pageVersions = sqliteTable('page_versions', {
   html: text('html').notNull(),
   textPlain: text('text_plain').notNull(),
   attachmentIds: text('attachment_ids').notNull().default('[]'),
+  coverAttachmentId: text('cover_attachment_id'),
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })

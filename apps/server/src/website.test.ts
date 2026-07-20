@@ -362,6 +362,78 @@ for (const dialect of dialects) {
       expect(republished?.slug).toBe('about-2')
     })
 
+    it('gallery layout + cover + share + socials flow through publish and serve', async () => {
+      // social links on the space land in every page header
+      await publishing.updateSpacePublishing(user, {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink',
+        social: [{ platform: 'github', url: 'https://github.com/mansoor' }],
+      })
+
+      const gallery = await makePage(siteSpaceId, null, 'Shots', 'best of')
+      await pagesSvc.setPageType(user, gallery.id, 'gallery')
+      await repo.insertAttachment({
+        id: 'coverpick111111111111',
+        hash: 'ch1',
+        filename: 'c.jpg',
+        mime: 'image/jpeg',
+        size: 1,
+        width: 1,
+        height: 1,
+        createdBy: user.id,
+        createdAt: new Date(),
+      })
+      await repo.insertGalleryItem({
+        id: 'sg1',
+        pageId: gallery.id,
+        attachmentId: 'coverpick111111111111',
+        position: 0,
+        caption: 'the one',
+      })
+      await pagesSvc.updatePageOptions(user, {
+        pageId: gallery.id,
+        galleryLayout: 'filmstrip',
+        shareEnabled: true,
+        coverAttachmentId: 'coverpick111111111111',
+      })
+      await publishing.publish(user, gallery.id)
+
+      const page = await get('/shots')
+      expect(page.body).toContain('class="gallery filmstrip"')
+      expect(page.body).toContain('class="track"')
+      expect(page.body).toContain('class="sharebar"')
+      expect(page.body).toContain(`https%3A%2F%2F${HOST}%2Fshots`)
+      expect(page.body).toContain('class="socials"')
+      expect(page.body).toContain('https://github.com/mansoor')
+      expect(page.body).toContain('.lightbox') // chrome css+js shipped inline
+
+      // pages without the toggle show no share bar
+      const home = await get('/')
+      expect(home.body).not.toContain('class="sharebar"')
+
+      // the published cover is servable and rides the version snapshot
+      const version = await repo.getVersion(
+        (await repo.getPage(gallery.id))?.liveVersionId as string,
+      )
+      expect(version?.coverAttachmentId).toBe('coverpick111111111111')
+      expect(JSON.parse(version?.attachmentIds ?? '[]')).toContain('coverpick111111111111')
+
+      // a blog post with a listing image shows it on the blog index
+      const post = await makePage(siteSpaceId, blogId, 'Illustrated post', 'look at this')
+      await pagesSvc.updatePageOptions(user, {
+        pageId: post.id,
+        coverAttachmentId: 'coverpick111111111111',
+      })
+      await publishing.publish(user, post.id)
+      const blog = await get('/blog')
+      expect(blog.body).toContain('class="postcover"')
+      expect(blog.body).toContain('/api/files/coverpick111111111111/thumb')
+    })
+
     it('appearance pins a palette; bloom theme renders bright', async () => {
       // ink on auto is always dark (its identity)
       let home = await get('/')

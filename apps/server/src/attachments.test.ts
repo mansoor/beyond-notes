@@ -185,7 +185,7 @@ describe('public file access follows the visibility rule', () => {
 
     const page = await server.inject({ method: 'GET', url: '/photos', headers: { host: HOST } })
     expect(page.statusCode).toBe(200)
-    expect(page.body).toContain('class="gallery"')
+    expect(page.body).toContain('class="gallery')
     expect(page.body).toContain(`/api/files/${attachmentId}/thumb`)
 
     const file = await server.inject({ method: 'GET', url: `/api/files/${attachmentId}` })
