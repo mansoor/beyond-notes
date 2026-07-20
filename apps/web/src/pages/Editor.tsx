@@ -53,9 +53,11 @@ function PageView(props: {
     }
   }
 
+  // same skeleton as the Today page: content centered in the remaining
+  // space, rail as a full-height right column behind a vertical separator
   return (
-    <div className="flex gap-8 max-w-[1440px] mx-auto px-10 py-8">
-      <div className="flex-1 min-w-0 max-w-5xl mx-auto">
+    <div className="flex min-h-screen">
+      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8">
         <div className="flex items-center gap-3 mb-2">
           <input
             className="flex-1 bg-transparent text-3xl font-bold outline-none"
@@ -84,7 +86,10 @@ function PageView(props: {
         />
         {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
       </div>
-      <aside className="hidden lg:block w-72 shrink-0">
+      <aside
+        className="w-72 shrink-0 border-l px-5 py-8 hidden lg:block"
+        style={{ borderColor: 'var(--border)' }}
+      >
         <div className="sticky top-8">
           <ContextPanel page={props.page} publishing={props.publishing} />
         </div>
