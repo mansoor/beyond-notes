@@ -97,6 +97,7 @@ export const pages = sqliteTable('pages', {
   galleryAutoplaySecs: integer('gallery_autoplay_secs'),
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
+  metaDescription: text('meta_description'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   archivedBy: text('archived_by'),
   trashedAt: integer('trashed_at', { mode: 'timestamp_ms' }),
@@ -118,8 +119,23 @@ export const pageVersions = sqliteTable('page_versions', {
   textPlain: text('text_plain').notNull(),
   attachmentIds: text('attachment_ids').notNull().default('[]'),
   coverAttachmentId: text('cover_attachment_id'),
+  metaDescription: text('meta_description'),
+  tags: text('tags').notNull().default('[]'),
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const previews = sqliteTable('previews', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
 })
 
 export const attachments = sqliteTable('attachments', {

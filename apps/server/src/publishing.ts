@@ -1,9 +1,13 @@
+import { randomBytes } from 'node:crypto'
 import { blocknoteToHtml, galleryHtml, plainText, slugify } from '@bn/renderer'
 import type { NavNode } from '@bn/renderer'
 import { nanoid } from 'nanoid'
 import { extractAttachmentIds } from './attachments'
+import { hashToken } from './auth'
 import { PagesError } from './pages'
-import type { PageRow, PageVersionRow, Repo, SpaceRow, UserRow } from './repo'
+import type { PageRow, PageVersionRow, PreviewRow, Repo, SpaceRow, UserRow } from './repo'
+
+export const SCHEDULED_PUBLISH = 'scheduled-publish'
 
 /**
  * The publish pipeline. Two-track rule made physical: the working copy is
@@ -109,6 +113,10 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         textPlain,
         attachmentIds: JSON.stringify([...attachmentIds]),
         coverAttachmentId: page.coverAttachmentId,
+        // SEO description and tags freeze with the snapshot — public tag
+        // pages and meta derive from live versions, never working copies
+        metaDescription: page.metaDescription,
+        tags: JSON.stringify((await repo.listPageTags(pageId)).map((t) => t.tag).sort()),
         createdBy: user.id,
         createdAt: now(),
       }
@@ -232,6 +240,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       const pending =
         live !== null && doc !== null && doc.updatedAt.getTime() > live.createdAt.getTime()
       const slugPath = live ? await this.livePathForPage(page.id) : null
+      const scheduled = await repo.getPendingJobByTypeRef(SCHEDULED_PUBLISH, page.id)
       return {
         spaceEnabled: space.publicEnabled,
         host: space.publicHost,
@@ -240,7 +249,100 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
           : null,
         pending,
         slugPath,
+        scheduledAt: scheduled ? scheduled.runAt.toISOString() : null,
       }
+    },
+
+    // ---- scheduled publishing ----
+
+    /** Queue a publish for later; replaces any earlier schedule for the page. */
+    async schedulePublish(user: UserRow, pageId: string, at: Date): Promise<void> {
+      await requirePage(pageId, user)
+      if (at.getTime() <= now().getTime())
+        throw new PagesError('BAD_CONTENT', 'The scheduled time must be in the future.')
+      await repo.cancelPendingJobsForTypeRef(SCHEDULED_PUBLISH, pageId)
+      await repo.insertJob({
+        id: nanoid(),
+        type: SCHEDULED_PUBLISH,
+        refId: pageId,
+        payload: JSON.stringify({ by: user.id }),
+        runAt: at,
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
+        createdAt: now(),
+      })
+    },
+
+    async cancelScheduledPublish(user: UserRow, pageId: string): Promise<void> {
+      await requirePage(pageId, user)
+      await repo.cancelPendingJobsForTypeRef(SCHEDULED_PUBLISH, pageId)
+    },
+
+    // ---- draft preview links ----
+
+    /** Mint a shareable read-only link to the working copy. Token shown once. */
+    async createPreview(user: UserRow, pageId: string): Promise<{ token: string }> {
+      await requirePage(pageId, user)
+      const token = randomBytes(24).toString('base64url')
+      const row: PreviewRow = {
+        id: nanoid(),
+        tokenHash: hashToken(token),
+        pageId,
+        createdBy: user.id,
+        createdAt: now(),
+        revokedAt: null,
+      }
+      await repo.insertPreview(row)
+      return { token }
+    },
+
+    async listPreviews(user: UserRow, pageId: string): Promise<PreviewRow[]> {
+      await requirePage(pageId, user)
+      return (await repo.listPreviewsForPage(pageId)).filter((p) => !p.revokedAt)
+    },
+
+    async revokePreview(user: UserRow, pageId: string, previewId: string): Promise<void> {
+      await requirePage(pageId, user)
+      const rows = await repo.listPreviewsForPage(pageId)
+      const row = rows.find((p) => p.id === previewId)
+      if (row) await repo.revokePreview(row.id, now())
+    },
+
+    /** Token → page, for the anonymous preview route. Null if revoked/unknown. */
+    async resolvePreviewToken(token: string): Promise<PageRow | null> {
+      const row = await repo.getPreviewByTokenHash(hashToken(token))
+      if (!row || row.revokedAt) return null
+      const page = await repo.getPage(row.pageId)
+      return page && !page.trashedAt ? page : null
+    },
+
+    /** Working copy rendered for preview (content + gallery, like publish would). */
+    async renderPreview(page: PageRow): Promise<{ html: string; title: string }> {
+      const doc = await repo.getDocument(page.id)
+      let html = doc ? blocknoteToHtml(doc.content) : ''
+      if (page.pageType === 'gallery') {
+        const items = (await repo.listGalleryItems(page.id)).sort((a, b) => a.position - b.position)
+        html += galleryHtml(
+          items.map((i) => ({
+            url: `/api/files/${i.attachmentId}`,
+            thumbUrl: `/api/files/${i.attachmentId}/thumb`,
+            caption: i.caption,
+          })),
+          page.galleryLayout,
+          page.galleryAutoplaySecs,
+        )
+      }
+      return { html, title: page.title }
+    },
+
+    /** Attachment ids the preview may serve: the working doc's + gallery's. */
+    async previewAttachmentIds(page: PageRow): Promise<Set<string>> {
+      const doc = await repo.getDocument(page.id)
+      const ids = new Set(doc ? extractAttachmentIds(doc.content) : [])
+      for (const item of await repo.listGalleryItems(page.id)) ids.add(item.attachmentId)
+      if (page.coverAttachmentId) ids.add(page.coverAttachmentId)
+      return ids
     },
 
     // ---- the public read model ----

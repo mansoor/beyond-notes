@@ -12,6 +12,7 @@ export {
   siteBlogIndex,
   sitePost,
   siteSearchResults,
+  siteTagPage,
   site404,
   buildRss,
   buildSitemap,
@@ -19,6 +20,6 @@ export {
   sectionListHtml,
   albumCardsHtml,
 } from './site'
-export type { SiteNavItem, PostListItem, Crumb, AlbumCard } from './site'
+export type { SiteNavItem, PostListItem, Crumb, AlbumCard, SiteMeta } from './site'
 export { themeCss } from './themes'
 export type { ThemeName } from './themes'

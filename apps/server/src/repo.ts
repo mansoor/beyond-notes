@@ -62,6 +62,7 @@ export type PageRow = {
   galleryAutoplaySecs: number | null
   shareEnabled: boolean
   coverAttachmentId: string | null
+  metaDescription: string | null
   archivedAt: Date | null
   archivedBy: string | null
   trashedAt: Date | null
@@ -89,8 +90,19 @@ export type PageVersionRow = {
   textPlain: string
   attachmentIds: string
   coverAttachmentId: string | null
+  metaDescription: string | null
+  tags: string
   createdBy: string
   createdAt: Date
+}
+
+export type PreviewRow = {
+  id: string
+  tokenHash: string
+  pageId: string
+  createdBy: string
+  createdAt: Date
+  revokedAt: Date | null
 }
 
 export type AttachmentRow = {
@@ -362,6 +374,7 @@ export function createRepo(appDb: AppDb) {
           | 'updatedAt'
           | 'spaceId'
           | 'pageType'
+          | 'metaDescription'
           | 'slug'
           | 'galleryLayout'
           | 'galleryAutoplaySecs'
@@ -459,6 +472,33 @@ export function createRepo(appDb: AppDb) {
 
     async deleteTemplate(id: string): Promise<void> {
       await db.delete(t.templates).where(eq(t.templates.id, id))
+    },
+
+    // ---- draft previews ----
+
+    async insertPreview(row: PreviewRow): Promise<void> {
+      await db.insert(t.previews).values(row)
+    },
+
+    async getPreviewByTokenHash(tokenHash: string): Promise<PreviewRow | null> {
+      const rows = await db
+        .select()
+        .from(t.previews)
+        .where(eq(t.previews.tokenHash, tokenHash))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listPreviewsForPage(pageId: string): Promise<PreviewRow[]> {
+      return db.select().from(t.previews).where(eq(t.previews.pageId, pageId))
+    },
+
+    async listAllPreviews(): Promise<PreviewRow[]> {
+      return db.select().from(t.previews)
+    },
+
+    async revokePreview(id: string, when: Date): Promise<void> {
+      await db.update(t.previews).set({ revokedAt: when }).where(eq(t.previews.id, id))
     },
 
     // ---- documents ----
@@ -725,6 +765,33 @@ export function createRepo(appDb: AppDb) {
       await db
         .delete(t.scheduledJobs)
         .where(and(eq(t.scheduledJobs.refId, refId), eq(t.scheduledJobs.status, 'pending')))
+    },
+
+    async cancelPendingJobsForTypeRef(type: string, refId: string): Promise<void> {
+      await db
+        .delete(t.scheduledJobs)
+        .where(
+          and(
+            eq(t.scheduledJobs.type, type),
+            eq(t.scheduledJobs.refId, refId),
+            eq(t.scheduledJobs.status, 'pending'),
+          ),
+        )
+    },
+
+    async getPendingJobByTypeRef(type: string, refId: string): Promise<JobRow | null> {
+      const rows = await db
+        .select()
+        .from(t.scheduledJobs)
+        .where(
+          and(
+            eq(t.scheduledJobs.type, type),
+            eq(t.scheduledJobs.refId, refId),
+            eq(t.scheduledJobs.status, 'pending'),
+          ),
+        )
+        .limit(1)
+      return rows[0] ?? null
     },
 
     // ---- server settings ----

@@ -55,7 +55,10 @@ const MAX_ATTEMPTS = 3
 export function createScheduler(
   repo: Repo,
   notifiers: Notifier[],
-  opts: { now?: () => Date } = {},
+  opts: {
+    now?: () => Date
+    publishPage?: (pageId: string, byUserId: string) => Promise<void>
+  } = {},
 ) {
   const now = opts.now ?? (() => new Date())
   let timer: ReturnType<typeof setInterval> | null = null
@@ -68,6 +71,20 @@ export function createScheduler(
     attempts: number
   }): Promise<void> {
     try {
+      // scheduled publishing rides the same job table as reminders
+      if (job.type === 'scheduled-publish') {
+        const { by } = JSON.parse(job.payload) as { by: string }
+        const page = await repo.getPage(job.refId)
+        // stale-job guard: the page is gone, trashed, or the feature is off
+        if (!page || page.trashedAt || !opts.publishPage) {
+          await repo.finishJob(job.id, 'done', job.attempts, 'stale — skipped')
+          return
+        }
+        await opts.publishPage(job.refId, by)
+        await repo.finishJob(job.id, 'done', job.attempts + 1, null)
+        return
+      }
+
       const payload = JSON.parse(job.payload) as { dueDate?: string }
       const reminder = await repo.getReminder(job.refId)
 

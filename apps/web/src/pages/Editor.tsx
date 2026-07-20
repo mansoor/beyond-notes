@@ -156,6 +156,104 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
           </p>
         </ContextCard>
       )}
+      {isSite && (
+        <ContextCard bare={props.bare} title="Search & social">
+          <SeoSection page={props.page} />
+        </ContextCard>
+      )}
+      {space?.publicEnabled && (
+        <ContextCard bare={props.bare} title="Share a draft">
+          <PreviewSection pageId={props.page.id} />
+        </ContextCard>
+      )}
+    </div>
+  )
+}
+
+/** The og/meta description used when the page is shared or indexed. */
+function SeoSection(props: { page: PageMeta }) {
+  const utils = trpc.useUtils()
+  const update = trpc.pages.updateOptions.useMutation({
+    onSuccess: () => utils.pages.get.invalidate({ pageId: props.page.id }),
+  })
+  const [text, setText] = useState(props.page.metaDescription ?? '')
+  const dirty = text !== (props.page.metaDescription ?? '')
+  return (
+    <div>
+      <textarea
+        className="w-full rounded-lg border px-3 py-2 text-xs"
+        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+        rows={3}
+        maxLength={300}
+        placeholder="Description for search results and link previews…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (dirty) update.mutate({ pageId: props.page.id, metaDescription: text.trim() || null })
+        }}
+      />
+      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+        {text.length}/300 · falls back to the opening text. Applies on the next publish.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Tokened links to the working copy — the way to show an unpublished page to
+ * someone without putting it on the site.
+ */
+function PreviewSection(props: { pageId: string }) {
+  const utils = trpc.useUtils()
+  const previews = trpc.publish.previews.useQuery({ pageId: props.pageId })
+  const invalidate = () => utils.publish.previews.invalidate({ pageId: props.pageId })
+  const create = trpc.publish.createPreview.useMutation({ onSuccess: invalidate })
+  const revoke = trpc.publish.revokePreview.useMutation({ onSuccess: invalidate })
+  const [justMade, setJustMade] = useState<string | null>(null)
+
+  return (
+    <div className="text-sm">
+      {justMade && (
+        <div className="mb-2">
+          <input
+            readOnly
+            className="w-full rounded-lg border px-2 py-1 text-xs"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={justMade}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+            Copy it now — the link is only shown once.
+          </p>
+        </div>
+      )}
+      {previews.data?.map((p, i) => (
+        <div key={p.id} className="flex items-center gap-2 py-0.5 text-xs">
+          <span style={{ color: 'var(--text-2)' }}>
+            Link {i + 1} · {new Date(p.createdAt).toLocaleDateString()}
+          </span>
+          <button
+            type="button"
+            className="ml-auto underline"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => revoke.mutate({ pageId: props.pageId, previewId: p.id })}
+          >
+            revoke
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="text-xs underline mt-1"
+        style={{ color: 'var(--text-2)' }}
+        disabled={create.isPending}
+        onClick={async () => {
+          const res = await create.mutateAsync({ pageId: props.pageId })
+          setJustMade(res.url)
+        }}
+      >
+        + create preview link
+      </button>
     </div>
   )
 }
@@ -265,6 +363,10 @@ function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
   const togglePin = trpc.pins.toggle.useMutation({ onSuccess: () => utils.pins.list.invalidate() })
   const pinned = pins.data?.some((p) => p.pageId === props.page.id) ?? false
   const [history, setHistory] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
+  const invalidatePage = () => utils.pages.get.invalidate({ pageId: props.page.id })
+  const schedule = trpc.publish.schedule.useMutation({ onSuccess: invalidatePage })
+  const cancelSchedule = trpc.publish.cancelSchedule.useMutation({ onSuccess: invalidatePage })
   const p = props.publishing
 
   const liveUrl =
@@ -303,6 +405,21 @@ function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
           Site not enabled — configure publishing on the space
         </span>
       )}
+      {p.scheduledAt && (
+        <span className="text-xs" style={{ color: 'var(--accent)' }}>
+          Publishes{' '}
+          {new Date(p.scheduledAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+          {' · '}
+          <button
+            type="button"
+            className="underline"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => cancelSchedule.mutate({ pageId: props.page.id })}
+          >
+            cancel
+          </button>
+        </span>
+      )}
       <button
         type="button"
         disabled={publish.isPending}
@@ -312,6 +429,44 @@ function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
       >
         {p.live ? `Publish v${p.live.version + 1}` : 'Publish'}
       </button>
+      {scheduling ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="datetime-local"
+            className="flex-1 rounded-lg border px-2 py-1 text-xs"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            onChange={(e) => {
+              const value = e.target.value
+              if (!value) return
+              // datetime-local is local wall time; Date() reads it as local too
+              schedule.mutate({ pageId: props.page.id, at: new Date(value).toISOString() })
+              setScheduling(false)
+            }}
+          />
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: 'var(--text-3)' }}
+            onClick={() => setScheduling(false)}
+          >
+            cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="text-xs underline self-start"
+          style={{ color: 'var(--text-2)' }}
+          onClick={() => setScheduling(true)}
+        >
+          {p.scheduledAt ? 'Reschedule…' : 'Schedule publish…'}
+        </button>
+      )}
+      {schedule.error && (
+        <span className="text-xs" style={{ color: 'var(--danger)' }}>
+          {schedule.error.message}
+        </span>
+      )}
       <div className="flex items-center gap-3">
         {liveUrl && (
           <a

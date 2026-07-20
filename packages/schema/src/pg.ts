@@ -125,6 +125,8 @@ export const pages = pgTable('pages', {
   shareEnabled: boolean('share_enabled').notNull().default(false),
   // gallery cover / blog-post listing image (an attachments id)
   coverAttachmentId: text('cover_attachment_id'),
+  // SEO: og/meta description on published sites; falls back to the text body
+  metaDescription: text('meta_description'),
   // archive: soft-removal from the app surfaces; restore puts it back where it
   // was. Set on the whole subtree at once. Publish state is deliberately
   // untouched — retiring is its own explicit act.
@@ -154,8 +156,26 @@ export const pageVersions = pgTable('page_versions', {
   // file route only serves attachments that appear in some live version
   attachmentIds: text('attachment_ids').notNull().default('[]'),
   coverAttachmentId: text('cover_attachment_id'),
+  // frozen at publish like everything else in the snapshot
+  metaDescription: text('meta_description'),
+  tags: text('tags').notNull().default('[]'),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// shareable draft-preview links: the token (hashed at rest) grants read-only
+// access to ONE page's working copy, revocable any time
+export const previews = pgTable('previews', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  pageId: text('page_id')
+    .notNull()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
 })
 
 export const attachments = pgTable('attachments', {

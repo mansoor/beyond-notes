@@ -161,6 +161,7 @@ export type PageMeta = {
   galleryAutoplaySecs: number | null
   shareEnabled: boolean
   coverAttachmentId: string | null
+  metaDescription: string | null
 }
 
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
@@ -188,6 +189,8 @@ export const updatePageOptionsInput = z.object({
   shareEnabled: z.boolean().optional(),
   // null clears the cover; undefined leaves it unchanged
   coverAttachmentId: z.string().nullable().optional(),
+  // SEO description for published sites; null clears
+  metaDescription: z.string().trim().max(300).nullable().optional(),
 })
 
 export type ArchivedPageView = {
@@ -346,7 +349,19 @@ export type PublishingView = {
   live: { versionId: string; version: number; publishedAt: string } | null
   pending: boolean
   slugPath: string | null
+  /** ISO time of a pending scheduled publish, if one is set */
+  scheduledAt: string | null
 }
+
+// ---- draft previews + scheduled publishing ----
+
+export type PreviewView = { id: string; createdAt: string }
+
+export const schedulePublishInput = z.object({
+  pageId: z.string(),
+  /** ISO datetime, must be in the future */
+  at: z.string().datetime({ offset: true }).or(z.string().datetime()),
+})
 
 export type VersionView = {
   id: string

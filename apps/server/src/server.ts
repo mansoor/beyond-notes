@@ -60,7 +60,15 @@ export async function buildServer(config: Config, appDb: AppDb) {
     createEmailNotifier(mailer),
     createLogNotifier((msg) => server.log.info(msg)),
   ]
-  const scheduler = createScheduler(repo, notifiers)
+  // scheduled publishes run through the same tick as reminders; the job
+  // carries the scheduling user so the version records who published it
+  const scheduler = createScheduler(repo, notifiers, {
+    publishPage: async (pageId, byUserId) => {
+      const user = await repo.getUserById(byUserId)
+      if (!user) throw new Error(`scheduled publish: user ${byUserId} is gone`)
+      await publishing.publish(user, pageId)
+    },
+  })
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
 
@@ -95,8 +103,15 @@ export async function buildServer(config: Config, appDb: AppDb) {
     if (!attachment) return reply.code(404).send({ error: 'not found' })
     const user = await userFromRequest(req)
     if (!user && !(await publishing.publicAttachmentIds()).has(id)) {
-      // same shape as a missing file: existence of private uploads is private
-      return reply.code(404).send({ error: 'not found' })
+      // a valid draft-preview token authorizes exactly that page's attachments
+      const previewToken = typeof req.query?.preview === 'string' ? req.query.preview : ''
+      const previewPage = previewToken ? await publishing.resolvePreviewToken(previewToken) : null
+      const allowed =
+        previewPage !== null && (await publishing.previewAttachmentIds(previewPage)).has(id)
+      if (!allowed) {
+        // same shape as a missing file: existence of private uploads is private
+        return reply.code(404).send({ error: 'not found' })
+      }
     }
     const key =
       thumb && (await blobs.exists(thumbKey(attachment.hash)))

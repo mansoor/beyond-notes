@@ -16,6 +16,14 @@ export type PostListItem = {
   cover?: string | null
 }
 export type Crumb = { title: string; path: string }
+/** SEO head block: emitted only for real content pages. Urls must be absolute. */
+export type SiteMeta = {
+  description?: string | null
+  ogImage?: string | null
+  url?: string | null
+  type?: 'website' | 'article'
+  noindex?: boolean
+}
 export type AlbumCard = { title: string; path: string; coverUrl: string | null; count: number }
 
 const SITE_CSS = `
@@ -98,6 +106,12 @@ padding:13px 0;border-top:1px solid var(--border)}
 .postlist .date{color:var(--text3);font-size:13px;white-space:nowrap;font-family:ui-monospace,Consolas,monospace}
 .postlist .snippet{color:var(--text2);font-size:14px;margin:2px 0 0}
 .backlink{display:inline-block;margin-bottom:14px;font-size:13px;color:var(--text3);text-decoration:none}
+.tagrow{margin:6px 0 14px;display:flex;gap:8px;flex-wrap:wrap}
+.tagrow a{font-size:12.5px;color:var(--accent);text-decoration:none;background:var(--code);
+border-radius:999px;padding:2px 10px}
+.pagenav{display:flex;justify-content:space-between;margin-top:22px;font-size:14px}
+.pagenav a{color:var(--accent);text-decoration:none}
+.pagenav .pn{color:var(--text3)}
 main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
@@ -166,6 +180,28 @@ export function albumCardsHtml(cards: AlbumCard[], basePath: string): string {
   return `<div class="albums">${cells}</div>`
 }
 
+function metaHtml(title: string, siteTitle: string, meta?: SiteMeta): string {
+  if (!meta) return ''
+  const lines: string[] = []
+  if (meta.noindex) lines.push('<meta name="robots" content="noindex">')
+  if (meta.description) {
+    lines.push(`<meta name="description" content="${escapeHtml(meta.description)}">`)
+    lines.push(`<meta property="og:description" content="${escapeHtml(meta.description)}">`)
+  }
+  lines.push(`<meta property="og:title" content="${escapeHtml(title)}">`)
+  lines.push(`<meta property="og:site_name" content="${escapeHtml(siteTitle)}">`)
+  lines.push(`<meta property="og:type" content="${meta.type ?? 'website'}">`)
+  if (meta.url) {
+    lines.push(`<meta property="og:url" content="${escapeHtml(meta.url)}">`)
+    lines.push(`<link rel="canonical" href="${escapeHtml(meta.url)}">`)
+  }
+  if (meta.ogImage) {
+    lines.push(`<meta property="og:image" content="${escapeHtml(meta.ogImage)}">`)
+    lines.push('<meta name="twitter:card" content="summary_large_image">')
+  }
+  return lines.join('\n')
+}
+
 function shell(input: {
   siteTitle: string
   footer: string
@@ -180,6 +216,8 @@ function shell(input: {
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
   rssPath?: string
+  meta?: SiteMeta
+  faviconUrl?: string | null
 }): string {
   const nav = navHtml(input.nav, input.basePath)
   const socials = socialLinksHtml(input.socials ?? [])
@@ -207,6 +245,9 @@ function shell(input: {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(input.title)} — ${escapeHtml(input.siteTitle)}</title>
+${metaHtml(input.title, input.siteTitle, input.meta)}${
+  input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
+}
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
 <style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}</style>
 </head>
@@ -236,6 +277,8 @@ export function sitePage(input: {
   contentHtml: string
   crumbs?: Crumb[]
   rssPath?: string
+  meta?: SiteMeta
+  faviconUrl?: string | null
 }): string {
   return shell({
     ...input,
@@ -259,6 +302,10 @@ export function siteBlogIndex(input: {
   posts: PostListItem[]
   crumbs?: Crumb[]
   rssPath: string
+  meta?: SiteMeta
+  faviconUrl?: string | null
+  /** present when the list spans multiple pages; blogPath builds ?page= links */
+  pagination?: { page: number; totalPages: number; blogPath: string }
 }): string {
   const list = input.posts
     .map(
@@ -272,7 +319,20 @@ export function siteBlogIndex(input: {
         }</span><span class="date">${escapeHtml(p.date)}</span></div>`,
     )
     .join('')
-  const body = `${crumbsHtml(input.crumbs ?? [], input.basePath)}<h1>${escapeHtml(input.title)}</h1>${input.introHtml}<div class="postlist">${list || '<p class="meta">No posts yet.</p>'}</div>`
+  const pg = input.pagination
+  const pageHref = (n: number) =>
+    `${input.basePath}${pg?.blogPath ?? ''}${n > 1 ? `?page=${n}` : ''}`
+  const pager =
+    pg && pg.totalPages > 1
+      ? `<div class="pagenav"><span>${
+          pg.page > 1 ? `<a href="${escapeHtml(pageHref(pg.page - 1))}">← Newer</a>` : ''
+        }</span><span class="pn">Page ${pg.page} of ${pg.totalPages}</span><span>${
+          pg.page < pg.totalPages
+            ? `<a href="${escapeHtml(pageHref(pg.page + 1))}">Older →</a>`
+            : ''
+        }</span></div>`
+      : ''
+  const body = `${crumbsHtml(input.crumbs ?? [], input.basePath)}<h1>${escapeHtml(input.title)}</h1>${input.introHtml}<div class="postlist">${list || '<p class="meta">No posts yet.</p>'}</div>${pager}`
   return shell({ ...input, body })
 }
 
@@ -293,10 +353,52 @@ export function sitePost(input: {
   blogPath: string
   blogTitle: string
   rssPath?: string
+  meta?: SiteMeta
+  faviconUrl?: string | null
+  tags?: string[]
 }): string {
+  const tagRow = input.tags?.length
+    ? `<div class="tagrow">${input.tags
+        .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
+        .join('')}</div>`
+    : ''
   const body = `<a class="backlink" href="${escapeHtml(input.basePath + input.blogPath)}">← ${escapeHtml(input.blogTitle)}</a>
-<h1>${escapeHtml(input.title)}</h1><p class="meta">${escapeHtml(input.date)}</p>${input.contentHtml}`
+<h1>${escapeHtml(input.title)}</h1><p class="meta">${escapeHtml(input.date)}</p>${tagRow}${input.contentHtml}`
   return shell({ ...input, body })
+}
+
+/** /tags/<tag>: every live page carrying the tag. */
+export function siteTagPage(input: {
+  socials?: SocialLink[]
+  logoUrl?: string | null
+  tagline?: string | null
+  headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  siteTitle: string
+  footer: string
+  theme: ThemeName
+  appearance?: ThemeAppearance
+  nav: SiteNavItem[]
+  basePath: string
+  faviconUrl?: string | null
+  tag: string
+  items: Array<{ title: string; path: string; snippet: string }>
+}): string {
+  const list =
+    input.items.length === 0
+      ? '<p class="meta">Nothing carries this tag.</p>'
+      : `<div class="postlist">${input.items
+          .map(
+            (r) =>
+              `<div class="post"><span><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a>${
+                r.snippet ? `<p class="snippet">${escapeHtml(r.snippet)}</p>` : ''
+              }</span></div>`,
+          )
+          .join('')}</div>`
+  return shell({
+    ...input,
+    title: `#${input.tag}`,
+    body: `<h1>#${escapeHtml(input.tag)}</h1>${list}`,
+  })
 }
 
 export function siteSearchResults(input: {
