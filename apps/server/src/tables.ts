@@ -1,4 +1,4 @@
-import { type DbColumn, type DbColumnDraft, validateRowCells } from '@bn/schema'
+import { type DbColumn, type DbColumnDraft, type FormConfig, validateRowCells } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import type { DbDatabaseRow, DbRowRow, DbTableRow, Repo, UserRow } from './repo'
 
@@ -22,6 +22,16 @@ function parseColumns(raw: string): DbColumn[] {
     return Array.isArray(parsed) ? (parsed as DbColumn[]) : []
   } catch {
     return []
+  }
+}
+
+function parseForm(raw: string | null): FormConfig | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? (parsed as FormConfig) : null
+  } catch {
+    return null
   }
 }
 
@@ -140,6 +150,7 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
         name: input.name,
         description: '',
         columns: JSON.stringify(defaultColumns()),
+        form: null,
         position: existing.length,
         createdAt: now(),
         updatedAt: now(),
@@ -173,6 +184,25 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       return columns
     },
 
+    /** Set (or clear, with null) the table's public intake form. Fields are
+     * pruned to real columns so a deleted column never lingers in the form. */
+    async updateForm(
+      user: UserRow,
+      input: { tableId: string; form: FormConfig | null },
+    ): Promise<FormConfig | null> {
+      const { table } = await requireTable(input.tableId, user)
+      let form: FormConfig | null = null
+      if (input.form) {
+        const columnIds = new Set(parseColumns(table.columns).map((c) => c.id))
+        form = { ...input.form, fields: input.form.fields.filter((id) => columnIds.has(id)) }
+      }
+      await repo.updateDbTable(input.tableId, {
+        form: form ? JSON.stringify(form) : null,
+        updatedAt: now(),
+      })
+      return form
+    },
+
     async deleteTable(user: UserRow, tableId: string): Promise<void> {
       await requireTable(tableId, user)
       await repo.deleteDbTable(tableId)
@@ -200,6 +230,7 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
         id: nanoid(),
         tableId: input.tableId,
         cells: JSON.stringify(checked.cells),
+        source: 'manual',
         position: existing.length,
         createdAt: now(),
         updatedAt: now(),
@@ -228,6 +259,45 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       if (!existing) return
       await requireTable(existing.tableId, user)
       await repo.deleteDbRow(rowId)
+    },
+
+    // ---- public form intake (no user; the intake is public by design) ----
+
+    /**
+     * Accept one public submission for a table's form. Validates the exposed
+     * fields (required enforced here, unlike grid edits), writes a `form` row,
+     * and returns enough context for the caller to notify. Honeypot and rate
+     * limiting live at the HTTP edge, not here.
+     */
+    async submitForm(
+      tableId: string,
+      values: Record<string, unknown>,
+    ): Promise<{ table: DbTableRow; database: DbDatabaseRow; row: DbRowRow; form: FormConfig }> {
+      const table = await repo.getDbTable(tableId)
+      if (!table) throw new TablesError('NOT_FOUND', 'Form not found.')
+      const form = parseForm(table.form)
+      if (!form || !form.enabled) throw new TablesError('NOT_FOUND', 'Form not found.')
+      const database = await repo.getDbDatabase(table.databaseId)
+      if (!database) throw new TablesError('NOT_FOUND', 'Form not found.')
+
+      // only the columns the form actually exposes are accepted
+      const exposed = new Set(form.fields)
+      const columns = parseColumns(table.columns).filter((c) => exposed.has(c.id))
+      const checked = validateRowCells(columns, values, { requireAll: true })
+      if (!checked.ok) throw new TablesError('BAD_REQUEST', checked.error)
+
+      const existing = await repo.listDbRows(tableId)
+      const row: DbRowRow = {
+        id: nanoid(),
+        tableId,
+        cells: JSON.stringify(checked.cells),
+        source: 'form',
+        position: existing.length,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      await repo.insertDbRow(row)
+      return { table, database, row, form }
     },
   }
 }

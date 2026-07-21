@@ -219,6 +219,7 @@ export type DbTableRow = {
   name: string
   description: string
   columns: string // JSON array of column definitions
+  form: string | null // JSON form config, or null
   position: number
   createdAt: Date
   updatedAt: Date
@@ -228,6 +229,7 @@ export type DbRowRow = {
   id: string
   tableId: string
   cells: string // JSON object keyed by column id
+  source: 'manual' | 'form'
   position: number
   createdAt: Date
   updatedAt: Date
@@ -1067,7 +1069,7 @@ export function createRepo(appDb: AppDb) {
     async updateDbTable(
       id: string,
       patch: Partial<
-        Pick<DbTableRow, 'name' | 'description' | 'columns' | 'position' | 'updatedAt'>
+        Pick<DbTableRow, 'name' | 'description' | 'columns' | 'form' | 'position' | 'updatedAt'>
       >,
     ): Promise<void> {
       await db.update(t.dbTables).set(patch).where(eq(t.dbTables.id, id))

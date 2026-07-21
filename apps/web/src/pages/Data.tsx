@@ -5,6 +5,7 @@ import type {
   DbColumnType,
   DbRowView,
   DbTableView,
+  FormConfig,
 } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
@@ -254,6 +255,7 @@ function TableView(props: { table: DbTableView }) {
   }, [rowsQuery.data])
 
   const [editingCols, setEditingCols] = useState(false)
+  const [editingForm, setEditingForm] = useState(false)
   const [renaming, setRenaming] = useState(false)
 
   const databases = trpc.databases.list.useQuery()
@@ -300,6 +302,10 @@ function TableView(props: { table: DbTableView }) {
         <h1 className="text-2xl font-bold truncate">{table.name}</h1>
         <div className="ml-auto flex items-center gap-2">
           <HeaderBtn label="Columns" onClick={() => setEditingCols(true)} />
+          <HeaderBtn
+            label={table.form?.enabled ? 'Form ●' : 'Form'}
+            onClick={() => setEditingForm(true)}
+          />
           <HeaderBtn label="Rename" onClick={() => setRenaming(true)} />
           <HeaderBtn
             label="Delete"
@@ -368,9 +374,18 @@ function TableView(props: { table: DbTableView }) {
                     </td>
                   ))}
                   <td
-                    className="px-1 border-b text-center"
+                    className="px-1 border-b text-center whitespace-nowrap"
                     style={{ borderColor: 'var(--border)' }}
                   >
+                    {row.source === 'form' && (
+                      <span
+                        className="text-[10px] mr-1"
+                        style={{ color: 'var(--text-3)' }}
+                        title="Submitted through the form"
+                      >
+                        ✉
+                      </span>
+                    )}
                     <button
                       type="button"
                       title="Delete row"
@@ -421,6 +436,19 @@ function TableView(props: { table: DbTableView }) {
               utils.tables.rows.list.invalidate({ tableId: table.id }),
             ])
             setEditingCols(false)
+          }}
+        />
+      )}
+      {editingForm && (
+        <FormModal
+          table={table}
+          onClose={() => setEditingForm(false)}
+          onSaved={async () => {
+            await Promise.all([
+              utils.tables.get.invalidate({ tableId: table.id }),
+              utils.tables.list.invalidate(),
+            ])
+            setEditingForm(false)
           }}
         />
       )}
@@ -685,6 +713,142 @@ function IconBtn(props: {
     >
       {props.label}
     </button>
+  )
+}
+
+const DEFAULT_SUCCESS = 'Thanks — your response was received.'
+
+function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
+  const update = trpc.tables.updateForm.useMutation()
+  const existing = props.table.form
+  const [enabled, setEnabled] = useState(existing?.enabled ?? true)
+  const [fields, setFields] = useState<string[]>(
+    existing?.fields ?? props.table.columns.map((c) => c.id),
+  )
+  const [title, setTitle] = useState(existing?.title ?? '')
+  const [description, setDescription] = useState(existing?.description ?? '')
+  const [submitLabel, setSubmitLabel] = useState(existing?.submitLabel ?? 'Submit')
+  const [successMessage, setSuccessMessage] = useState(existing?.successMessage ?? DEFAULT_SUCCESS)
+  const [notify, setNotify] = useState(existing?.notify ?? false)
+  const [copied, setCopied] = useState(false)
+
+  const embed = `[[form:${props.table.id}]]`
+  const toggleField = (id: string) =>
+    setFields((prev) => (prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]))
+
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    // persist fields in column order regardless of click order
+    const ordered = props.table.columns.map((c) => c.id).filter((id) => fields.includes(id))
+    const form: FormConfig = {
+      enabled,
+      fields: ordered,
+      title: title.trim(),
+      description: description.trim(),
+      submitLabel: submitLabel.trim() || 'Submit',
+      successMessage: successMessage.trim() || DEFAULT_SUCCESS,
+      notify,
+    }
+    await update.mutateAsync({ tableId: props.table.id, form })
+    props.onSaved()
+  })
+
+  const removeForm = async () => {
+    await update.mutateAsync({ tableId: props.table.id, form: null })
+    props.onSaved()
+  }
+
+  const copyEmbed = () => {
+    navigator.clipboard
+      ?.writeText(embed)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
+  }
+
+  return (
+    <Modal title={`Form — ${props.table.name}`} onClose={props.onClose} dirty width="lg">
+      <form onSubmit={onSubmit}>
+        <label className="flex items-center gap-2 mb-3 text-sm">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Enable this form (accept public submissions)
+        </label>
+
+        <div className="mb-3">
+          <span className="block text-sm font-medium mb-1">Fields to show</span>
+          {props.table.columns.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+              Add columns first — the form is generated from them.
+            </p>
+          ) : (
+            props.table.columns.map((col) => (
+              <label key={col.id} className="flex items-center gap-2 text-sm py-0.5">
+                <input
+                  type="checkbox"
+                  checked={fields.includes(col.id)}
+                  onChange={() => toggleField(col.id)}
+                />
+                {col.name}
+                <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                  {col.type}
+                  {col.required ? ' · required' : ''}
+                </span>
+              </label>
+            ))
+          )}
+        </div>
+
+        <Field label="Heading (optional)" value={title} onChange={setTitle} />
+        <Field label="Intro text (optional)" value={description} onChange={setDescription} />
+        <Field label="Submit button label" value={submitLabel} onChange={setSubmitLabel} />
+        <Field label="Success message" value={successMessage} onChange={setSuccessMessage} />
+
+        <label className="flex items-center gap-2 my-3 text-sm">
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+          Notify me on each submission (via configured email / ntfy)
+        </label>
+
+        <div
+          className="mb-4 rounded-lg border p-3"
+          style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+        >
+          <span className="block text-xs font-medium mb-1" style={{ color: 'var(--text-2)' }}>
+            Embed on a website or wiki page — paste this token where the form should appear:
+          </span>
+          <div className="flex items-center gap-2">
+            <code className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg)' }}>
+              {embed}
+            </code>
+            <button
+              type="button"
+              className="text-xs underline"
+              style={{ color: 'var(--text-2)' }}
+              onClick={copyEmbed}
+            >
+              {copied ? 'copied' : 'copy'}
+            </button>
+          </div>
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+            The form reflects these settings live on the published page — no republish needed.
+          </p>
+        </div>
+
+        <ErrorNote message={error} />
+        <SubmitButton label="Save form" busy={busy} />
+        {existing && (
+          <button
+            type="button"
+            className="mt-2 w-full text-center text-sm underline"
+            style={{ color: 'var(--danger)' }}
+            onClick={removeForm}
+            disabled={busy}
+          >
+            Remove form
+          </button>
+        )}
+      </form>
+    </Modal>
   )
 }
 

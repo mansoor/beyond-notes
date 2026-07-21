@@ -418,6 +418,8 @@ export const dbTables = pgTable('db_tables', {
   description: text('description').notNull().default(''),
   // JSON array of {id,name,type,required,choices}
   columns: text('columns').notNull().default('[]'),
+  // JSON form config (the public intake projection); null = no form
+  form: text('form'),
   position: integer('position').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
@@ -430,6 +432,10 @@ export const dbRows = pgTable('db_rows', {
     .references(() => dbTables.id, { onDelete: 'cascade' }),
   // JSON object of cell values keyed by column id
   cells: text('cells').notNull().default('{}'),
+  // where the row came from: hand-entered in the grid, or a public form submit
+  source: text('source', { enum: ['manual', 'form'] })
+    .notNull()
+    .default('manual'),
   position: integer('position').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),

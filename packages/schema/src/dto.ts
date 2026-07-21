@@ -658,12 +658,46 @@ export const updateRowInput = z.object({
 
 export const deleteRowInput = z.object({ rowId: z.string() })
 
+/**
+ * A form is a table's public intake: which columns it exposes, and the copy
+ * shown around them. Stored as JSON on the table; null = no form. The embed
+ * token `[[form:<tableId>]]` expands to this at serve time.
+ */
+export type FormConfig = {
+  enabled: boolean
+  // ordered column ids exposed as fields (a subset of the table's columns)
+  fields: string[]
+  title: string
+  description: string
+  submitLabel: string
+  successMessage: string
+  // notify the owner on each submission (via configured ntfy/email channels)
+  notify: boolean
+}
+
+export const formConfigInput = z.object({
+  enabled: z.boolean().default(false),
+  fields: z.array(z.string()).max(50).default([]),
+  title: z.string().trim().max(120).default(''),
+  description: z.string().trim().max(500).default(''),
+  submitLabel: z.string().trim().min(1).max(40).default('Submit'),
+  successMessage: z.string().trim().max(300).default('Thanks — your response was received.'),
+  notify: z.boolean().default(false),
+})
+
+export const updateFormInput = z.object({
+  tableId: z.string(),
+  // null removes the form entirely
+  form: formConfigInput.nullable(),
+})
+
 export type DbTableView = {
   id: string
   databaseId: string
   name: string
   description: string | null
   columns: DbColumn[]
+  form: FormConfig | null
   createdAt: string
   updatedAt: string
 }
@@ -672,6 +706,7 @@ export type DbRowView = {
   id: string
   tableId: string
   cells: Record<string, DbCellValue>
+  source: 'manual' | 'form'
   createdAt: string
   updatedAt: string
 }

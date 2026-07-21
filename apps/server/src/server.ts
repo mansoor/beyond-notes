@@ -29,10 +29,28 @@ import {
 } from './scheduler'
 import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
-import { createTablesService } from './tables'
+import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 import { createWebhooksService } from './webhooks'
+
+function escapeText(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** No-JS fallback page returned when a form is submitted without the fetch
+ *  enhancement (a plain browser POST). */
+function formResultPage(ok: boolean, message: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${
+    ok ? 'Thank you' : 'There was a problem'
+  }</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1.25rem;line-height:1.6;color:#222}a{color:#2b6cb0}</style></head><body><p>${escapeText(
+    message,
+  )}</p><p><a href="javascript:history.back()">← Go back</a></p></body></html>`
+}
 
 export async function buildServer(config: Config, appDb: AppDb) {
   const server = Fastify({ logger: config.NODE_ENV !== 'test' })
@@ -185,6 +203,94 @@ export async function buildServer(config: Config, appDb: AppDb) {
     const result = await webhooks.deliver(token, text)
     if (!result) return reply.code(404).send({ error: 'not found' })
     return { ok: true, target: result.target }
+  })
+
+  // Public form intake: an embedded [[form:<tableId>]] posts here. Native form
+  // posts (and the fetch enhancement) both arrive url-encoded.
+  server.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(body as string)))
+      } catch (err) {
+        done(err as Error)
+      }
+    },
+  )
+  // Per-IP rate limit for public submissions — in-memory is correct here (the
+  // app is a single process by design, like the scheduler's CAS).
+  const formHits = new Map<string, number[]>()
+  const FORM_WINDOW_MS = 10 * 60 * 1000
+  const FORM_MAX = 8
+  const allowForm = (ip: string): boolean => {
+    const cutoff = Date.now() - FORM_WINDOW_MS
+    const hits = (formHits.get(ip) ?? []).filter((t) => t > cutoff)
+    if (hits.length >= FORM_MAX) {
+      formHits.set(ip, hits)
+      return false
+    }
+    hits.push(Date.now())
+    formHits.set(ip, hits)
+    return true
+  }
+  server.post('/api/forms/:tableId', async (req: any, reply) => {
+    const wantsJson = String(req.headers.accept ?? '').includes('application/json')
+    const body: Record<string, unknown> = req.body && typeof req.body === 'object' ? req.body : {}
+    const respond = (ok: boolean, opts: { code?: number; message?: string } = {}) => {
+      const code = opts.code ?? (ok ? 200 : 400)
+      const message =
+        opts.message ?? (ok ? 'Thanks — your response was received.' : 'Something went wrong.')
+      if (wantsJson) {
+        return reply.code(code).send(ok ? { ok: true, message } : { ok: false, error: message })
+      }
+      reply.code(code).type('text/html; charset=utf-8')
+      return reply.send(formResultPage(ok, message))
+    }
+    // honeypot: a real person never fills the hidden field; pretend success
+    if (String(body._website ?? '').trim() !== '') return respond(true)
+    if (!allowForm(req.ip)) {
+      return respond(false, { code: 429, message: 'Too many submissions. Please try again later.' })
+    }
+    try {
+      const { form, database, table, row } = await tables.submitForm(
+        String(req.params.tableId ?? ''),
+        body,
+      )
+      if (form.notify) {
+        const owner = database.ownerId ? await repo.getUserById(database.ownerId) : null
+        const recipient = owner
+          ? { email: owner.email, emailOptIn: owner.emailNotifications }
+          : null
+        const cols = (() => {
+          try {
+            return JSON.parse(table.columns) as Array<{ id: string; name: string }>
+          } catch {
+            return []
+          }
+        })()
+        const nameById = new Map(cols.map((c) => [c.id, c.name]))
+        const cells = JSON.parse(row.cells) as Record<string, unknown>
+        const summary =
+          form.fields
+            .map((id) => `${nameById.get(id) ?? id}: ${cells[id] ?? ''}`)
+            .join('\n')
+            .slice(0, 1000) || '(no fields)'
+        for (const notifier of notifiers) {
+          try {
+            await notifier.send(`New submission: ${table.name}`, summary, recipient)
+          } catch (err) {
+            server.log.warn(err, 'form submission notify failed')
+          }
+        }
+      }
+      return respond(true, { message: form.successMessage })
+    } catch (err) {
+      if (err instanceof TablesError) {
+        return respond(false, { code: err.code === 'NOT_FOUND' ? 404 : 400, message: err.message })
+      }
+      throw err
+    }
   })
 
   // one space as a Markdown+images zip — the UI's download-your-data button

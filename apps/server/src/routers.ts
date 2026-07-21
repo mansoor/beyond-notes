@@ -71,6 +71,7 @@ import {
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  updateFormInput,
   updateMemoInput,
   updatePageOptionsInput,
   updateProfileInput,
@@ -1417,6 +1418,16 @@ function parseColumns(raw: string): DbTableView['columns'] {
   }
 }
 
+function parseForm(raw: string | null): DbTableView['form'] {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function toDatabaseView(row: DbDatabaseRow): DatabaseView {
   return {
     id: row.id,
@@ -1434,6 +1445,7 @@ function toDbTableView(row: DbTableRow): DbTableView {
     name: row.name,
     description: row.description || null,
     columns: parseColumns(row.columns),
+    form: parseForm(row.form),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -1451,6 +1463,7 @@ function toDbRowView(row: DbRowRow): DbRowView {
     id: row.id,
     tableId: row.tableId,
     cells,
+    source: row.source,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -1514,6 +1527,13 @@ const tablesRouter = router({
   updateColumns: authedProcedure.input(updateTableColumnsInput).mutation(async ({ ctx, input }) => {
     try {
       return await ctx.tables.updateColumns(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  updateForm: authedProcedure.input(updateFormInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.tables.updateForm(ctx.user, input)
     } catch (err) {
       rethrow(err)
     }

@@ -202,6 +202,100 @@ for (const dialect of dialects) {
       ).rejects.toBeInstanceOf(TablesError)
     })
 
+    it('accepts a valid form submission and enforces required fields', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'Contact' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [
+          { name: 'Name', type: 'text', required: true, choices: [] },
+          { name: 'Email', type: 'email', required: true, choices: [] },
+          { name: 'Internal', type: 'text', required: false, choices: [] },
+        ],
+      })
+      const nameId = req(cols[0]).id
+      const emailId = req(cols[1]).id
+      const internalId = req(cols[2]).id
+
+      // only expose Name + Email on the form (Internal stays grid-only)
+      await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: true,
+          fields: [nameId, emailId],
+          title: 'Say hi',
+          description: '',
+          submitLabel: 'Send',
+          successMessage: 'Got it.',
+          notify: false,
+        },
+      })
+
+      // a submission missing the required Name is rejected
+      await expect(tables.submitForm(table.id, { [emailId]: 'a@b.com' })).rejects.toBeInstanceOf(
+        TablesError,
+      )
+
+      // a valid submission is stored as a form row; an unexposed field is ignored
+      const { row } = await tables.submitForm(table.id, {
+        [nameId]: 'Ann',
+        [emailId]: 'ann@example.com',
+        [internalId]: 'should be dropped',
+      })
+      expect(row.source).toBe('form')
+      const cells = JSON.parse(row.cells)
+      expect(cells[nameId]).toBe('Ann')
+      expect(internalId in cells).toBe(false)
+    })
+
+    it('refuses submissions to a missing or disabled form', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+      // no form configured yet
+      await expect(tables.submitForm(table.id, {})).rejects.toBeInstanceOf(TablesError)
+
+      // a disabled form is also closed to the public
+      await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: false,
+          fields: [],
+          title: '',
+          description: '',
+          submitLabel: 'Submit',
+          successMessage: 'ok',
+          notify: false,
+        },
+      })
+      await expect(tables.submitForm(table.id, {})).rejects.toBeInstanceOf(TablesError)
+    })
+
+    it('prunes form fields down to real columns', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [{ name: 'Real', type: 'text', required: false, choices: [] }],
+      })
+      const realId = req(cols[0]).id
+      const form = await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: true,
+          fields: [realId, 'ghost-column-id'],
+          title: '',
+          description: '',
+          submitLabel: 'Submit',
+          successMessage: 'ok',
+          notify: false,
+        },
+      })
+      expect(form?.fields).toEqual([realId])
+    })
+
     it('cascades tables and rows when a database is deleted', async () => {
       const { repo, tables, admin } = await setup()
       const database = await tables.createDatabase(admin, { name: 'D', personal: false })

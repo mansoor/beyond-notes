@@ -259,7 +259,12 @@ export function plainText(contentJson: string): string {
     }
   }
   walk(blocks)
-  return lines.join('\n')
+  // form embed tokens are directives, not prose — keep them out of SEO
+  // descriptions and search snippets
+  return lines
+    .join('\n')
+    .replace(/\[\[form:[A-Za-z0-9_-]+\]\]/g, '')
+    .trim()
 }
 
 function inlinePlain(content: unknown): string {

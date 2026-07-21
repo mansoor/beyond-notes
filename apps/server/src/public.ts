@@ -1,4 +1,6 @@
 import {
+  FORM_CSS,
+  FORM_JS,
   albumCardsHtml,
   buildRss,
   buildSitemap,
@@ -7,6 +9,7 @@ import {
   docsShell,
   docsTagPage,
   extractHeadings,
+  formHtml,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -17,6 +20,7 @@ import {
   siteTagPage,
 } from '@bn/renderer'
 import type { AlbumCard, Crumb, SiteMeta, SiteNavItem, SocialLink } from '@bn/renderer'
+import type { DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
@@ -221,7 +225,10 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         siteTitle: site.siteTitle,
         footer: site.footer,
         pageTitle: hit.entry.version.title,
-        contentHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath),
+        contentHtml: await expandForms(
+          repo,
+          rewriteInternalLinks(hit.entry.version.html, site, basePath),
+        ),
         nav: site.nav,
         basePath,
         prev: prev ? { title: prev.title, path: prev.path } : undefined,
@@ -490,7 +497,10 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+          introHtml: await expandForms(
+            repo,
+            rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+          ),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
@@ -529,13 +539,15 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
-          contentHtml:
+          contentHtml: await expandForms(
+            repo,
             rewriteInternalLinks(hit.entry.version.html, site, basePath) +
-            shareFor(hit) +
-            sectionListHtml(
-              postChildren.map((c) => ({ title: c.title, path: c.path })),
-              basePath,
-            ),
+              shareFor(hit) +
+              sectionListHtml(
+                postChildren.map((c) => ({ title: c.title, path: c.path })),
+                basePath,
+              ),
+          ),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
@@ -588,8 +600,10 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml:
+        contentHtml: await expandForms(
+          repo,
           rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit) + extras,
+        ),
         crumbs: crumbsFor(hit),
         rssPath,
         meta: metaFor(hit),
@@ -669,6 +683,69 @@ function rewriteInternalLinks(
     const target = pathById.get(id)
     return target ? `href="${basePath}${target}"` : match
   })
+}
+
+const FORM_TOKEN = /\[\[form:([A-Za-z0-9_-]+)\]\]/g
+
+async function renderFormById(repo: Repo, id: string): Promise<string | null> {
+  const table = await repo.getDbTable(id)
+  if (!table || !table.form) return null
+  let form: FormConfig
+  try {
+    form = JSON.parse(table.form) as FormConfig
+  } catch {
+    return null
+  }
+  if (!form.enabled) return null
+  let columns: DbColumn[]
+  try {
+    columns = JSON.parse(table.columns) as DbColumn[]
+  } catch {
+    columns = []
+  }
+  const byId = new Map(columns.map((c) => [c.id, c]))
+  const fields = form.fields
+    .map((fid) => byId.get(fid))
+    .filter((c): c is DbColumn => Boolean(c))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      type: c.type,
+      required: c.required,
+      choices: c.choices,
+    }))
+  return formHtml({
+    actionPath: `/api/forms/${id}`,
+    title: form.title,
+    description: form.description,
+    submitLabel: form.submitLabel,
+    successMessage: form.successMessage,
+    fields,
+  })
+}
+
+/**
+ * Expand `[[form:<tableId>]]` tokens in published content into live intake
+ * forms. Forms are composed at serve time (not baked at publish), so editing a
+ * form updates every page that embeds it without republishing. A token alone in
+ * its own paragraph replaces the whole `<p>` so a block form isn't nested in it.
+ */
+async function expandForms(repo: Repo, html: string): Promise<string> {
+  if (!html.includes('[[form:')) return html
+  const ids = new Set<string>()
+  for (const m of html.matchAll(FORM_TOKEN)) ids.add(m[1] as string)
+  const rendered = new Map<string, string>()
+  for (const id of ids) {
+    const rendered1 = await renderFormById(repo, id)
+    if (rendered1) rendered.set(id, rendered1)
+  }
+  if (rendered.size === 0) return html
+  let out = html.replace(
+    /<p[^>]*>\s*\[\[form:([A-Za-z0-9_-]+)\]\]\s*<\/p>/g,
+    (m, id: string) => rendered.get(id) ?? m,
+  )
+  out = out.replace(FORM_TOKEN, (m, id: string) => rendered.get(id) ?? m)
+  return `${out}<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
 }
 
 function parseSocialLinks(raw: string): SocialLink[] {
