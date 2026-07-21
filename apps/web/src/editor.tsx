@@ -11,6 +11,7 @@ import {
 } from '@blocknote/react'
 import type { DocumentView } from '@bn/schema'
 import { useEffect, useRef, useState } from 'react'
+import { isDarkTheme } from './theme'
 import { trpc } from './trpc'
 
 export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
@@ -94,7 +95,7 @@ export function DocumentEditor(props: {
     }, 800)
   }
 
-  const dark = document.documentElement.classList.contains('dark')
+  const dark = isDarkTheme()
 
   return (
     <div>

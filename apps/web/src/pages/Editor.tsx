@@ -4,6 +4,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPicker, Modal, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
+import { isDarkTheme } from '../theme'
 import { trpc } from '../trpc'
 
 export function EditorPage() {
@@ -337,7 +338,7 @@ function MermaidPreview(props: { content: string }) {
           document.head.appendChild(sc)
         })
       }
-      const dark = document.documentElement.classList.contains('dark')
+      const dark = isDarkTheme()
       w.mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',

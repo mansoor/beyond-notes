@@ -69,7 +69,8 @@ Every space = **authoring mode × visibility × public renderer**.
   has a due date/rule plus an optional heads-up window ("30 days before").
   The Today page shows reminders due today in "Due today" and the near horizon
   in a "Coming up" card; birthdays/anniversaries are just yearly reminders.
-- **App theme ≠ site theme.** The app supports light/dark. Each published site
+- **App theme ≠ site theme.** The app ships four, lightest to darkest: Light,
+  Paper, Midnight navy, Dark. Each published site
   picks from a small set of preset themes — design tokens only (fonts, colors,
   header style), never structure — each with a light and dark variant. A
   WordPress-style theming engine is explicitly out of scope: the renderer owns

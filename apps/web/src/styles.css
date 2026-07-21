@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
-/* Three app themes: Light (neutral), Dark, Paper (warm cream).
+/* Four app themes, lightest to darkest: Light (neutral), Paper (warm cream),
+   Navy (midnight blue — dark without the lights fully out), Dark (near-black).
    The class on <html> is set from localStorage 'bn-theme' at boot (main.tsx)
-   and cycled by the sidebar toggle. No class = Light. */
+   and by the sidebar picker. No class = Light. */
+
+/* `dark:` utilities follow the chosen theme, not the operating system. Without
+   this Tailwind v4 defaults to prefers-color-scheme, so an OS-dark machine got
+   dark hover tints on the Light theme, and Navy got none at all. */
+@custom-variant dark (&:where(.dark, .dark *, .navy, .navy *));
 
 :root {
   --bg: #f8f9fa;
@@ -30,6 +36,24 @@ html.dark {
   --accent-soft: #2a2740;
   --live: #4cc296;
   --danger: #e07862;
+}
+
+/* Midnight navy: a dark theme with the lights dimmed rather than off. Surfaces
+   are blue-tinted and a couple of steps lighter than Dark, so long evenings are
+   easier on the eyes without the contrast dropping. */
+html.navy {
+  --bg: #1a2333;
+  --panel: #222d40;
+  --sidebar: #161e2c;
+  --text: #e7ecf6;
+  --text-2: #a9b4c9;
+  /* light enough to clear 4.5:1 on the panel too, not just the page */
+  --text-3: #8f9bb0;
+  --border: #2f3b52;
+  --accent: #7aa2f7;
+  --accent-soft: #26314d;
+  --live: #4cc296;
+  --danger: #ef8b73;
 }
 
 html.paper {
