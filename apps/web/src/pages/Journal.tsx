@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
+import { fmtTime12 } from '../components'
 import {
   DocumentEditor,
   SaveBadge,
@@ -274,7 +275,7 @@ export function JournalPage() {
               Coming up
             </h4>
             {comingUp.map((item) => {
-              const timeSuffix = item.kind === 'task' && item.time ? ` ${item.time}` : ''
+              const timeSuffix = item.kind === 'task' && item.time ? ` ${fmtTime12(item.time)}` : ''
               const dateLabel = (item.date === today ? 'today' : item.date.slice(5)) + timeSuffix
               const body = (
                 <>

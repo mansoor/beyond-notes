@@ -75,6 +75,31 @@ describe('blocknoteToHtml (golden)', () => {
     )
   })
 
+  it('renders per-block text alignment, including justify', () => {
+    const doc = JSON.stringify([
+      {
+        id: '1',
+        type: 'paragraph',
+        props: { textAlignment: 'justify' },
+        content: [text('spread')],
+      },
+      { id: '2', type: 'paragraph', props: { textAlignment: 'center' }, content: [text('middle')] },
+      {
+        id: '3',
+        type: 'heading',
+        props: { level: 1, textAlignment: 'right' },
+        content: [text('Ttl')],
+      },
+      // 'left' is the implicit default and gets no inline style
+      { id: '4', type: 'paragraph', props: { textAlignment: 'left' }, content: [text('plain')] },
+    ])
+    const html = blocknoteToHtml(doc)
+    expect(html).toContain('<p style="text-align:justify">spread</p>')
+    expect(html).toContain('<p style="text-align:center">middle</p>')
+    expect(html).toContain('<h2 id="ttl" style="text-align:right">')
+    expect(html).toContain('<p>plain</p>')
+  })
+
   it('escapes user content and drops unsafe hrefs', () => {
     const doc = JSON.stringify([
       {

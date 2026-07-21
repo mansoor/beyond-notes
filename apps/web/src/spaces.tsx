@@ -255,7 +255,10 @@ function SpaceItem(props: { space: SpaceView }) {
       )}
       {expanded && roots.length === 0 && tree.data && (
         <div className="text-xs px-7 py-1" style={{ color: 'var(--text-3)' }}>
-          empty — add a page
+          empty —{' '}
+          <button type="button" className="underline" onClick={() => addPage(null)}>
+            add a page
+          </button>
         </div>
       )}
       {action?.kind === 'rename' && (
@@ -795,7 +798,7 @@ function PageTreeLevel(props: {
   depth: number
   category: SpaceCategory
   dnd: TreeDnd
-  onAddChild: (parentId: string) => void
+  onAddChild: (parentId: string | null) => void
   onAction: (a: PageAction) => void
 }) {
   const params = useParams({ strict: false }) as { pageId?: string }
@@ -863,14 +866,7 @@ function PageTreeLevel(props: {
                 {page.title}
               </Link>
               <span className="hidden group-hover:flex items-center gap-0.5">
-                <button
-                  type="button"
-                  title="Add subpage"
-                  className="text-xs px-0.5"
-                  onClick={() => props.onAddChild(page.id)}
-                >
-                  ＋
-                </button>
+                <AddButton page={page} onAdd={props.onAddChild} />
                 <PageMenu page={page} category={props.category} onAction={props.onAction} />
               </span>
             </div>
@@ -887,6 +883,54 @@ function PageTreeLevel(props: {
         )
       })}
     </div>
+  )
+}
+
+/** The per-page ＋: choose whether the new page is a sibling or a child. */
+function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  const item = 'block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5'
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        title="Add a page"
+        className="text-xs px-0.5"
+        onClick={() => setOpen(!open)}
+      >
+        ＋
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-5 z-40 w-32 rounded-lg border py-1 text-sm shadow-sm"
+          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <button
+            type="button"
+            className={item}
+            style={{ color: 'var(--text)' }}
+            onClick={() => {
+              setOpen(false)
+              props.onAdd(props.page.parentId)
+            }}
+          >
+            Add sibling
+          </button>
+          <button
+            type="button"
+            className={item}
+            style={{ color: 'var(--text)' }}
+            onClick={() => {
+              setOpen(false)
+              props.onAdd(props.page.id)
+            }}
+          >
+            Add child
+          </button>
+        </div>
+      )}
+    </span>
   )
 }
 

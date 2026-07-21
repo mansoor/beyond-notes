@@ -318,6 +318,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           title: n.title,
           path: n.path,
           active: path === n.path || path.startsWith(`${n.path}/`),
+          icon: n.icon,
           children: isBlog ? [] : toNav(n.children),
         }
       })
