@@ -134,11 +134,29 @@ function hasActive(n: NavNode): boolean {
   return n.active === true || n.children.some(hasActive)
 }
 
+// a Material Symbols ligature name vs a literal emoji
+const MATERIAL_NAME = /^[a-z0-9_]+$/
+
+/** True if any node in the tree carries a Material Symbols icon name. */
+export function navHasMaterialIcon(nodes: NavNode[]): boolean {
+  return nodes.some((n) => (n.icon && MATERIAL_NAME.test(n.icon)) || navHasMaterialIcon(n.children))
+}
+
+/** The Material Symbols @font-face + class, injected only when a nav uses it. */
+const MATERIAL_CSS = `
+@font-face{font-family:'Material Symbols Outlined';font-style:normal;font-weight:100 700;
+font-display:block;src:url('/api/assets/material-symbols.woff2') format('woff2')}
+nav.side .ico.msym{font-family:'Material Symbols Outlined';font-weight:normal;font-size:18px;
+line-height:1;font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+`
+
 function navHtml(nodes: NavNode[], basePath: string): string {
   if (nodes.length === 0) return ''
   const items = nodes
     .map((n) => {
-      const ico = n.icon ? `<span class="ico">${escapeHtml(n.icon)}</span>` : ''
+      const ico = n.icon
+        ? `<span class="ico${MATERIAL_NAME.test(n.icon) ? ' msym' : ''}">${escapeHtml(n.icon)}</span>`
+        : ''
       const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${ico}${escapeHtml(n.title)}</a>`
       if (n.children.length === 0) return `<li>${link}</li>`
       const open = hasActive(n)
@@ -286,6 +304,7 @@ function page(
   theme: ThemeName = 'paper',
   appearance: ThemeAppearance = 'auto',
   meta?: SiteMeta,
+  extraCss = '',
 ) {
   return `<!doctype html>
 <html lang="en">
@@ -295,7 +314,7 @@ function page(
 ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
 ${docsMetaHtml(title, siteTitle, meta)}
 <script>${SIDEBAR_RESTORE_JS}</script>
-<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}</style>
+<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${extraCss}</style>
 </head>
 <body data-appearance="${appearance}">
 ${body}
@@ -359,6 +378,7 @@ ${tocHtml(input.toc ?? [])}
     input.theme,
     input.appearance,
     input.meta,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }
 
@@ -396,6 +416,8 @@ export function docsSearchResults(input: {
     false,
     input.theme,
     input.appearance,
+    undefined,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }
 
@@ -446,5 +468,7 @@ export function docsTagPage(input: {
     false,
     input.theme,
     input.appearance,
+    undefined,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }

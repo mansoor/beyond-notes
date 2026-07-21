@@ -149,6 +149,27 @@ describe('docs chrome', () => {
     expect(grp.indexOf('<a ')).toBeGreaterThanOrEqual(0)
     expect(grp.indexOf('<a ')).toBeLessThan(grp.indexOf('<button'))
   })
+
+  it('renders Material Symbols names via the font, and loads it only when used', () => {
+    const withMaterial = docsShell({
+      ...base,
+      nav: [{ title: 'Home', path: '/home', icon: 'rocket_launch', children: [] }],
+    })
+    // material name → msym class + the self-hosted @font-face is injected
+    expect(withMaterial).toContain('<span class="ico msym">rocket_launch</span>')
+    expect(withMaterial).toContain('/api/assets/material-symbols.woff2')
+
+    // an emoji icon stays literal and does NOT pull in the 4MB font
+    const withEmoji = docsShell({
+      ...base,
+      nav: [{ title: 'Home', path: '/home', icon: '🏠', children: [] }],
+    })
+    expect(withEmoji).toContain('<span class="ico">🏠</span>')
+    expect(withEmoji).not.toContain('material-symbols.woff2')
+
+    // no icons at all → no font either
+    expect(docsShell(base)).not.toContain('material-symbols.woff2')
+  })
 })
 
 describe('mermaid diagrams', () => {

@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { MATERIAL_ICONS } from './material-icons'
 
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (
@@ -244,54 +245,33 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
   )
 }
 
-// A curated grid of emoji for page icons — the ones that actually read well as
-// tiny nav glyphs. Not exhaustive; a page can only wear one.
-const PAGE_ICONS = [
-  '📄',
-  '📘',
-  '📗',
-  '📙',
-  '📕',
-  '📓',
-  '📔',
-  '📒',
-  '📝',
-  '🗂️',
-  '📁',
-  '📦',
-  '🚀',
-  '⚙️',
-  '🔧',
-  '🔑',
-  '🔒',
-  '🌐',
-  '💡',
-  '⭐',
-  '🔔',
-  '📊',
-  '📈',
-  '🧩',
-  '🧪',
-  '🎨',
-  '🖼️',
-  '🎬',
-  '🎵',
-  '🏷️',
-  '🔖',
-  '📌',
-  '✅',
-  '❓',
-  '⚠️',
-  'ℹ️',
-  '💬',
-  '👋',
-  '🏠',
-  '🧭',
-] as const
+// A page icon is stored as a Material Symbols ligature name (lowercase, digits,
+// underscores). Legacy emoji values render as-is for backward compatibility.
+const MATERIAL_NAME = /^[a-z0-9_]+$/
 
-/** Emoji picker in a click-away popover; `null` clears the icon. */
+/** Render a page-icon value: a Material Symbols glyph, or a literal emoji. */
+export function PageIcon(props: { icon: string; className?: string; style?: React.CSSProperties }) {
+  if (MATERIAL_NAME.test(props.icon)) {
+    return (
+      <span className={`msym ${props.className ?? ''}`} style={props.style} aria-hidden>
+        {props.icon}
+      </span>
+    )
+  }
+  return (
+    <span className={props.className} style={props.style}>
+      {props.icon}
+    </span>
+  )
+}
+
+/**
+ * Icon picker: type to search the full Material Symbols set, click to choose.
+ * The popover anchors to the right edge so it never spills off the rail.
+ */
 export function IconPicker(props: { value: string | null; onPick: (v: string | null) => void }) {
   const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -302,6 +282,12 @@ export function IconPicker(props: { value: string | null; onPick: (v: string | n
     return () => window.removeEventListener('mousedown', onDown)
   }, [open])
 
+  const results = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    const list = term ? MATERIAL_ICONS.filter((n) => n.includes(term)) : MATERIAL_ICONS
+    return list.slice(0, 90)
+  }, [q])
+
   return (
     <div ref={rootRef} className="relative">
       <div className="flex items-center gap-2">
@@ -309,10 +295,10 @@ export function IconPicker(props: { value: string | null; onPick: (v: string | n
           type="button"
           onClick={() => setOpen(!open)}
           title="Choose an icon"
-          className="w-9 h-9 rounded-lg border flex items-center justify-center text-lg leading-none"
+          className="w-9 h-9 rounded-lg border flex items-center justify-center text-xl leading-none"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
         >
-          {props.value || '＋'}
+          {props.value ? <PageIcon icon={props.value} /> : '＋'}
         </button>
         {props.value && (
           <button
@@ -330,28 +316,43 @@ export function IconPicker(props: { value: string | null; onPick: (v: string | n
       </div>
       {open && (
         <div
-          className="absolute z-40 mt-1 rounded-lg border p-2 grid gap-0.5 shadow-lg"
-          style={{
-            gridTemplateColumns: 'repeat(8, 1fr)',
-            width: 264,
-            background: 'var(--panel)',
-            borderColor: 'var(--border)',
-          }}
+          className="absolute right-0 z-40 mt-1 rounded-lg border shadow-lg"
+          style={{ width: 256, background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
-          {PAGE_ICONS.map((e) => (
-            <button
-              key={e}
-              type="button"
-              className="w-7 h-7 rounded text-lg leading-none hover:bg-black/5 dark:hover:bg-white/10"
-              style={{ outline: props.value === e ? '2px solid var(--accent)' : undefined }}
-              onClick={() => {
-                props.onPick(e)
-                setOpen(false)
-              }}
-            >
-              {e}
-            </button>
-          ))}
+          <input
+            // biome-ignore lint/a11y/noAutofocus: opening the picker to type is the whole point
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search icons…"
+            className="w-full rounded-t-lg border-b px-3 py-2 text-sm outline-none"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          />
+          <div
+            className="grid gap-0.5 p-2 overflow-y-auto"
+            style={{ gridTemplateColumns: 'repeat(6, 1fr)', maxHeight: 208 }}
+          >
+            {results.map((name) => (
+              <button
+                key={name}
+                type="button"
+                title={name}
+                className="h-8 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10"
+                style={{ outline: props.value === name ? '2px solid var(--accent)' : undefined }}
+                onClick={() => {
+                  props.onPick(name)
+                  setOpen(false)
+                }}
+              >
+                <PageIcon icon={name} style={{ fontSize: 20 }} />
+              </button>
+            ))}
+            {results.length === 0 && (
+              <p className="col-span-6 text-xs px-1 py-2" style={{ color: 'var(--text-3)' }}>
+                No icons match “{q}”.
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

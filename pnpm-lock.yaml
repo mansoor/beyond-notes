@@ -53,6 +53,9 @@ importers:
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
+      material-symbols:
+        specifier: ^0.45.8
+        version: 0.45.8
       mermaid:
         specifier: ^11.16.0
         version: 11.16.0
@@ -3067,6 +3070,9 @@ packages:
     resolution: {integrity: sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  material-symbols@0.45.8:
+    resolution: {integrity: sha512-1kpL3jl+/f6W34fmENPYMyftCmBNXUannoZ8XzlMsuEEFlIxesX+Z6ZCj2qSJGxzqwJ5yE/3x1XzVPsycieG2g==}
 
   mermaid@11.16.0:
     resolution: {integrity: sha512-Zvm3kbstgdpvIJPPItlL7fppIZ3kibvc1oZIGxdvk9t6UFz6flv+Jw7FtRGKwfcI8OckmH04LqG6LlS6X4B1pA==}
@@ -6468,6 +6474,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   marked@16.4.2: {}
+
+  material-symbols@0.45.8: {}
 
   mermaid@11.16.0:
     dependencies:

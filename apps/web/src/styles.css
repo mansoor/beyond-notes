@@ -52,6 +52,28 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
 }
 
+/* Material Symbols page icons — self-hosted, served by the backend. The glyph
+   is chosen by ligature: the element's text IS the icon name. */
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url("/api/assets/material-symbols.woff2") format("woff2");
+}
+.msym {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "liga";
+  vertical-align: -0.15em;
+  font-size: 1.15em;
+}
+
 /* mermaid previews in the editor */
 .mermaidhost .mermaid-box {
   border: 1px solid var(--border);

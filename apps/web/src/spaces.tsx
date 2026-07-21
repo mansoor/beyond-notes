@@ -4,7 +4,7 @@ import { pageTypesByCategory, socialPlatform } from '@bn/schema'
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from './components'
+import { ErrorNote, Field, Modal, PageIcon, SubmitButton, useSubmit } from './components'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -615,11 +615,32 @@ function ReorganizeModal(props: {
     })
   }
 
+  // drag-and-drop inside the dialog, same gestures as the sidebar tree
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [over, setOver] = useState<{ id: string; zone: DropZone } | null>(null)
+  const drop = (draggedId: string, targetId: string, zone: DropZone) => {
+    if (draggedId === targetId) return
+    const target = props.pages.find((p) => p.id === targetId)
+    if (!target) return
+    if (zone === 'inside') {
+      move.mutate({ pageId: draggedId, parentId: target.id, index: 9999 })
+      return
+    }
+    const sibs = childrenOf(target.parentId).filter((p) => p.id !== draggedId)
+    const ti = sibs.findIndex((p) => p.id === targetId)
+    move.mutate({
+      pageId: draggedId,
+      parentId: target.parentId,
+      index: zone === 'before' ? ti : ti + 1,
+    })
+  }
+
   return (
     <Modal title={`Reorganize — ${props.spaceName}`} onClose={props.onClose} width="lg">
       <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
-        Move a page within its level, indent (→) to nest it under the page above, or outdent (←) to
-        lift it out. You can also drag pages directly in the sidebar.
+        Drag a row to reorder or nest it (drop on the top/bottom edge to reorder, on the middle to
+        nest). Or use the buttons: ↑ ↓ within a level, → to indent under the page above, ← to
+        outdent.
       </p>
       <div className="max-h-[60vh] overflow-y-auto -mx-1 px-1">
         {rows.length === 0 && (
@@ -631,14 +652,57 @@ function ReorganizeModal(props: {
           const sibs = childrenOf(page.parentId)
           const i = sibs.findIndex((x) => x.id === page.id)
           const prev = sibs[i - 1]
+          const zone = over?.id === page.id && dragId !== page.id ? over?.zone : undefined
           return (
             <div
               key={page.id}
               className="flex items-center gap-1 py-1 border-b"
-              style={{ borderColor: 'var(--border)', paddingLeft: depth * 18 }}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move'
+                setDragId(page.id)
+              }}
+              onDragEnd={() => {
+                setDragId(null)
+                setOver(null)
+              }}
+              onDragOver={(e) => {
+                if (!dragId || dragId === page.id) return
+                e.preventDefault()
+                const r = e.currentTarget.getBoundingClientRect()
+                const y = e.clientY - r.top
+                const z: DropZone =
+                  y < r.height * 0.3 ? 'before' : y > r.height * 0.7 ? 'after' : 'inside'
+                if (over?.id !== page.id || over?.zone !== z) setOver({ id: page.id, zone: z })
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragId) drop(dragId, page.id, over?.zone ?? 'inside')
+                setDragId(null)
+                setOver(null)
+              }}
+              style={{
+                borderColor: 'var(--border)',
+                paddingLeft: depth * 18,
+                background: zone === 'inside' ? 'var(--accent-soft)' : undefined,
+                boxShadow:
+                  zone === 'before'
+                    ? 'inset 0 2px 0 var(--accent)'
+                    : zone === 'after'
+                      ? 'inset 0 -2px 0 var(--accent)'
+                      : undefined,
+                opacity: dragId === page.id ? 0.4 : 1,
+              }}
             >
+              <span
+                className="cursor-grab select-none"
+                style={{ color: 'var(--text-3)' }}
+                title="Drag to move"
+              >
+                ⠿
+              </span>
               <span className="truncate flex-1 text-sm" title={page.title}>
-                {pagePrefix(page)}
+                <PagePrefix page={page} />
                 {page.title || 'Untitled'}
               </span>
               <ReorgBtn
@@ -693,12 +757,12 @@ function ReorgBtn(props: {
   )
 }
 
-/** The blog/gallery fallback glyph, unless the page carries its own icon. */
-function pagePrefix(page: PageMeta): string {
-  if (page.icon) return `${page.icon} `
-  if (page.pageType === 'blog') return '📰 '
-  if (page.pageType === 'gallery') return '🖼 '
-  return ''
+/** The page's own icon if set, else the blog/gallery fallback glyph. */
+function PagePrefix(props: { page: PageMeta }) {
+  const { page } = props
+  if (page.icon) return <PageIcon icon={page.icon} className="mr-1.5" />
+  const g = page.pageType === 'blog' ? '📰 ' : page.pageType === 'gallery' ? '🖼 ' : ''
+  return <>{g}</>
 }
 
 function PageTreeLevel(props: {
@@ -771,7 +835,7 @@ function PageTreeLevel(props: {
                 className="truncate flex-1"
                 title={page.title}
               >
-                {pagePrefix(page)}
+                <PagePrefix page={page} />
                 {page.title}
               </Link>
               <span className="hidden group-hover:flex items-center gap-0.5">

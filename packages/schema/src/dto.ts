@@ -192,8 +192,9 @@ export const updatePageOptionsInput = z.object({
   coverAttachmentId: z.string().nullable().optional(),
   // SEO description for published sites; null clears
   metaDescription: z.string().trim().max(300).nullable().optional(),
-  // a single emoji shown in the sidebar and published nav; null clears
-  icon: z.string().trim().min(1).max(8).nullable().optional(),
+  // a Material Symbols name (or a legacy emoji) shown in the sidebar and
+  // published nav; null clears
+  icon: z.string().trim().min(1).max(48).nullable().optional(),
 })
 
 export type ArchivedPageView = {

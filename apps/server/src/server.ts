@@ -145,6 +145,27 @@ export async function buildServer(config: Config, appDb: AppDb) {
     return reply.send(createReadStream(mermaidPath))
   })
 
+  // Material Symbols (Outlined) font, self-hosted for the same reason as mermaid:
+  // page icons must render on an offline LAN and published pages must not phone
+  // home. A page's icon is a ligature name the font resolves.
+  const materialFontPath = (() => {
+    try {
+      return createRequire(import.meta.url).resolve(
+        'material-symbols/material-symbols-outlined.woff2',
+      )
+    } catch {
+      return null
+    }
+  })()
+  server.get('/api/assets/material-symbols.woff2', async (_req, reply) => {
+    if (!materialFontPath || !existsSync(materialFontPath)) {
+      return reply.code(404).send({ error: 'material-symbols is not installed in this build' })
+    }
+    reply.type('font/woff2')
+    reply.header('cache-control', 'public, max-age=604800, immutable')
+    return reply.send(createReadStream(materialFontPath))
+  })
+
   // incoming webhooks: token-authenticated writers into capture surfaces.
   // Accepts JSON {text} (or {content}) and raw text/plain bodies.
   server.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => {
