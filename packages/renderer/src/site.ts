@@ -6,8 +6,31 @@ export type SiteNavItem = {
   title: string
   path: string
   active?: boolean
+  /** a Material Symbols name or emoji, shown before the title in the menu */
+  icon?: string | null
   children?: SiteNavItem[]
 }
+
+// a Material Symbols ligature name vs a literal emoji
+const MATERIAL_NAME = /^[a-z0-9_]+$/
+const iconSpan = (icon?: string | null): string =>
+  icon
+    ? `<span class="ico${MATERIAL_NAME.test(icon) ? ' msym' : ''}">${escapeHtml(icon)}</span>`
+    : ''
+
+function siteNavHasMaterialIcon(nav: SiteNavItem[]): boolean {
+  return nav.some(
+    (n) => (n.icon && MATERIAL_NAME.test(n.icon)) || siteNavHasMaterialIcon(n.children ?? []),
+  )
+}
+
+/** Material Symbols @font-face, injected only when the nav uses a named icon. */
+const MATERIAL_CSS = `
+@font-face{font-family:'Material Symbols Outlined';font-style:normal;font-weight:100 700;
+font-display:block;src:url('/api/assets/material-symbols.woff2') format('woff2')}
+.ico.msym{font-family:'Material Symbols Outlined';font-weight:normal;font-size:1.1em;
+line-height:1;font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+`
 export type PostListItem = {
   title: string
   path: string
@@ -48,6 +71,7 @@ header nav{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
 .tail{display:flex;align-items:center;gap:14px}
 header nav a{color:var(--text2);text-decoration:none;font-size:14px}
 header nav a.active{color:var(--text);font-weight:600}
+.ico{display:inline-flex;align-items:center;vertical-align:-.15em;margin-right:5px}
 .navitem{position:relative;display:inline-flex;align-items:baseline}
 .navitem>a .caret{font-size:10px;color:var(--text3);margin-left:3px}
 .dropdown{display:none;position:absolute;top:100%;left:-10px;background:var(--bg);
@@ -127,7 +151,7 @@ function dropdownLinks(items: SiteNavItem[], basePath: string, depth: number): s
   return items
     .map(
       (n) =>
-        `<a class="lvl${depth}${n.active ? ' active' : ''}" href="${escapeHtml(basePath + n.path)}">${escapeHtml(n.title)}</a>${
+        `<a class="lvl${depth}${n.active ? ' active' : ''}" href="${escapeHtml(basePath + n.path)}">${iconSpan(n.icon)}${escapeHtml(n.title)}</a>${
           n.children?.length ? dropdownLinks(n.children, basePath, depth + 1) : ''
         }`,
     )
@@ -137,7 +161,7 @@ function dropdownLinks(items: SiteNavItem[], basePath: string, depth: number): s
 function navHtml(nav: SiteNavItem[], basePath: string): string {
   return nav
     .map((n) => {
-      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${escapeHtml(n.title)}${
+      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${iconSpan(n.icon)}${escapeHtml(n.title)}${
         n.children?.length ? '<span class="caret">▾</span>' : ''
       }</a>`
       if (!n.children?.length) return link
@@ -249,7 +273,7 @@ ${metaHtml(input.title, input.siteTitle, input.meta)}${
   input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
 }
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
 ${header}

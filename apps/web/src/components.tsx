@@ -143,14 +143,39 @@ export function Modal(props: {
 
 // ---- iOS-alarm-style time wheel ----
 //
-// Two scroll-snap columns (hours, minutes); the row sitting in the centre band
-// is the value. Scrolling settles onto a row and reports it up. Value is 'HH:MM'.
+// Scroll-snap columns (12h hour, minute, AM/PM); the row in the centre band is
+// the value. Scrolling settles onto a row and reports it up. The value stays a
+// 24h 'HH:MM' string — only the display is 12-hour.
 
-const ROW = 34
+const ROW = 30
 const VISIBLE = 5 // odd, so exactly one row is centred
 const PAD = ((VISIBLE - 1) / 2) * ROW
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const HOURS12 = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+const PERIODS = ['AM', 'PM']
+
+function parse12(value: string) {
+  const [hh = '00', mm = '00'] = value.split(':')
+  const h24 = Number(hh) || 0
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return {
+    hourIdx: Math.max(0, HOURS12.indexOf(String(h12))),
+    minIdx: Math.min(59, Math.max(0, Number(mm) || 0)),
+    periodIdx: h24 < 12 ? 0 : 1,
+  }
+}
+
+function to24(hourIdx: number, minIdx: number, periodIdx: number): string {
+  const h12 = Number(HOURS12[hourIdx] ?? '12')
+  const h24 = (h12 % 12) + (periodIdx === 1 ? 12 : 0)
+  return `${String(h24).padStart(2, '0')}:${MINUTES[minIdx] ?? '00'}`
+}
+
+/** '23:59' → '11:59 PM' for compact display next to the picker. */
+export function fmtTime12(value: string): string {
+  const { hourIdx, minIdx, periodIdx } = parse12(value)
+  return `${HOURS12[hourIdx]}:${MINUTES[minIdx]} ${PERIODS[periodIdx]}`
+}
 
 function WheelColumn(props: {
   values: string[]
@@ -184,7 +209,12 @@ function WheelColumn(props: {
       onScroll={onScroll}
       aria-label={props.ariaLabel}
       className="relative overflow-y-auto [&::-webkit-scrollbar]:hidden"
-      style={{ height: VISIBLE * ROW, scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
+      style={{
+        height: VISIBLE * ROW,
+        minWidth: 42,
+        scrollSnapType: 'y mandatory',
+        scrollbarWidth: 'none',
+      }}
     >
       <div style={{ height: PAD }} />
       {props.values.map((v, i) => (
@@ -198,8 +228,8 @@ function WheelColumn(props: {
             scrollSnapAlign: 'center',
             fontVariantNumeric: 'tabular-nums',
             color: i === props.index ? 'var(--text)' : 'var(--text-3)',
-            fontWeight: i === props.index ? 650 : 400,
-            fontSize: i === props.index ? 19 : 15,
+            fontWeight: i === props.index ? 600 : 400,
+            fontSize: i === props.index ? 15 : 13,
             opacity: Math.abs(i - props.index) >= 2 ? 0.4 : 1,
             transition: 'color .1s, font-size .1s, opacity .1s',
           }}
@@ -213,9 +243,7 @@ function WheelColumn(props: {
 }
 
 export function TimeWheel(props: { value: string; onChange: (v: string) => void }) {
-  const [h = '00', m = '00'] = props.value.split(':')
-  const hi = Math.max(0, HOURS.indexOf(h))
-  const mi = Math.max(0, MINUTES.indexOf(m))
+  const { hourIdx, minIdx, periodIdx } = parse12(props.value)
   return (
     <div className="relative flex justify-center gap-1 select-none">
       {/* the highlighted centre band the chosen row sits in */}
@@ -224,22 +252,28 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
         style={{ top: PAD, height: ROW, background: 'var(--accent-soft)' }}
       />
       <WheelColumn
-        values={HOURS}
-        index={hi}
+        values={HOURS12}
+        index={hourIdx}
         ariaLabel="Hour"
-        onIndex={(i) => props.onChange(`${HOURS[i]}:${MINUTES[mi]}`)}
+        onIndex={(i) => props.onChange(to24(i, minIdx, periodIdx))}
       />
       <span
-        className="flex items-center font-semibold"
+        className="flex items-center font-semibold text-sm"
         style={{ height: VISIBLE * ROW, color: 'var(--text-2)' }}
       >
         :
       </span>
       <WheelColumn
         values={MINUTES}
-        index={mi}
+        index={minIdx}
         ariaLabel="Minute"
-        onIndex={(i) => props.onChange(`${HOURS[hi]}:${MINUTES[i]}`)}
+        onIndex={(i) => props.onChange(to24(hourIdx, i, periodIdx))}
+      />
+      <WheelColumn
+        values={PERIODS}
+        index={periodIdx}
+        ariaLabel="AM or PM"
+        onIndex={(i) => props.onChange(to24(hourIdx, minIdx, i))}
       />
     </div>
   )

@@ -1,7 +1,7 @@
 import type { ReminderFreq, ReminderView, TaskView } from '@bn/schema'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Modal, SubmitButton, TimeWheel, useSubmit } from '../components'
+import { ErrorNote, Modal, SubmitButton, TimeWheel, fmtTime12, useSubmit } from '../components'
 import { todayKey } from '../editor'
 import { trpc } from '../trpc'
 
@@ -496,7 +496,7 @@ export function TaskRowItem(props: { task: TaskView }) {
                 // default a fresh time to the end of the day; toggle off clears it
                 onClick={() => setDraftTime(draftTime ? '' : '23:59')}
               >
-                {draftTime ? `🕑 ${draftTime}` : '＋ add time'}
+                {draftTime ? `🕑 ${fmtTime12(draftTime)}` : '＋ add time'}
               </button>
               <button
                 type="button"
@@ -590,7 +590,7 @@ export function TaskRowItem(props: { task: TaskView }) {
         onClick={openEdit}
       >
         {t.due ? (t.due === today ? 'today' : t.due) : '+ date'}
-        {t.due && t.dueTime ? ` · ${t.dueTime}` : ''}
+        {t.due && t.dueTime ? ` · ${fmtTime12(t.dueTime)}` : ''}
       </button>
     </div>
   )
