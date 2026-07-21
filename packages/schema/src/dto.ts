@@ -466,6 +466,15 @@ export const ntfySettings = z.object({
 })
 export type NtfySettings = z.infer<typeof ntfySettings>
 
+// Google reCAPTCHA v2 keys, instance-wide (reCAPTCHA is registered per domain).
+// siteKey is public (embedded in the form); secretKey is server-only.
+export const recaptchaSettings = z.object({
+  siteKey: z.string().trim().max(200).default(''),
+  // empty string on save = keep the stored secret
+  secretKey: z.string().max(200).default(''),
+})
+export type RecaptchaSettings = z.infer<typeof recaptchaSettings>
+
 export const storageDriver = z.enum(['fs', 'db', 's3'])
 export type StorageDriver = z.infer<typeof storageDriver>
 
@@ -485,6 +494,7 @@ export type ServerSettingsView = {
   smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
   ntfy: NtfySettings
   storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
+  recaptcha: { siteKey: string; hasSecret: boolean }
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
   ntfySource: 'db' | 'env' | 'off'
@@ -562,3 +572,292 @@ export const createDayNoteInput = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   title: z.string().trim().min(1).max(120),
 })
+
+// ---- data tables (lightweight structured data / forms) ----
+
+export const dbColumnType = z.enum([
+  'text',
+  'longtext',
+  'number',
+  'checkbox',
+  'date',
+  'select',
+  'email',
+])
+export type DbColumnType = z.infer<typeof dbColumnType>
+
+/**
+ * A column definition, as stored inside db_tables.columns (a JSON array). `id`
+ * is a stable slug assigned by the server — row cells key by it, so a rename or
+ * reorder never rewrites a single row. `choices` is only meaningful for select.
+ */
+/** Optional per-column data-integrity rules, enforced on grid edits and form
+ * submissions alike. Which fields apply depends on the column type. */
+export type DbColumnConstraints = {
+  // text / longtext / email
+  minLength?: number
+  maxLength?: number
+  pattern?: string
+  // number
+  min?: number
+  max?: number
+  // shown instead of the default when a rule fails
+  message?: string
+}
+
+export type DbColumn = {
+  id: string
+  name: string
+  type: DbColumnType
+  required: boolean
+  choices: string[]
+  constraints?: DbColumnConstraints
+}
+
+export const dbColumnConstraints = z.object({
+  minLength: z.number().int().min(0).max(100000).optional(),
+  maxLength: z.number().int().min(0).max(100000).optional(),
+  pattern: z.string().max(300).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  message: z.string().trim().max(200).optional(),
+})
+
+/** A single cell value. Stored as-is inside db_rows.cells. */
+export type DbCellValue = string | number | boolean | null
+export const dbCellValue = z.union([z.string(), z.number(), z.boolean(), z.null()])
+
+// A database is the container: it owns visibility and holds tables.
+export const createDatabaseInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  personal: z.boolean().default(false),
+})
+export type CreateDatabaseInput = z.infer<typeof createDatabaseInput>
+
+export const renameDatabaseInput = z.object({
+  databaseId: z.string(),
+  name: z.string().trim().min(1).max(80),
+})
+
+export const deleteDatabaseInput = z.object({ databaseId: z.string() })
+
+export type DatabaseView = {
+  id: string
+  name: string
+  personal: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export const createTableInput = z.object({
+  databaseId: z.string(),
+  name: z.string().trim().min(1).max(80),
+})
+export type CreateTableInput = z.infer<typeof createTableInput>
+
+export const renameTableInput = z.object({
+  tableId: z.string(),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).nullable().default(null),
+})
+
+/** A column as proposed by the schema editor. `id` is absent for new columns; the
+ * server assigns one and preserves existing ids. */
+export const dbColumnDraft = z.object({
+  id: z.string().min(1).max(40).optional(),
+  name: z.string().trim().min(1).max(80),
+  type: dbColumnType,
+  required: z.boolean().default(false),
+  choices: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
+  constraints: dbColumnConstraints.optional(),
+})
+export type DbColumnDraft = z.infer<typeof dbColumnDraft>
+
+export const updateTableColumnsInput = z.object({
+  tableId: z.string(),
+  columns: z.array(dbColumnDraft).max(50),
+})
+
+export const deleteTableInput = z.object({ tableId: z.string() })
+export const duplicateTableInput = z.object({ tableId: z.string() })
+export const moveTableInput = z.object({ tableId: z.string(), databaseId: z.string() })
+export const archiveTableInput = z.object({ tableId: z.string() })
+export const restoreTableInput = z.object({ tableId: z.string() })
+
+export type ArchivedTableView = {
+  id: string
+  name: string
+  databaseName: string
+  archivedAt: string
+}
+
+export const insertRowInput = z.object({
+  tableId: z.string(),
+  // validated against the table's columns in the service, not here
+  cells: z.record(z.string(), dbCellValue),
+})
+
+export const updateRowInput = z.object({
+  rowId: z.string(),
+  cells: z.record(z.string(), dbCellValue),
+})
+
+export const deleteRowInput = z.object({ rowId: z.string() })
+
+/**
+ * A form is a table's public intake: which columns it exposes, and the copy
+ * shown around them. Stored as JSON on the table; null = no form. The embed
+ * token `[[form:<tableId>]]` expands to this at serve time.
+ */
+export const captchaMode = z.enum(['none', 'basic', 'recaptcha'])
+export type CaptchaMode = z.infer<typeof captchaMode>
+
+export type FormConfig = {
+  enabled: boolean
+  // ordered column ids exposed as fields (a subset of the table's columns)
+  fields: string[]
+  title: string
+  description: string
+  submitLabel: string
+  successMessage: string
+  // notify the owner on each submission (via configured ntfy/email channels)
+  notify: boolean
+  // spam protection: a self-hosted math challenge, or Google reCAPTCHA
+  captcha: CaptchaMode
+}
+
+export const formConfigInput = z.object({
+  enabled: z.boolean().default(false),
+  fields: z.array(z.string()).max(50).default([]),
+  captcha: captchaMode.default('none'),
+  title: z.string().trim().max(120).default(''),
+  description: z.string().trim().max(500).default(''),
+  submitLabel: z.string().trim().min(1).max(40).default('Submit'),
+  successMessage: z.string().trim().max(300).default('Thanks — your response was received.'),
+  notify: z.boolean().default(false),
+})
+
+export const updateFormInput = z.object({
+  tableId: z.string(),
+  // null removes the form entirely
+  form: formConfigInput.nullable(),
+})
+
+export type DbTableView = {
+  id: string
+  databaseId: string
+  name: string
+  description: string | null
+  columns: DbColumn[]
+  form: FormConfig | null
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type DbRowView = {
+  id: string
+  tableId: string
+  cells: Record<string, DbCellValue>
+  source: 'manual' | 'form'
+  createdAt: string
+  updatedAt: string
+}
+
+export type CellCheck =
+  | { ok: true; cells: Record<string, DbCellValue> }
+  | { ok: false; error: string }
+
+/**
+ * Coerce and validate a proposed row against a table's columns. Keeps only
+ * known columns (orphan keys from dropped columns are dropped). `requireAll`
+ * enforces `required` — off for grid edits (you fill a row after adding it),
+ * on for public form submissions.
+ */
+export function validateRowCells(
+  columns: DbColumn[],
+  input: Record<string, unknown>,
+  opts: { requireAll?: boolean } = {},
+): CellCheck {
+  const out: Record<string, DbCellValue> = {}
+  // a constraint failure prefers the column's custom message
+  const fail = (col: DbColumn, fallback: string): CellCheck => ({
+    ok: false,
+    error: col.constraints?.message || fallback,
+  })
+  for (const col of columns) {
+    const raw = input[col.id]
+    const empty = raw === undefined || raw === null || raw === ''
+    if (empty) {
+      if (opts.requireAll && col.required) return { ok: false, error: `"${col.name}" is required.` }
+      out[col.id] = null
+      continue
+    }
+    switch (col.type) {
+      case 'number': {
+        const n = typeof raw === 'number' ? raw : Number(String(raw).trim())
+        if (!Number.isFinite(n)) return fail(col, `"${col.name}" must be a number.`)
+        out[col.id] = n
+        break
+      }
+      case 'checkbox':
+        out[col.id] = raw === true || raw === 'true' || raw === 1 || raw === '1'
+        break
+      case 'date': {
+        const s = String(raw).trim()
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
+          return fail(col, `"${col.name}" must be a date (YYYY-MM-DD).`)
+        out[col.id] = s
+        break
+      }
+      case 'select': {
+        const s = String(raw)
+        if (col.choices.length > 0 && !col.choices.includes(s))
+          return fail(col, `"${col.name}" must be one of its choices.`)
+        out[col.id] = s
+        break
+      }
+      case 'email': {
+        const s = String(raw).trim()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) || s.length > 254)
+          return fail(col, `"${col.name}" must be a valid email.`)
+        out[col.id] = s
+        break
+      }
+      default: {
+        // text / longtext
+        out[col.id] = String(raw).slice(0, col.type === 'longtext' ? 10000 : 2000)
+      }
+    }
+
+    // per-column constraints, applied to the coerced value
+    const c = col.constraints
+    const value = out[col.id]
+    if (c && col.type === 'number' && typeof value === 'number') {
+      if (c.min != null && value < c.min)
+        return fail(col, `"${col.name}" must be at least ${c.min}.`)
+      if (c.max != null && value > c.max)
+        return fail(col, `"${col.name}" must be at most ${c.max}.`)
+    }
+    if (
+      c &&
+      typeof value === 'string' &&
+      (col.type === 'text' || col.type === 'longtext' || col.type === 'email')
+    ) {
+      if (c.minLength != null && value.length < c.minLength)
+        return fail(col, `"${col.name}" must be at least ${c.minLength} characters.`)
+      if (c.maxLength != null && value.length > c.maxLength)
+        return fail(col, `"${col.name}" must be at most ${c.maxLength} characters.`)
+      if (c.pattern) {
+        let re: RegExp | null = null
+        try {
+          re = new RegExp(c.pattern)
+        } catch {
+          re = null
+        }
+        if (re && !re.test(value)) return fail(col, `"${col.name}" is not in the expected format.`)
+      }
+    }
+  }
+  return { ok: true, cells: out }
+}

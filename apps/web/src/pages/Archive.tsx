@@ -17,6 +17,13 @@ export function ArchivePage() {
   const del = trpc.pages.delete.useMutation({ onSuccess: invalidate })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
+  const archivedTables = trpc.tables.archived.useQuery()
+  const tablesInvalidate = () =>
+    Promise.all([utils.tables.archived.invalidate(), utils.tables.list.invalidate()])
+  const restoreTable = trpc.tables.restore.useMutation({ onSuccess: tablesInvalidate })
+  const deleteTable = trpc.tables.delete.useMutation({ onSuccess: tablesInvalidate })
+  const [confirmDeleteTable, setConfirmDeleteTable] = useState<string | null>(null)
+
   return (
     <div className="max-w-5xl mx-auto px-10 py-8">
       <h1 className="text-2xl font-bold mb-1">Archive</h1>
@@ -83,6 +90,64 @@ export function ArchivePage() {
           )}
         </div>
       ))}
+
+      {(archivedTables.data?.length ?? 0) > 0 && (
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold mb-2">Data tables</h2>
+          {archivedTables.data?.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center gap-3 border-b py-3"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span>▦</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium truncate">{item.name}</div>
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {item.databaseName} ·{' '}
+                  {new Date(item.archivedAt).toLocaleString([], {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border px-3 py-1 text-xs"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+                disabled={restoreTable.isPending}
+                onClick={() => restoreTable.mutate({ tableId: item.id })}
+              >
+                Restore
+              </button>
+              {confirmDeleteTable === item.id ? (
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1 text-xs text-white"
+                  style={{ background: 'var(--danger)' }}
+                  disabled={deleteTable.isPending}
+                  onClick={() => {
+                    deleteTable.mutate({ tableId: item.id })
+                    setConfirmDeleteTable(null)
+                  }}
+                >
+                  Really delete forever
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--danger)' }}
+                  title="Deletes the table and all its rows for good"
+                  onClick={() => setConfirmDeleteTable(item.id)}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

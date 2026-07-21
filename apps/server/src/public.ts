@@ -1,4 +1,9 @@
 import {
+  FORM_CSS,
+  FORM_JS,
+  RECAPTCHA_SCRIPT,
+  TABLE_EMBED_CSS,
+  TABLE_EMBED_JS,
   albumCardsHtml,
   buildRss,
   buildSitemap,
@@ -7,6 +12,7 @@ import {
   docsShell,
   docsTagPage,
   extractHeadings,
+  formHtml,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -15,18 +21,39 @@ import {
   sitePost,
   siteSearchResults,
   siteTagPage,
+  tableEmbedHtml,
 } from '@bn/renderer'
-import type { AlbumCard, Crumb, SiteMeta, SiteNavItem, SocialLink } from '@bn/renderer'
+import type {
+  AlbumCard,
+  Crumb,
+  FormCaptchaInput,
+  SiteMeta,
+  SiteNavItem,
+  SocialLink,
+} from '@bn/renderer'
+import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
+import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
+
+/** What the serve path needs to render captchas into embedded forms. */
+export type PublicSecurity = {
+  captchaSecret: Buffer
+  recaptchaSiteKey: () => string | null
+  now: () => number
+}
 
 /**
  * The unauthenticated read path. It can only reach spaces flagged
  * publicEnabled and content stored in page_versions — the working-copy
  * tables are never touched here.
  */
-export function createPublicServer(repo: Repo, publishing: PublishingService) {
+export function createPublicServer(
+  repo: Repo,
+  publishing: PublishingService,
+  security: PublicSecurity,
+) {
   async function resolveSpace(host: string) {
     const space = await repo.getSpaceByPublicHost(host.toLowerCase())
     if (!space || !space.publicEnabled) return null
@@ -221,7 +248,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         siteTitle: site.siteTitle,
         footer: site.footer,
         pageTitle: hit.entry.version.title,
-        contentHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath),
+        contentHtml: await expandForms(
+          repo,
+          rewriteInternalLinks(hit.entry.version.html, site, basePath),
+          security,
+        ),
         nav: site.nav,
         basePath,
         prev: prev ? { title: prev.title, path: prev.path } : undefined,
@@ -490,7 +521,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+          introHtml: await expandForms(
+            repo,
+            rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+            security,
+          ),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
@@ -529,13 +564,16 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
-          contentHtml:
+          contentHtml: await expandForms(
+            repo,
             rewriteInternalLinks(hit.entry.version.html, site, basePath) +
-            shareFor(hit) +
-            sectionListHtml(
-              postChildren.map((c) => ({ title: c.title, path: c.path })),
-              basePath,
-            ),
+              shareFor(hit) +
+              sectionListHtml(
+                postChildren.map((c) => ({ title: c.title, path: c.path })),
+                basePath,
+              ),
+            security,
+          ),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
@@ -588,8 +626,11 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         nav,
         basePath,
         title: hit.entry.version.title,
-        contentHtml:
+        contentHtml: await expandForms(
+          repo,
           rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit) + extras,
+          security,
+        ),
         crumbs: crumbsFor(hit),
         rssPath,
         meta: metaFor(hit),
@@ -669,6 +710,226 @@ function rewriteInternalLinks(
     const target = pathById.get(id)
     return target ? `href="${basePath}${target}"` : match
   })
+}
+
+const FORM_TOKEN = /\[\[form:([A-Za-z0-9_-]+)\]\]/g
+
+async function renderFormById(
+  repo: Repo,
+  id: string,
+  security: PublicSecurity,
+): Promise<{ html: string; recaptcha: boolean } | null> {
+  const table = await repo.getDbTable(id)
+  if (!table || !table.form) return null
+  let form: FormConfig
+  try {
+    form = JSON.parse(table.form) as FormConfig
+  } catch {
+    return null
+  }
+  if (!form.enabled) return null
+  let columns: DbColumn[]
+  try {
+    columns = JSON.parse(table.columns) as DbColumn[]
+  } catch {
+    columns = []
+  }
+  const byId = new Map(columns.map((c) => [c.id, c]))
+  const fields = form.fields
+    .map((fid) => byId.get(fid))
+    .filter((c): c is DbColumn => Boolean(c))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      type: c.type,
+      required: c.required,
+      choices: c.choices,
+    }))
+
+  const siteKey = security.recaptchaSiteKey()
+  const mode = effectiveCaptchaMode(form.captcha ?? 'none', Boolean(siteKey))
+  let captcha: FormCaptchaInput = null
+  let recaptcha = false
+  if (mode === 'basic') {
+    const ch = makeMathChallenge(security.captchaSecret, security.now())
+    captcha = { mode: 'basic', question: ch.question, token: ch.token }
+  } else if (mode === 'recaptcha' && siteKey) {
+    captcha = { mode: 'recaptcha', siteKey }
+    recaptcha = true
+  }
+
+  return {
+    html: formHtml({
+      actionPath: `/api/forms/${id}`,
+      title: form.title,
+      description: form.description,
+      submitLabel: form.submitLabel,
+      successMessage: form.successMessage,
+      fields,
+      captcha,
+    }),
+    recaptcha,
+  }
+}
+
+const TABLE_TOKEN = /\[\[table=[^\]]*\]\]/g
+
+function parseEmbedAttrs(inner: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  for (const m of inner.matchAll(/(\w+)\s*=\s*('[^']*'|"[^"]*"|[^\s\]]+)/g)) {
+    attrs[(m[1] as string).toLowerCase()] = (m[2] ?? '').replace(/^['"]|['"]$/g, '')
+  }
+  return attrs
+}
+
+function cellDisplay(v: DbCellValue | undefined, type: string): string {
+  if (v === null || v === undefined) return ''
+  if (type === 'checkbox') return v === true || v === 'true' ? 'Yes' : 'No'
+  return String(v)
+}
+
+const PRIVATE_EMBED =
+  '<div class="bn-table-embed"><p class="bn-embed-empty">This table is private and can’t be shown publicly.</p></div>'
+
+/** Render one `[[table=...]]` token as a read-only presentation, or null to
+ *  leave the token untouched (unknown table id). Personal-database tables are
+ *  never exposed — their data may not cross onto a public page. */
+async function renderTableEmbed(repo: Repo, token: string): Promise<string | null> {
+  // the token was escaped by the renderer at publish (quotes -> &#39;/&quot;),
+  // so undo that before reading the attributes
+  const inner = token
+    .slice(2, -2)
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+  const attrs = parseEmbedAttrs(inner)
+  const id = attrs.table || attrs.id
+  if (!id) return null
+  const table = await repo.getDbTable(id)
+  if (!table) return null
+  const database = await repo.getDbDatabase(table.databaseId)
+  if (!database || database.ownerId !== null) return PRIVATE_EMBED
+
+  let columns: DbColumn[]
+  try {
+    columns = JSON.parse(table.columns) as DbColumn[]
+  } catch {
+    columns = []
+  }
+  const findCol = (ref: string) =>
+    columns.find((c) => c.id === ref || c.name.toLowerCase() === ref.toLowerCase()) ?? null
+  if (attrs.columns) {
+    const chosen = attrs.columns
+      .split(',')
+      .map((s) => findCol(s.trim()))
+      .filter((c): c is DbColumn => Boolean(c))
+    if (chosen.length > 0) columns = chosen
+  }
+
+  const cellsOf = (raw: string): Record<string, DbCellValue> => {
+    try {
+      const p = JSON.parse(raw)
+      return p && typeof p === 'object' ? p : {}
+    } catch {
+      return {}
+    }
+  }
+
+  let rows = (await repo.listDbRows(id)).sort(
+    (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+  )
+  if (attrs.filter?.includes(':')) {
+    const [ref, ...rest] = attrs.filter.split(':')
+    const col = findCol(ref as string)
+    const want = rest.join(':').toLowerCase()
+    if (col)
+      rows = rows.filter((r) => String(cellsOf(r.cells)[col.id] ?? '').toLowerCase() === want)
+  }
+  if (attrs.sort) {
+    const [ref, dir] = attrs.sort.split(':')
+    const col = findCol(ref as string)
+    if (col) {
+      const sign = dir?.toLowerCase() === 'desc' ? -1 : 1
+      rows = [...rows].sort((a, b) => {
+        const av = cellsOf(a.cells)[col.id]
+        const bv = cellsOf(b.cells)[col.id]
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sign
+        return String(av ?? '').localeCompare(String(bv ?? '')) * sign
+      })
+    }
+  }
+  const limit = Math.min(Math.max(Number(attrs.limit) || 500, 1), 2000)
+  rows = rows.slice(0, limit)
+
+  const layout = attrs.layout === 'cards' || attrs.layout === 'list' ? attrs.layout : 'table'
+  const pageSize = Math.min(Math.max(Number(attrs.pagesize) || 0, 0), 500)
+  const displayRows = rows.map((r) => {
+    const cells = cellsOf(r.cells)
+    return columns.map((c) => cellDisplay(cells[c.id], c.type))
+  })
+  return tableEmbedHtml({
+    columns: columns.map((c) => c.name),
+    rows: displayRows,
+    layout,
+    pageSize,
+  })
+}
+
+/**
+ * Expand `[[form:<id>]]` and `[[table=...]]` tokens in published content into
+ * live intake forms and read-only table presentations. Both compose at serve
+ * time (not baked at publish), so edits show without republishing. A token
+ * alone in its own paragraph replaces the whole `<p>`.
+ */
+async function expandForms(repo: Repo, html: string, security: PublicSecurity): Promise<string> {
+  const hasForm = html.includes('[[form:')
+  const hasTable = html.includes('[[table=')
+  if (!hasForm && !hasTable) return html
+  let out = html
+  let tail = ''
+
+  if (hasForm) {
+    const ids = new Set<string>()
+    for (const m of out.matchAll(FORM_TOKEN)) ids.add(m[1] as string)
+    const rendered = new Map<string, string>()
+    let anyRecaptcha = false
+    for (const id of ids) {
+      const r = await renderFormById(repo, id, security)
+      if (r) {
+        rendered.set(id, r.html)
+        if (r.recaptcha) anyRecaptcha = true
+      }
+    }
+    if (rendered.size > 0) {
+      out = out.replace(
+        /<p[^>]*>\s*\[\[form:([A-Za-z0-9_-]+)\]\]\s*<\/p>/g,
+        (m, id: string) => rendered.get(id) ?? m,
+      )
+      out = out.replace(FORM_TOKEN, (m, id: string) => rendered.get(id) ?? m)
+      tail += `<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
+      if (anyRecaptcha) tail += RECAPTCHA_SCRIPT
+    }
+  }
+
+  if (hasTable) {
+    const tokens = new Set<string>()
+    for (const m of out.matchAll(TABLE_TOKEN)) tokens.add(m[0])
+    const rendered = new Map<string, string>()
+    for (const token of tokens) {
+      const h = await renderTableEmbed(repo, token)
+      if (h) rendered.set(token, h)
+    }
+    if (rendered.size > 0) {
+      out = out.replace(
+        /<p[^>]*>\s*(\[\[table=[^\]]*\]\])\s*<\/p>/g,
+        (m, tok: string) => rendered.get(tok) ?? m,
+      )
+      out = out.replace(TABLE_TOKEN, (m) => rendered.get(m) ?? m)
+      tail += `<style>${TABLE_EMBED_CSS}</style><script>${TABLE_EMBED_JS}</script>`
+    }
+  }
+
+  return out + tail
 }
 
 function parseSocialLinks(raw: string): SocialLink[] {

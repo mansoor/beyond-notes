@@ -2,8 +2,12 @@ import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   ArchivedPageView,
+  ArchivedTableView,
   AuthStatus,
   BacklinkView,
+  DatabaseView,
+  DbRowView,
+  DbTableView,
   DocumentView,
   GalleryItemView,
   InviteView,
@@ -30,28 +34,41 @@ import type {
 } from '@bn/schema'
 import {
   acceptInviteInput,
+  archiveTableInput,
   captureMemoInput,
   changePasswordInput,
+  createDatabaseInput,
   createDayNoteInput,
   createInviteInput,
   createPageInput,
   createReminderInput,
   createSpaceInput,
+  createTableInput,
   createTemplateInput,
   createWebhookInput,
+  deleteDatabaseInput,
+  deleteRowInput,
+  deleteTableInput,
+  duplicateTableInput,
+  insertRowInput,
   journalDayInput,
   journalMonthInput,
   loginInput,
   movePageInput,
+  moveTableInput,
   ntfySettings,
   pageTagInput,
   promoteToJournalInput,
   promoteToNoteInput,
   promoteToTaskInput,
   quickAddTaskInput,
+  recaptchaSettings,
+  renameDatabaseInput,
   renamePageInput,
+  renameTableInput,
   requestPasswordResetInput,
   resetPasswordInput,
+  restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
   setPageTypeInput,
@@ -60,11 +77,14 @@ import {
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  updateFormInput,
   updateMemoInput,
   updatePageOptionsInput,
   updateProfileInput,
   updatePublishingInput,
   updateReminderInput,
+  updateRowInput,
+  updateTableColumnsInput,
   updateTaskInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
@@ -74,7 +94,17 @@ import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
-import type { InviteRow, PageRow, SpaceRow, UserRow, WebhookRow } from './repo'
+import type {
+  DbDatabaseRow,
+  DbRowRow,
+  DbTableRow,
+  InviteRow,
+  PageRow,
+  SpaceRow,
+  UserRow,
+  WebhookRow,
+} from './repo'
+import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
@@ -139,6 +169,12 @@ function rethrow(err: unknown): never {
             ? 'CONFLICT'
             : 'BAD_REQUEST'
     throw new TRPCError({ code, message: err.message })
+  }
+  if (err instanceof TablesError) {
+    throw new TRPCError({
+      code: err.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+      message: err.message,
+    })
   }
   throw err
 }
@@ -1092,6 +1128,11 @@ const settingsRouter = router({
     return ctx.settings.view()
   }),
 
+  saveRecaptcha: adminProcedure.input(recaptchaSettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveRecaptcha(input)
+    return ctx.settings.view()
+  }),
+
   saveStorage: adminProcedure.input(storageSettings).mutation(async ({ ctx, input }) => {
     if (input.driver === 's3') {
       // probe before committing: a bad bucket must fail the save, not the
@@ -1379,6 +1420,218 @@ const galleryRouter = router({
     }),
 })
 
+function parseColumns(raw: string): DbTableView['columns'] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function parseForm(raw: string | null): DbTableView['form'] {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function toDatabaseView(row: DbDatabaseRow): DatabaseView {
+  return {
+    id: row.id,
+    name: row.name,
+    personal: row.ownerId !== null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+function toDbTableView(row: DbTableRow): DbTableView {
+  return {
+    id: row.id,
+    databaseId: row.databaseId,
+    name: row.name,
+    description: row.description || null,
+    columns: parseColumns(row.columns),
+    form: parseForm(row.form),
+    archived: row.archivedAt !== null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+function toDbRowView(row: DbRowRow): DbRowView {
+  let cells: DbRowView['cells']
+  try {
+    const parsed = JSON.parse(row.cells)
+    cells = parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    cells = {}
+  }
+  return {
+    id: row.id,
+    tableId: row.tableId,
+    cells,
+    source: row.source,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+const databasesRouter = router({
+  list: authedProcedure.query(async ({ ctx }) =>
+    (await ctx.tables.listDatabases(ctx.user)).map(toDatabaseView),
+  ),
+  create: authedProcedure.input(createDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDatabaseView(await ctx.tables.createDatabase(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rename: authedProcedure.input(renameDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.renameDatabase(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  delete: authedProcedure.input(deleteDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.deleteDatabase(ctx.user, input.databaseId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
+const tablesRouter = router({
+  list: authedProcedure.query(async ({ ctx }) =>
+    (await ctx.tables.listTables(ctx.user)).map(toDbTableView),
+  ),
+  get: authedProcedure.input(z.object({ tableId: z.string() })).query(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.getTable(ctx.user, input.tableId))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  create: authedProcedure.input(createTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.createTable(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rename: authedProcedure.input(renameTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.renameTable(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  updateColumns: authedProcedure.input(updateTableColumnsInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.tables.updateColumns(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  updateForm: authedProcedure.input(updateFormInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.tables.updateForm(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  duplicate: authedProcedure.input(duplicateTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.duplicateTable(ctx.user, input.tableId))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  move: authedProcedure.input(moveTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.moveTable(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  archive: authedProcedure.input(archiveTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.archiveTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  restore: authedProcedure.input(restoreTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.restoreTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  archived: authedProcedure.query(async ({ ctx }): Promise<ArchivedTableView[]> => {
+    const rows = await ctx.tables.listArchivedTables(ctx.user)
+    return rows.map(({ table, database }) => ({
+      id: table.id,
+      name: table.name,
+      databaseName: database.name,
+      archivedAt: (table.archivedAt as Date).toISOString(),
+    }))
+  }),
+  delete: authedProcedure.input(deleteTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.deleteTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rows: router({
+    list: authedProcedure.input(z.object({ tableId: z.string() })).query(async ({ ctx, input }) => {
+      try {
+        return (await ctx.tables.listRows(ctx.user, input.tableId)).map(toDbRowView)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    create: authedProcedure.input(insertRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        return toDbRowView(await ctx.tables.insertRow(ctx.user, input))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    update: authedProcedure.input(updateRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.tables.updateRow(ctx.user, input)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    delete: authedProcedure.input(deleteRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.tables.deleteRow(ctx.user, input.rowId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+  }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
@@ -1396,6 +1649,8 @@ export const appRouter = router({
   tags: tagsRouter,
   pins: pinsRouter,
   templates: templatesRouter,
+  databases: databasesRouter,
+  tables: tablesRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

@@ -11,6 +11,7 @@ import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
 import type { SettingsService } from './settings'
+import type { TablesService } from './tables'
 import type { TasksService } from './tasks'
 import type { WebhooksService } from './webhooks'
 
@@ -31,6 +32,7 @@ export type Context = {
   mailer: Mailer
   settings: SettingsService
   webhooks: WebhooksService
+  tables: TablesService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -48,6 +50,7 @@ export function makeCreateContext(deps: {
   mailer: Mailer
   settings: SettingsService
   webhooks: WebhooksService
+  tables: TablesService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

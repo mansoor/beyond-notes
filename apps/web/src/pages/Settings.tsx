@@ -378,6 +378,7 @@ function NotificationsTab(props: { isAdmin: boolean }) {
         <>
           <SmtpCard />
           <NtfyCard />
+          <RecaptchaCard />
         </>
       ) : (
         <Card title="Push (ntfy)">
@@ -628,6 +629,56 @@ function NtfyCard() {
           </p>
         )}
         <SubmitButton label="Save ntfy" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+function RecaptchaCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveRecaptcha.useMutation()
+  const s = settings.data?.recaptcha
+  const [form, setForm] = useState({ siteKey: '', secretKey: '' })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  if (s && !loaded) {
+    setForm({ siteKey: s.siteKey, secretKey: '' })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setForm((f) => ({ ...f, secretKey: '' }))
+    setDone(true)
+  })
+
+  return (
+    <Card title="Form spam protection (Google reCAPTCHA)">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Optional. Add your reCAPTCHA v2 keys to offer it as a form&apos;s spam protection. Forms set
+        to reCAPTCHA fall back to the built-in math challenge until these are filled in. reCAPTCHA
+        loads Google&apos;s script on your published pages.
+      </p>
+      <form onSubmit={onSubmit}>
+        <Field
+          label="Site key"
+          value={form.siteKey}
+          onChange={(v) => setForm({ ...form, siteKey: v })}
+        />
+        <Field
+          label={`Secret key${s?.hasSecret ? ' (leave blank to keep current)' : ''}`}
+          type="password"
+          value={form.secretKey}
+          onChange={(v) => setForm({ ...form, secretKey: v })}
+        />
+        <ErrorNote message={error} />
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved.
+          </p>
+        )}
+        <SubmitButton label="Save reCAPTCHA" busy={busy} />
       </form>
     </Card>
   )

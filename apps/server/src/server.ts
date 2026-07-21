@@ -9,6 +9,7 @@ import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
 import { createDynamicBlobStore } from './blobstore-dynamic'
+import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
@@ -29,9 +30,28 @@ import {
 } from './scheduler'
 import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
+import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 import { createWebhooksService } from './webhooks'
+
+function escapeText(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** No-JS fallback page returned when a form is submitted without the fetch
+ *  enhancement (a plain browser POST). */
+function formResultPage(ok: boolean, message: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${
+    ok ? 'Thank you' : 'There was a problem'
+  }</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1.25rem;line-height:1.6;color:#222}a{color:#2b6cb0}</style></head><body><p>${escapeText(
+    message,
+  )}</p><p><a href="javascript:history.back()">← Go back</a></p></body></html>`
+}
 
 export async function buildServer(config: Config, appDb: AppDb) {
   const server = Fastify({ logger: config.NODE_ENV !== 'test' })
@@ -47,11 +67,16 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
-  const publicSrv = createPublicServer(repo, publishing)
+  const publicSrv = createPublicServer(repo, publishing, {
+    captchaSecret: secretsKey,
+    recaptchaSiteKey: () => settings.effectiveRecaptcha()?.siteKey ?? null,
+    now: () => Date.now(),
+  })
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
   const webhooks = createWebhooksService(repo, daily)
+  const tables = createTablesService(repo)
 
   const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
 
@@ -185,6 +210,114 @@ export async function buildServer(config: Config, appDb: AppDb) {
     return { ok: true, target: result.target }
   })
 
+  // Public form intake: an embedded [[form:<tableId>]] posts here. Native form
+  // posts (and the fetch enhancement) both arrive url-encoded.
+  server.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(body as string)))
+      } catch (err) {
+        done(err as Error)
+      }
+    },
+  )
+  // Per-IP rate limit for public submissions — in-memory is correct here (the
+  // app is a single process by design, like the scheduler's CAS).
+  const formHits = new Map<string, number[]>()
+  const FORM_WINDOW_MS = 10 * 60 * 1000
+  const FORM_MAX = 8
+  const allowForm = (ip: string): boolean => {
+    const cutoff = Date.now() - FORM_WINDOW_MS
+    const hits = (formHits.get(ip) ?? []).filter((t) => t > cutoff)
+    if (hits.length >= FORM_MAX) {
+      formHits.set(ip, hits)
+      return false
+    }
+    hits.push(Date.now())
+    formHits.set(ip, hits)
+    return true
+  }
+  server.post('/api/forms/:tableId', async (req: any, reply) => {
+    const wantsJson = String(req.headers.accept ?? '').includes('application/json')
+    const body: Record<string, unknown> = req.body && typeof req.body === 'object' ? req.body : {}
+    const respond = (ok: boolean, opts: { code?: number; message?: string } = {}) => {
+      const code = opts.code ?? (ok ? 200 : 400)
+      const message =
+        opts.message ?? (ok ? 'Thanks — your response was received.' : 'Something went wrong.')
+      if (wantsJson) {
+        return reply.code(code).send(ok ? { ok: true, message } : { ok: false, error: message })
+      }
+      reply.code(code).type('text/html; charset=utf-8')
+      return reply.send(formResultPage(ok, message))
+    }
+    // honeypot: a real person never fills the hidden field; pretend success
+    if (String(body._website ?? '').trim() !== '') return respond(true)
+    if (!allowForm(req.ip)) {
+      return respond(false, { code: 429, message: 'Too many submissions. Please try again later.' })
+    }
+    const rc = settings.effectiveRecaptcha()
+    try {
+      const { form, database, table, row } = await tables.submitForm(
+        String(req.params.tableId ?? ''),
+        body,
+        {
+          verifyCaptcha: async (f) => {
+            const mode = effectiveCaptchaMode(f.captcha ?? 'none', rc != null)
+            if (mode === 'recaptcha') {
+              return rc
+                ? verifyRecaptcha(rc.secretKey, String(body['g-recaptcha-response'] ?? ''), req.ip)
+                : false
+            }
+            if (mode === 'basic') {
+              return verifyMathChallenge(
+                secretsKey,
+                String(body._captcha ?? ''),
+                String(body._captcha_answer ?? ''),
+                Date.now(),
+              )
+            }
+            return true
+          },
+        },
+      )
+      if (form.notify) {
+        const owner = database.ownerId ? await repo.getUserById(database.ownerId) : null
+        const recipient = owner
+          ? { email: owner.email, emailOptIn: owner.emailNotifications }
+          : null
+        const cols = (() => {
+          try {
+            return JSON.parse(table.columns) as Array<{ id: string; name: string }>
+          } catch {
+            return []
+          }
+        })()
+        const nameById = new Map(cols.map((c) => [c.id, c.name]))
+        const cells = JSON.parse(row.cells) as Record<string, unknown>
+        const summary =
+          form.fields
+            .map((id) => `${nameById.get(id) ?? id}: ${cells[id] ?? ''}`)
+            .join('\n')
+            .slice(0, 1000) || '(no fields)'
+        for (const notifier of notifiers) {
+          try {
+            await notifier.send(`New submission: ${table.name}`, summary, recipient)
+          } catch (err) {
+            server.log.warn(err, 'form submission notify failed')
+          }
+        }
+      }
+      return respond(true, { message: form.successMessage })
+    } catch (err) {
+      if (err instanceof TablesError) {
+        return respond(false, { code: err.code === 'NOT_FOUND' ? 404 : 400, message: err.message })
+      }
+      throw err
+    }
+  })
+
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
@@ -197,6 +330,37 @@ export async function buildServer(config: Config, appDb: AppDb) {
     reply.header('content-disposition', `attachment; filename="${filename}"`)
     reply.type('application/zip')
     return reply.send(data)
+  })
+
+  // one data table as CSV (opens directly in Excel)
+  server.get('/api/export/table/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    try {
+      const { filename, csv } = await tables.exportTableCsv(user, String(req.params.id ?? ''))
+      reply.header('content-disposition', `attachment; filename="${filename}"`)
+      reply.type('text/csv; charset=utf-8')
+      // a UTF-8 BOM so Excel reads non-ASCII correctly
+      return reply.send(`﻿${csv}`)
+    } catch (err) {
+      if (err instanceof TablesError) return reply.code(404).send({ error: 'not found' })
+      throw err
+    }
+  })
+
+  // a whole database as a zip of CSVs (one per table)
+  server.get('/api/export/database/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    try {
+      const { filename, data } = await tables.exportDatabaseZip(user, String(req.params.id ?? ''))
+      reply.header('content-disposition', `attachment; filename="${filename}"`)
+      reply.type('application/zip')
+      return reply.send(data)
+    } catch (err) {
+      if (err instanceof TablesError) return reply.code(404).send({ error: 'not found' })
+      throw err
+    }
   })
 
   // Host-header routing for published sites. Any GET whose Host matches a
@@ -258,6 +422,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         mailer,
         settings,
         webhooks,
+        tables,
       }),
     },
   })
@@ -279,6 +444,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     mailer,
     settings,
     webhooks,
+    tables,
     blobs,
   })
 

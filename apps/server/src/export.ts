@@ -42,6 +42,9 @@ const DATE_COLUMNS: Record<string, string[]> = {
   pageSlugs: ['createdAt'],
   pageTags: [],
   previews: ['createdAt', 'revokedAt'],
+  dbDatabases: ['createdAt', 'updatedAt'],
+  dbTables: ['createdAt', 'updatedAt', 'archivedAt'],
+  dbRows: ['createdAt', 'updatedAt'],
 }
 
 type Dump = {
@@ -92,6 +95,9 @@ export async function exportInstance(
     pageSlugs: await repo.listAllPageSlugRows(),
     pageTags: await repo.listAllPageTagRows(),
     previews: await repo.listAllPreviews(),
+    dbDatabases: await repo.listAllDbDatabases(),
+    dbTables: await repo.listAllDbTables(),
+    dbRows: await repo.listAllDbRows(),
   } as unknown as Dump['tables']
 
   const dump: Dump = {
@@ -195,6 +201,10 @@ export async function importInstance(
   // derived and rebuilds from the documents
   for (const row of rows('pageTags')) await repo.insertPageTagRow(row as never)
   for (const row of rows('previews')) await repo.insertPreview(row as never)
+  // databases -> tables -> rows (FK order: db_tables.database_id, db_rows.table_id)
+  for (const row of rows('dbDatabases')) await repo.insertDbDatabase(row as never)
+  for (const row of rows('dbTables')) await repo.insertDbTable(row as never)
+  for (const row of rows('dbRows')) await repo.insertDbRow(row as never)
   for (const row of rows('documents') as Array<{ pageId: string; content: string }>) {
     await reconcileLinks(repo, row.pageId, row.content)
   }

@@ -1,9 +1,11 @@
 import {
   type NtfySettings,
+  type RecaptchaSettings,
   type ServerSettingsView,
   type SmtpSettings,
   type StorageSettings,
   ntfySettings,
+  recaptchaSettings,
   smtpSettings,
   storageSettings,
 } from '@bn/schema'
@@ -82,6 +84,17 @@ export function createSettingsService(
 
     storage(): StorageSettings | null {
       return parse('storage', storageSettings)
+    },
+
+    recaptcha(): RecaptchaSettings | null {
+      return parse('recaptcha', recaptchaSettings)
+    },
+
+    /** Effective reCAPTCHA keys, or null when not fully configured. */
+    effectiveRecaptcha(): { siteKey: string; secretKey: string } | null {
+      const db = this.recaptcha()
+      if (db?.siteKey && db.secretKey) return { siteKey: db.siteKey, secretKey: db.secretKey }
+      return null
     },
 
     /** Effective SMTP config: filled-in DB group first, env second, else null. */
@@ -164,6 +177,7 @@ export function createSettingsService(
             }
           : {}),
       }
+      const recaptcha = this.recaptcha() ?? recaptchaSettings.parse({})
       const { pass: _p, ...smtpRest } = smtp
       const { s3SecretKey: _s, ...storageRest } = storage
       const mail = this.effectiveSmtp()
@@ -175,6 +189,7 @@ export function createSettingsService(
           ...storageRest,
           hasSecret: Boolean(storage.s3SecretKey || config.S3_SECRET_KEY),
         },
+        recaptcha: { siteKey: recaptcha.siteKey, hasSecret: Boolean(recaptcha.secretKey) },
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',
       }
@@ -195,6 +210,14 @@ export function createSettingsService(
       await this.put('storage', {
         ...input,
         s3SecretKey: input.s3SecretKey || prev?.s3SecretKey || config.S3_SECRET_KEY || '',
+      })
+    },
+
+    async saveRecaptcha(input: RecaptchaSettings): Promise<void> {
+      const prev = this.recaptcha()
+      await this.put('recaptcha', {
+        ...input,
+        secretKey: input.secretKey || prev?.secretKey || '',
       })
     },
   }

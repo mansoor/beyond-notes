@@ -3,8 +3,16 @@ import { pageTypesByCategory, socialPlatform } from '@bn/schema'
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
-import { ErrorNote, Field, Modal, PageIcon, SubmitButton, useSubmit } from './components'
+import { useRef, useState } from 'react'
+import {
+  ErrorNote,
+  Field,
+  Modal,
+  PageIcon,
+  SubmitButton,
+  useMenuAnchor,
+  useSubmit,
+} from './components'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -35,6 +43,14 @@ export function SpacesNav() {
 
   return (
     <div className="flex flex-col gap-4">
+      <button
+        type="button"
+        onClick={() => setCreating(true)}
+        className="text-left text-sm px-2 py-1 rounded"
+        style={{ color: 'var(--text-3)' }}
+      >
+        ＋ New space
+      </button>
       {groups.map((cat) => {
         const inGroup = spaces.data?.filter((s) => s.category === cat) ?? []
         if (inGroup.length === 0) return null
@@ -52,14 +68,6 @@ export function SpacesNav() {
           </div>
         )
       })}
-      <button
-        type="button"
-        onClick={() => setCreating(true)}
-        className="text-left text-sm px-2 py-1 rounded"
-        style={{ color: 'var(--text-3)' }}
-      >
-        ＋ New space
-      </button>
       {creating && <NewSpaceModal onClose={() => setCreating(false)} />}
     </div>
   )
@@ -889,10 +897,13 @@ function PageTreeLevel(props: {
 /** The per-page ＋: choose whether the new page is a sibling or a child. */
 function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => void }) {
   const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuStyle = useMenuAnchor(open, btnRef, 128)
   const item = 'block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5'
   return (
     <span className="relative">
       <button
+        ref={btnRef}
         type="button"
         title="Add a page"
         className="text-xs px-0.5"
@@ -902,8 +913,8 @@ function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => 
       </button>
       {open && (
         <div
-          className="absolute right-0 top-5 z-40 w-32 rounded-lg border py-1 text-sm shadow-sm"
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+          className="z-50 rounded-lg border py-1 text-sm shadow-lg"
+          style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
           <button
@@ -965,6 +976,8 @@ function PageMenu(props: {
       ]),
   })
   const navigate = useNavigate()
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuStyle = useMenuAnchor(open, btnRef, 160)
   const duplicate = trpc.pages.duplicate.useMutation({
     onSuccess: (copy) => {
       utils.pages.tree.invalidate({ spaceId: props.page.spaceId })
@@ -974,6 +987,7 @@ function PageMenu(props: {
   return (
     <span className="relative">
       <button
+        ref={btnRef}
         type="button"
         className="text-xs px-0.5"
         title="Page menu"
@@ -983,8 +997,8 @@ function PageMenu(props: {
       </button>
       {open && (
         <div
-          className="absolute right-0 top-5 z-40 w-40 rounded-lg border py-1 text-sm shadow-sm"
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+          className="z-50 rounded-lg border py-1 text-sm shadow-lg"
+          style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
           {(['rename', 'move'] as const).map((kind) => (

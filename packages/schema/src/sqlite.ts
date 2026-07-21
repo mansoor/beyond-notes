@@ -334,3 +334,51 @@ export const pins = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )
+
+// ---- data (lightweight structured data / forms) ----
+// A database is the container level; tables live under it and inherit its
+// visibility. Column definitions live in the `columns` JSON array (each carries
+// a stable id); a row's cells key by column id. No runtime DDL — a fixed trio.
+export const dbDatabases = sqliteTable('db_databases', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id),
+  name: text('name').notNull(),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const dbTables = sqliteTable('db_tables', {
+  id: text('id').primaryKey(),
+  databaseId: text('database_id')
+    .notNull()
+    .references(() => dbDatabases.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  // JSON array of {id,name,type,required,choices}
+  columns: text('columns').notNull().default('[]'),
+  // JSON form config (the public intake projection); null = no form
+  form: text('form'),
+  position: integer('position').notNull().default(0),
+  // archive: soft-hide from the sidebar; restore from the Archive view
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  archivedBy: text('archived_by'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const dbRows = sqliteTable('db_rows', {
+  id: text('id').primaryKey(),
+  tableId: text('table_id')
+    .notNull()
+    .references(() => dbTables.id, { onDelete: 'cascade' }),
+  // JSON object of cell values keyed by column id
+  cells: text('cells').notNull().default('{}'),
+  // where the row came from: hand-entered in the grid, or a public form submit
+  source: text('source', { enum: ['manual', 'form'] })
+    .notNull()
+    .default('manual'),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
