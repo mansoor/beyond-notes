@@ -27,6 +27,46 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // resizable sidebar: width persists per browser, clamped so it can neither
+  // vanish nor swallow the page. The handle sits on the sidebar's right edge,
+  // so the width is just the pointer's x.
+  const SIDEBAR_MIN = 180
+  const SIDEBAR_MAX = 600
+  const [sidebarW, setSidebarW] = useState(() => {
+    const v = Number(localStorage.getItem('bn-sidebar-w'))
+    return v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 256
+  })
+  const dragging = useRef(false)
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current) return
+      setSidebarW(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX)))
+    }
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+  useEffect(() => {
+    try {
+      localStorage.setItem('bn-sidebar-w', String(sidebarW))
+    } catch {}
+  }, [sidebarW])
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+  }
+
   const cycleTheme = () => {
     const next = nextTheme(theme)
     applyTheme(next)
@@ -36,8 +76,8 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   return (
     <div className="min-h-screen flex">
       <aside
-        className="w-64 shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0"
-        style={{ background: 'var(--sidebar)', borderColor: 'var(--border)' }}
+        className="shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0"
+        style={{ width: sidebarW, background: 'var(--sidebar)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 px-1">
           <span
@@ -86,6 +126,14 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 
         <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
       </aside>
+
+      {/* drag to resize the sidebar */}
+      <div
+        onPointerDown={startResize}
+        title="Drag to resize the sidebar"
+        className="shrink-0 sticky top-0 h-screen z-10 hover:bg-[var(--accent-soft)]"
+        style={{ width: 5, marginLeft: -3, cursor: 'col-resize' }}
+      />
 
       <main className="flex-1 min-w-0">{props.children}</main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}

@@ -162,6 +162,53 @@ for (const dialect of dialects) {
       await appDb.close()
     })
 
+    it('editing a reminder rewrites fields, reschedules, and revives it', async () => {
+      const { appDb, repo, reminders, scheduler, clock, user } = await setup()
+      const r = await reminders.create(user, {
+        title: 'Dentist',
+        icon: null,
+        dueDate: '2026-08-01',
+        dueTime: null,
+        freq: null,
+        interval: 1,
+        headsUpDays: null,
+      })
+      // wrong date + no icon → fix both, add a cake, move it earlier
+      await reminders.update(user, {
+        id: r.id,
+        title: "Alex's birthday",
+        icon: '🎂',
+        dueDate: '2026-07-25',
+        dueTime: '09:00',
+        freq: 'yearly',
+        interval: 1,
+        headsUpDays: 3,
+      })
+      const row = await repo.getReminder(r.id)
+      expect(row?.title).toBe("Alex's birthday")
+      expect(row?.icon).toBe('🎂')
+      expect(row?.dueDate).toBe('2026-07-25')
+      expect(row?.freq).toBe('yearly')
+
+      // the new due + heads-up are what fire, and the old schedule is gone
+      clock.value = new Date(2026, 6, 22, 12, 0) // heads-up day (25th - 3)
+      expect(await scheduler.runOnce()).toBe(1)
+
+      // editing a completed reminder brings it back
+      await reminders.update(user, {
+        id: r.id,
+        title: "Alex's birthday",
+        icon: '🎂',
+        dueDate: '2027-07-25',
+        dueTime: null,
+        freq: 'yearly',
+        interval: 1,
+        headsUpDays: null,
+      })
+      expect((await repo.getReminder(r.id))?.completedAt).toBeNull()
+      await appDb.close()
+    })
+
     it('notifier failures retry, then mark the job failed', async () => {
       const { appDb, repo, reminders, clock, user } = await setup()
       let calls = 0

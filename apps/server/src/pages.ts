@@ -286,6 +286,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         shareEnabled: false,
         coverAttachmentId: null,
         metaDescription: null,
+        icon: null,
         archivedAt: null,
         archivedBy: null,
         trashedAt: null,
@@ -319,6 +320,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         shareEnabled?: boolean
         coverAttachmentId?: string | null
         metaDescription?: string | null
+        icon?: string | null
       },
     ): Promise<void> {
       await requirePage(input.pageId, user)
@@ -332,6 +334,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       if (input.metaDescription !== undefined) {
         patch.metaDescription = input.metaDescription?.trim() || null
       }
+      if (input.icon !== undefined) patch.icon = input.icon?.trim() || null
       await repo.updatePage(input.pageId, patch)
     },
 

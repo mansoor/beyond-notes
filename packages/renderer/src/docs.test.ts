@@ -73,6 +73,49 @@ describe('heading anchors + TOC', () => {
     expect(two).toContain('href="#one"')
     expect(two).toContain('class="lvl3"')
   })
+
+  it('always reserves the TOC column so pages do not shift', () => {
+    const base = {
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<p>x</p>',
+      nav: [],
+      basePath: '',
+    }
+    // no headings, one heading, many headings — the aside is present every time
+    expect(docsShell(base)).toContain('<aside class="toc">')
+    expect(docsShell({ ...base, toc: [{ level: 2, text: 'Only', id: 'only' }] })).toContain(
+      '<aside class="toc">',
+    )
+  })
+
+  it('centers search and shows socials in the header only when social links exist', () => {
+    const base = {
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<p>x</p>',
+      nav: [],
+      basePath: '',
+    }
+    const plain = docsShell(base)
+    expect(plain).not.toContain('<header class="hassocial">')
+    expect(plain).not.toContain('class="socials"')
+
+    const withSocial = docsShell({
+      ...base,
+      social: [
+        { platform: 'github', url: 'https://github.com/acme' },
+        { platform: 'x', url: 'https://x.com/acme' },
+      ],
+    })
+    expect(withSocial).toContain('<header class="hassocial">')
+    expect(withSocial).toContain('class="socials"')
+    expect(withSocial).toContain('https://github.com/acme')
+    // the search box is still there, now centered
+    expect(withSocial).toContain('name="q"')
+  })
 })
 
 describe('docs chrome', () => {
@@ -126,6 +169,49 @@ describe('docs chrome', () => {
   it('noindex only when asked', () => {
     expect(docsShell(base)).not.toContain('noindex')
     expect(docsShell({ ...base, noindex: true })).toContain('content="noindex"')
+  })
+
+  it('renders per-page icons and puts the twisty after the link (readme-style)', () => {
+    const html = docsShell({
+      ...base,
+      nav: [
+        {
+          title: 'Parent',
+          path: '/parent',
+          icon: '📘',
+          children: [{ title: 'Child', path: '/parent/child', children: [] }],
+        },
+        { title: 'Leaf', path: '/leaf', icon: '📄', children: [] },
+      ],
+    })
+    // the icon sits before the title
+    expect(html).toContain('<span class="ico">📘</span>')
+    expect(html).toContain('<span class="ico">📄</span>')
+    // in a parent row the link precedes the twisty (arrow on the right edge)
+    const grp = /<span class="grp">[\s\S]*?<\/span>\s*<ul>/.exec(html)?.[0] ?? ''
+    expect(grp.indexOf('<a ')).toBeGreaterThanOrEqual(0)
+    expect(grp.indexOf('<a ')).toBeLessThan(grp.indexOf('<button'))
+  })
+
+  it('renders Material Symbols names via the font, and loads it only when used', () => {
+    const withMaterial = docsShell({
+      ...base,
+      nav: [{ title: 'Home', path: '/home', icon: 'rocket_launch', children: [] }],
+    })
+    // material name → msym class + the self-hosted @font-face is injected
+    expect(withMaterial).toContain('<span class="ico msym">rocket_launch</span>')
+    expect(withMaterial).toContain('/api/assets/material-symbols.woff2')
+
+    // an emoji icon stays literal and does NOT pull in the 4MB font
+    const withEmoji = docsShell({
+      ...base,
+      nav: [{ title: 'Home', path: '/home', icon: '🏠', children: [] }],
+    })
+    expect(withEmoji).toContain('<span class="ico">🏠</span>')
+    expect(withEmoji).not.toContain('material-symbols.woff2')
+
+    // no icons at all → no font either
+    expect(docsShell(base)).not.toContain('material-symbols.woff2')
   })
 })
 

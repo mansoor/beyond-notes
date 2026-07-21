@@ -53,8 +53,34 @@ describe('extractTasks (pure)', () => {
     ])
     const tasks = extractTasks(content)
     expect(tasks).toEqual([
-      { blockId: 't1', text: 'Renew insurance @2026-07-21', checked: false, due: '2026-07-21' },
-      { blockId: 't2', text: 'nested done', checked: true, due: null },
+      {
+        blockId: 't1',
+        text: 'Renew insurance @2026-07-21',
+        checked: false,
+        due: '2026-07-21',
+        dueTime: null,
+      },
+      { blockId: 't2', text: 'nested done', checked: true, due: null, dueTime: null },
+    ])
+  })
+
+  it('reads a time off a @dateTHH:MM token', () => {
+    const content = JSON.stringify([
+      {
+        id: 't1',
+        type: 'checkListItem',
+        props: { checked: false },
+        content: [{ type: 'text', text: 'Call the bank @2026-08-01T14:30', styles: {} }],
+      },
+    ])
+    expect(extractTasks(content)).toEqual([
+      {
+        blockId: 't1',
+        text: 'Call the bank @2026-08-01T14:30',
+        checked: false,
+        due: '2026-08-01',
+        dueTime: '14:30',
+      },
     ])
   })
 
@@ -219,6 +245,77 @@ for (const dialect of dialects) {
       const adminTask = adminAgenda[0]
       if (!adminTask) throw new Error('missing task')
       await expect(tasks.toggle(member, adminTask.task.id, true)).rejects.toThrow('not found')
+      await appDb.close()
+    })
+
+    it('editing a task rewrites its text and due, preserving the checked state', async () => {
+      const { appDb, daily, tasks, admin } = await setup()
+      // the user typed a due date in the wrong format — no due was parsed
+      await daily.quickAddTask(admin, 'call plumber on 8/1')
+      let agenda = await tasks.agenda(admin)
+      const t = agenda[0]
+      if (!t) throw new Error('missing task')
+      expect(t.task.due).toBeNull()
+
+      // fix the text and set a real due date
+      await tasks.edit(admin, t.task.id, 'Call the plumber', '2026-08-01')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.text).toBe('Call the plumber @2026-08-01')
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+
+      // check it, then edit again — the checkbox state survives the rewrite
+      await tasks.toggle(admin, t.task.id, true)
+      await tasks.edit(admin, t.task.id, 'Call the plumber back', '2026-08-02')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.checked).toBe(true)
+      expect(agenda[0]?.task.due).toBe('2026-08-02')
+      expect(agenda[0]?.task.text).not.toContain('@2026-08-01') // old token gone
+
+      // clearing the due date drops the token entirely
+      await tasks.edit(admin, t.task.id, 'Call the plumber back', null)
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBeNull()
+      expect(agenda[0]?.task.text).toBe('Call the plumber back')
+      await appDb.close()
+    })
+
+    it('a task carries an optional time-of-day, dropped when the date is cleared', async () => {
+      const { appDb, daily, tasks, admin } = await setup()
+      await daily.quickAddTask(admin, 'Call the bank')
+      let agenda = await tasks.agenda(admin)
+      const t = agenda[0]
+      if (!t) throw new Error('missing task')
+
+      // set a date and a time
+      await tasks.edit(admin, t.task.id, 'Call the bank', '2026-08-01', '14:30')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+      expect(agenda[0]?.task.dueTime).toBe('14:30')
+      expect(agenda[0]?.task.text).toContain('@2026-08-01T14:30')
+
+      // drop just the time, keep the date
+      await tasks.edit(admin, t.task.id, 'Call the bank', '2026-08-01', null)
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+      expect(agenda[0]?.task.dueTime).toBeNull()
+      expect(agenda[0]?.task.text).toBe('Call the bank @2026-08-01')
+
+      // a time without a date is meaningless — clearing the date drops both
+      await tasks.edit(admin, t.task.id, 'Call the bank', null, '14:30')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBeNull()
+      expect(agenda[0]?.task.dueTime).toBeNull()
+      await appDb.close()
+    })
+
+    it('editing a memo rewrites it; a promoted memo refuses', async () => {
+      const { appDb, daily, admin } = await setup()
+      const memo = await daily.capture(admin, 'by milk')
+      await daily.updateMemo(admin, memo.id, 'buy milk')
+      expect((await daily.listMemos(admin))[0]?.content).toBe('buy milk')
+
+      await daily.promoteToTask(admin, memo.id)
+      await expect(daily.updateMemo(admin, memo.id, 'too late')).rejects.toThrow('already moved')
       await appDb.close()
     })
   })

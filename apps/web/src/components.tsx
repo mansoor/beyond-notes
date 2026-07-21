@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { MATERIAL_ICONS } from './material-icons'
 
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (
@@ -137,6 +138,224 @@ export function Modal(props: {
       </dialog>
     </div>,
     document.body,
+  )
+}
+
+// ---- iOS-alarm-style time wheel ----
+//
+// Two scroll-snap columns (hours, minutes); the row sitting in the centre band
+// is the value. Scrolling settles onto a row and reports it up. Value is 'HH:MM'.
+
+const ROW = 34
+const VISIBLE = 5 // odd, so exactly one row is centred
+const PAD = ((VISIBLE - 1) / 2) * ROW
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+
+function WheelColumn(props: {
+  values: string[]
+  index: number
+  onIndex: (i: number) => void
+  ariaLabel: string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // keep the scroll position pinned to the selected row; re-runs when the value
+  // changes from outside (and harmlessly no-ops when the user's own scroll set it)
+  useEffect(() => {
+    const el = ref.current
+    if (el && Math.round(el.scrollTop / ROW) !== props.index) el.scrollTop = props.index * ROW
+  }, [props.index])
+
+  const onScroll = () => {
+    const el = ref.current
+    if (!el) return
+    if (settle.current) clearTimeout(settle.current)
+    settle.current = setTimeout(() => {
+      const i = Math.max(0, Math.min(props.values.length - 1, Math.round(el.scrollTop / ROW)))
+      if (i !== props.index) props.onIndex(i)
+    }, 110)
+  }
+
+  return (
+    <div
+      ref={ref}
+      onScroll={onScroll}
+      aria-label={props.ariaLabel}
+      className="relative overflow-y-auto [&::-webkit-scrollbar]:hidden"
+      style={{ height: VISIBLE * ROW, scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
+    >
+      <div style={{ height: PAD }} />
+      {props.values.map((v, i) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => ref.current?.scrollTo({ top: i * ROW, behavior: 'smooth' })}
+          className="flex w-full items-center justify-center"
+          style={{
+            height: ROW,
+            scrollSnapAlign: 'center',
+            fontVariantNumeric: 'tabular-nums',
+            color: i === props.index ? 'var(--text)' : 'var(--text-3)',
+            fontWeight: i === props.index ? 650 : 400,
+            fontSize: i === props.index ? 19 : 15,
+            opacity: Math.abs(i - props.index) >= 2 ? 0.4 : 1,
+            transition: 'color .1s, font-size .1s, opacity .1s',
+          }}
+        >
+          {v}
+        </button>
+      ))}
+      <div style={{ height: PAD }} />
+    </div>
+  )
+}
+
+export function TimeWheel(props: { value: string; onChange: (v: string) => void }) {
+  const [h = '00', m = '00'] = props.value.split(':')
+  const hi = Math.max(0, HOURS.indexOf(h))
+  const mi = Math.max(0, MINUTES.indexOf(m))
+  return (
+    <div className="relative flex justify-center gap-1 select-none">
+      {/* the highlighted centre band the chosen row sits in */}
+      <div
+        className="pointer-events-none absolute left-0 right-0 rounded-lg"
+        style={{ top: PAD, height: ROW, background: 'var(--accent-soft)' }}
+      />
+      <WheelColumn
+        values={HOURS}
+        index={hi}
+        ariaLabel="Hour"
+        onIndex={(i) => props.onChange(`${HOURS[i]}:${MINUTES[mi]}`)}
+      />
+      <span
+        className="flex items-center font-semibold"
+        style={{ height: VISIBLE * ROW, color: 'var(--text-2)' }}
+      >
+        :
+      </span>
+      <WheelColumn
+        values={MINUTES}
+        index={mi}
+        ariaLabel="Minute"
+        onIndex={(i) => props.onChange(`${HOURS[hi]}:${MINUTES[i]}`)}
+      />
+    </div>
+  )
+}
+
+// A page icon is stored as a Material Symbols ligature name (lowercase, digits,
+// underscores). Legacy emoji values render as-is for backward compatibility.
+const MATERIAL_NAME = /^[a-z0-9_]+$/
+
+/** Render a page-icon value: a Material Symbols glyph, or a literal emoji. */
+export function PageIcon(props: { icon: string; className?: string; style?: React.CSSProperties }) {
+  if (MATERIAL_NAME.test(props.icon)) {
+    return (
+      <span className={`msym ${props.className ?? ''}`} style={props.style} aria-hidden>
+        {props.icon}
+      </span>
+    )
+  }
+  return (
+    <span className={props.className} style={props.style}>
+      {props.icon}
+    </span>
+  )
+}
+
+/**
+ * Icon picker: type to search the full Material Symbols set, click to choose.
+ * The popover anchors to the right edge so it never spills off the rail.
+ */
+export function IconPicker(props: { value: string | null; onPick: (v: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const results = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    const list = term ? MATERIAL_ICONS.filter((n) => n.includes(term)) : MATERIAL_ICONS
+    return list.slice(0, 90)
+  }, [q])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          title="Choose an icon"
+          className="w-9 h-9 rounded-lg border flex items-center justify-center text-xl leading-none"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+        >
+          {props.value ? <PageIcon icon={props.value} /> : '＋'}
+        </button>
+        {props.value && (
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => props.onPick(null)}
+          >
+            remove
+          </button>
+        )}
+        <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Shown in the sidebar &amp; published nav
+        </span>
+      </div>
+      {open && (
+        <div
+          className="absolute right-0 z-40 mt-1 rounded-lg border shadow-lg"
+          style={{ width: 256, background: 'var(--panel)', borderColor: 'var(--border)' }}
+        >
+          <input
+            // biome-ignore lint/a11y/noAutofocus: opening the picker to type is the whole point
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search icons…"
+            className="w-full rounded-t-lg border-b px-3 py-2 text-sm outline-none"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          />
+          <div
+            className="grid gap-0.5 p-2 overflow-y-auto"
+            style={{ gridTemplateColumns: 'repeat(6, 1fr)', maxHeight: 208 }}
+          >
+            {results.map((name) => (
+              <button
+                key={name}
+                type="button"
+                title={name}
+                className="h-8 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10"
+                style={{ outline: props.value === name ? '2px solid var(--accent)' : undefined }}
+                onClick={() => {
+                  props.onPick(name)
+                  setOpen(false)
+                }}
+              >
+                <PageIcon icon={name} style={{ fontSize: 20 }} />
+              </button>
+            ))}
+            {results.length === 0 && (
+              <p className="col-span-6 text-xs px-1 py-2" style={{ color: 'var(--text-3)' }}>
+                No icons match “{q}”.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

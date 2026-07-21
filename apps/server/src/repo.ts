@@ -63,6 +63,7 @@ export type PageRow = {
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
+  icon: string | null
   archivedAt: Date | null
   archivedBy: string | null
   trashedAt: Date | null
@@ -129,6 +130,7 @@ export type ReminderRow = {
   id: string
   userId: string
   title: string
+  icon: string | null
   dueDate: string
   dueTime: string | null
   freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | null
@@ -166,6 +168,7 @@ export type TaskRow = {
   text: string
   checked: boolean
   due: string | null
+  dueTime: string | null
   position: number
   updatedAt: Date
 }
@@ -380,6 +383,7 @@ export function createRepo(appDb: AppDb) {
           | 'galleryAutoplaySecs'
           | 'shareEnabled'
           | 'coverAttachmentId'
+          | 'icon'
         >
       >,
     ): Promise<void> {
@@ -563,6 +567,10 @@ export function createRepo(appDb: AppDb) {
       await db.delete(t.memos).where(eq(t.memos.id, id))
     },
 
+    async updateMemo(id: string, patch: Partial<Pick<MemoRow, 'content'>>): Promise<void> {
+      await db.update(t.memos).set(patch).where(eq(t.memos.id, id))
+    },
+
     // ---- tasks index ----
 
     async listTasksForPage(pageId: string): Promise<TaskRow[]> {
@@ -584,7 +592,9 @@ export function createRepo(appDb: AppDb) {
 
     async updateTask(
       id: string,
-      patch: Partial<Pick<TaskRow, 'text' | 'checked' | 'due' | 'position' | 'updatedAt'>>,
+      patch: Partial<
+        Pick<TaskRow, 'text' | 'checked' | 'due' | 'dueTime' | 'position' | 'updatedAt'>
+      >,
     ): Promise<void> {
       await db.update(t.tasks).set(patch).where(eq(t.tasks.id, id))
     },
@@ -690,7 +700,19 @@ export function createRepo(appDb: AppDb) {
 
     async updateReminder(
       id: string,
-      patch: Partial<Pick<ReminderRow, 'dueDate' | 'completedAt'>>,
+      patch: Partial<
+        Pick<
+          ReminderRow,
+          | 'title'
+          | 'icon'
+          | 'dueDate'
+          | 'dueTime'
+          | 'freq'
+          | 'interval'
+          | 'headsUpDays'
+          | 'completedAt'
+        >
+      >,
     ): Promise<void> {
       await db.update(t.reminders).set(patch).where(eq(t.reminders.id, id))
     },

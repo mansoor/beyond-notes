@@ -26,6 +26,13 @@ export function DocumentEditor(props: {
   doc: DocumentView
   onReload: () => void
   onStateChange?: (s: SaveState) => void
+  /**
+   * The document JSON just written, handed back after each successful save.
+   * Lets a sibling (e.g. the mermaid preview) reflect saved content without
+   * re-fetching the page — a refetch would bump doc.updatedAt, change this
+   * editor's remount key, and throw away the cursor mid-typing.
+   */
+  onSaved?: (content: string) => void
 }) {
   const save = trpc.pages.saveDoc.useMutation()
   const utils = trpc.useUtils()
@@ -64,13 +71,15 @@ export function DocumentEditor(props: {
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(async () => {
       try {
+        const content = JSON.stringify(editor.document)
         const res = await save.mutateAsync({
           pageId: props.pageId,
-          content: JSON.stringify(editor.document),
+          content,
           baseUpdatedAt: baseRef.current,
         })
         baseRef.current = res.updatedAt
         setState('saved')
+        props.onSaved?.(content)
       } catch (err) {
         const message = err instanceof Error ? err.message : ''
         setState(message.includes('another window') ? 'conflict' : 'error')

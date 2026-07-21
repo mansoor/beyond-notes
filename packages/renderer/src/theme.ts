@@ -1,4 +1,4 @@
-import { CHROME_JS, GALLERY_CSS } from './chrome'
+import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
 import { type TocEntry, escapeHtml } from './render'
 import type { SiteMeta } from './site'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
@@ -7,6 +7,8 @@ export type NavNode = {
   title: string
   path: string
   active?: boolean
+  /** a single emoji shown before the title in the sidebar */
+  icon?: string | null
   children: NavNode[]
 }
 
@@ -20,6 +22,8 @@ export type ShellInput = {
   prev?: { title: string; path: string }
   next?: { title: string; path: string }
   searchQuery?: string
+  /** social links for the header; when present, search centers and these sit right */
+  social?: SocialLink[]
   /** draft previews must never be indexed */
   noindex?: boolean
   /** "On this page" entries, from the snapshot's headings */
@@ -46,15 +50,28 @@ header .logo{font-weight:700;text-decoration:none;color:var(--text);font-size:15
 header form{margin-left:auto}
 header input{border:1px solid var(--border);background:var(--panel);color:var(--text);
 border-radius:6px;padding:4px 12px;font-size:13px;width:180px}
+header.hassocial{display:grid;grid-template-columns:1fr auto 1fr;gap:18px}
+header.hassocial .logo{justify-self:start}
+header.hassocial form{margin:0;justify-self:center}
+header.hassocial .socials{justify-self:end}
+header .socials{display:flex;align-items:center;gap:13px}
+header .socials a{color:var(--text3);display:inline-flex}
+header .socials a:hover{color:var(--text)}
+header .socials svg{width:18px;height:18px;fill:currentColor}
+@media(max-width:640px){header.hassocial{grid-template-columns:1fr auto;row-gap:10px}
+header.hassocial form{grid-column:1/-1;justify-self:stretch}header.hassocial form input{width:100%}}
 .layout{display:flex;min-height:calc(100vh - 110px)}
 nav.side{width:var(--sidew,240px);flex-shrink:0;border-right:1px solid var(--border);
 padding:24px 10px 24px 16px;font-size:14px;text-align:left}
 nav.side ul{list-style:none}
-nav.side li ul{padding-left:14px}
-nav.side a{display:block;padding:3px 10px;border-radius:5px;color:var(--text2);text-decoration:none;
-overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* children sit under a subtle guide line and indent a touch from the parent */
+nav.side li ul{margin-left:10px;padding-left:8px;border-left:1px solid var(--border)}
+nav.side a{display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:5px;
+color:var(--text2);text-decoration:none;overflow:hidden;white-space:nowrap}
+nav.side a>*{overflow:hidden;text-overflow:ellipsis}
 nav.side a.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
 nav.side a:hover{color:var(--text)}
+nav.side .ico{flex-shrink:0;font-size:14px;line-height:1;width:16px;text-align:center}
 .dragbar{width:5px;flex-shrink:0;cursor:col-resize;margin-left:-3px}
 .dragbar:hover,.dragbar.active{background:var(--accent-soft)}
 main{flex:1;min-width:0;padding:30px 48px}
@@ -106,9 +123,10 @@ align-self:flex-start;max-height:100vh;overflow-y:auto}
 .toc a.lvl4{padding-left:24px;font-size:12.5px}
 .toc a.here{color:var(--accent);font-weight:600}
 @media(max-width:1100px){.toc{display:none}}
-nav.side .grp{display:flex;align-items:center;gap:4px}
-nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:10px;
-padding:2px 4px;line-height:1;border-radius:4px}
+nav.side .grp{display:flex;align-items:center}
+nav.side .grp a{flex:1;min-width:0}
+nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:15px;
+padding:4px 8px;line-height:1;border-radius:4px;flex-shrink:0}
 nav.side .tw:hover{color:var(--text)}
 nav.side li.collapsed>ul{display:none}
 pre{position:relative}
@@ -128,25 +146,53 @@ function hasActive(n: NavNode): boolean {
   return n.active === true || n.children.some(hasActive)
 }
 
+// a Material Symbols ligature name vs a literal emoji
+const MATERIAL_NAME = /^[a-z0-9_]+$/
+
+/** True if any node in the tree carries a Material Symbols icon name. */
+export function navHasMaterialIcon(nodes: NavNode[]): boolean {
+  return nodes.some((n) => (n.icon && MATERIAL_NAME.test(n.icon)) || navHasMaterialIcon(n.children))
+}
+
+/** The Material Symbols @font-face + class, injected only when a nav uses it. */
+const MATERIAL_CSS = `
+@font-face{font-family:'Material Symbols Outlined';font-style:normal;font-weight:100 700;
+font-display:block;src:url('/api/assets/material-symbols.woff2') format('woff2')}
+nav.side .ico.msym{font-family:'Material Symbols Outlined';font-weight:normal;font-size:18px;
+line-height:1;font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+`
+
 function navHtml(nodes: NavNode[], basePath: string): string {
   if (nodes.length === 0) return ''
   const items = nodes
     .map((n) => {
-      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${escapeHtml(n.title)}</a>`
+      const ico = n.icon
+        ? `<span class="ico${MATERIAL_NAME.test(n.icon) ? ' msym' : ''}">${escapeHtml(n.icon)}</span>`
+        : ''
+      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${ico}${escapeHtml(n.title)}</a>`
       if (n.children.length === 0) return `<li>${link}</li>`
       const open = hasActive(n)
-      return `<li class="${open ? '' : 'collapsed'}" data-sec="${escapeHtml(n.path)}"><span class="grp"><button class="tw" type="button" aria-label="Toggle section">${open ? '▾' : '▸'}</button>${link}</span>${navHtml(n.children, basePath)}</li>`
+      // readme-style: the link stays left-aligned like a leaf; the twisty rides
+      // the right edge; children indent under a guide line
+      return `<li class="${open ? '' : 'collapsed'}" data-sec="${escapeHtml(n.path)}"><span class="grp">${link}<button class="tw" type="button" aria-label="Toggle section">${open ? '▾' : '▸'}</button></span>${navHtml(n.children, basePath)}</li>`
     })
     .join('')
   return `<ul>${items}</ul>`
 }
 
 function tocHtml(toc: TocEntry[]): string {
-  if (toc.length < 2) return '' // a single heading is not a table of contents
-  const links = toc
-    .map((t) => `<a class="lvl${t.level}" href="#${escapeHtml(t.id)}">${escapeHtml(t.text)}</a>`)
-    .join('')
-  return `<aside class="toc"><h4>On this page</h4><nav>${links}</nav></aside>`
+  // The column is ALWAYS rendered so the content never shifts left/right from
+  // page to page; it just sits empty when there's nothing to list (a single
+  // heading is not a table of contents).
+  const inner =
+    toc.length >= 2
+      ? `<h4>On this page</h4><nav>${toc
+          .map(
+            (t) => `<a class="lvl${t.level}" href="#${escapeHtml(t.id)}">${escapeHtml(t.text)}</a>`,
+          )
+          .join('')}</nav>`
+      : ''
+  return `<aside class="toc">${inner}</aside>`
 }
 
 function docsCrumbs(crumbs: Array<{ title: string; path: string }>, basePath: string): string {
@@ -277,6 +323,7 @@ function page(
   theme: ThemeName = 'paper',
   appearance: ThemeAppearance = 'auto',
   meta?: SiteMeta,
+  extraCss = '',
 ) {
   return `<!doctype html>
 <html lang="en">
@@ -286,7 +333,7 @@ function page(
 ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
 ${docsMetaHtml(title, siteTitle, meta)}
 <script>${SIDEBAR_RESTORE_JS}</script>
-<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}</style>
+<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${extraCss}</style>
 </head>
 <body data-appearance="${appearance}">
 ${body}
@@ -296,13 +343,22 @@ ${body}
 </html>`
 }
 
-function headerHtml(siteTitle: string, basePath: string, searchQuery = '') {
-  return `<header>
-<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>
-<form action="${escapeHtml(`${basePath}/_search`)}" method="get">
+function headerHtml(
+  siteTitle: string,
+  basePath: string,
+  searchQuery = '',
+  social: SocialLink[] = [],
+) {
+  const logo = `<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>`
+  const search = `<form action="${escapeHtml(`${basePath}/_search`)}" method="get">
 <input type="search" name="q" placeholder="Search docs" value="${escapeHtml(searchQuery)}">
-</form>
-</header>`
+</form>`
+  const socials = socialLinksHtml(social)
+  // with socials the header is a three-track grid: logo left, search centered,
+  // socials right. Without, the search keeps its right-aligned place.
+  return socials
+    ? `<header class="hassocial">${logo}${search}${socials}</header>`
+    : `<header>${logo}${search}</header>`
 }
 
 export function docsShell(input: ShellInput): string {
@@ -326,7 +382,7 @@ export function docsShell(input: ShellInput): string {
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
-  const body = `${headerHtml(input.siteTitle, input.basePath)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -350,6 +406,7 @@ ${tocHtml(input.toc ?? [])}
     input.theme,
     input.appearance,
     input.meta,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }
 
@@ -362,6 +419,7 @@ export function docsSearchResults(input: {
   results: Array<{ title: string; path: string; snippet: string }>
   theme?: ThemeName
   appearance?: ThemeAppearance
+  social?: SocialLink[]
 }): string {
   const list =
     input.results.length === 0
@@ -372,7 +430,7 @@ export function docsSearchResults(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, input.query)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -387,6 +445,8 @@ export function docsSearchResults(input: {
     false,
     input.theme,
     input.appearance,
+    undefined,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }
 
@@ -411,6 +471,7 @@ export function docsTagPage(input: {
   tag: string
   theme?: ThemeName
   appearance?: ThemeAppearance
+  social?: SocialLink[]
   items: Array<{ title: string; path: string; snippet: string }>
 }): string {
   const list =
@@ -422,7 +483,7 @@ export function docsTagPage(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -437,5 +498,7 @@ export function docsTagPage(input: {
     false,
     input.theme,
     input.appearance,
+    undefined,
+    navHasMaterialIcon(input.nav) ? MATERIAL_CSS : '',
   )
 }

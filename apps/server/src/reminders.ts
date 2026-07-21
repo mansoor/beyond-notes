@@ -129,6 +129,7 @@ export function createRemindersService(repo: Repo, opts: { now?: () => Date } = 
       user: UserRow,
       input: {
         title: string
+        icon?: string | null
         dueDate: string
         dueTime: string | null
         freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | null
@@ -140,6 +141,7 @@ export function createRemindersService(repo: Repo, opts: { now?: () => Date } = 
         id: nanoid(),
         userId: user.id,
         title: input.title,
+        icon: input.icon ?? null,
         dueDate: input.dueDate,
         dueTime: input.dueTime,
         freq: input.freq,
@@ -151,6 +153,36 @@ export function createRemindersService(repo: Repo, opts: { now?: () => Date } = 
       await repo.insertReminder(reminder)
       await enqueueJobs(reminder)
       return reminder
+    },
+
+    /** Edit any field. Re-schedules from scratch so date/heads-up changes stick. */
+    async update(
+      user: UserRow,
+      input: {
+        id: string
+        title: string
+        icon: string | null
+        dueDate: string
+        dueTime: string | null
+        freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | null
+        interval: number
+        headsUpDays: number | null
+      },
+    ): Promise<void> {
+      const existing = await requireReminder(user, input.id)
+      await repo.updateReminder(input.id, {
+        title: input.title,
+        icon: input.icon,
+        dueDate: input.dueDate,
+        dueTime: input.dueTime,
+        freq: input.freq,
+        interval: input.interval,
+        headsUpDays: input.headsUpDays,
+        // editing a completed reminder re-activates it
+        completedAt: null,
+      })
+      await repo.cancelPendingJobsForRef(input.id)
+      await enqueueJobs({ ...existing, ...input, completedAt: null })
     },
 
     async list(user: UserRow): Promise<ReminderRow[]> {

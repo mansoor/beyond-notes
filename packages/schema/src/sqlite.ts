@@ -98,6 +98,8 @@ export const pages = sqliteTable('pages', {
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
   metaDescription: text('meta_description'),
+  // a single emoji shown beside the page in the sidebar and published nav
+  icon: text('icon'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   archivedBy: text('archived_by'),
   trashedAt: integer('trashed_at', { mode: 'timestamp_ms' }),
@@ -191,6 +193,8 @@ export const tasks = sqliteTable('tasks', {
   text: text('text').notNull(),
   checked: integer('checked', { mode: 'boolean' }).notNull().default(false),
   due: text('due'),
+  // optional local time-of-day 'HH:MM' paired with `due`; null = no time set
+  dueTime: text('due_time'),
   position: integer('position').notNull().default(0),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
@@ -201,6 +205,8 @@ export const reminders = sqliteTable('reminders', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  // a single emoji shown in place of the default bell (birthday cake, etc.)
+  icon: text('icon'),
   dueDate: text('due_date').notNull(),
   dueTime: text('due_time'),
   freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }),

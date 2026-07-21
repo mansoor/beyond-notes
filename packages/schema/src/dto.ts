@@ -162,6 +162,7 @@ export type PageMeta = {
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
+  icon: string | null
 }
 
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
@@ -191,6 +192,9 @@ export const updatePageOptionsInput = z.object({
   coverAttachmentId: z.string().nullable().optional(),
   // SEO description for published sites; null clears
   metaDescription: z.string().trim().max(300).nullable().optional(),
+  // a Material Symbols name (or a legacy emoji) shown in the sidebar and
+  // published nav; null clears
+  icon: z.string().trim().min(1).max(48).nullable().optional(),
 })
 
 export type ArchivedPageView = {
@@ -249,6 +253,7 @@ export type DocumentView = {
 // ---- journal, inbox, tasks (M2) ----
 
 export const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+export const timeKey = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM')
 
 export const journalDayInput = z.object({ date: dateKey })
 export const journalMonthInput = z.object({
@@ -378,8 +383,12 @@ export type VersionView = {
 export const reminderFreq = z.enum(['daily', 'weekly', 'monthly', 'yearly'])
 export type ReminderFreq = z.infer<typeof reminderFreq>
 
+/** One emoji, or null for the default bell. Kept short so it stays an icon. */
+export const reminderIcon = z.string().trim().min(1).max(8).nullable()
+
 export const createReminderInput = z.object({
   title: z.string().trim().min(1).max(200),
+  icon: reminderIcon.default(null),
   dueDate: dateKey,
   dueTime: z
     .string()
@@ -392,9 +401,31 @@ export const createReminderInput = z.object({
 })
 export type CreateReminderInput = z.infer<typeof createReminderInput>
 
+/** Everything about a reminder is editable after the fact. */
+export const updateReminderInput = createReminderInput.extend({ id: z.string() })
+export type UpdateReminderInput = z.infer<typeof updateReminderInput>
+
+/**
+ * Editing a task rewrites its checklist block: text plus an optional due date
+ * and an optional time-of-day. A time only makes sense with a date, so it is
+ * dropped server-side when `due` is null.
+ */
+export const updateTaskInput = z.object({
+  taskId: z.string(),
+  text: z.string().trim().min(1).max(500),
+  due: dateKey.nullable(),
+  dueTime: timeKey.nullable().default(null),
+})
+
+export const updateMemoInput = z.object({
+  memoId: z.string(),
+  content: z.string().trim().min(1).max(5000),
+})
+
 export type ReminderView = {
   id: string
   title: string
+  icon: string | null
   dueDate: string
   dueTime: string | null
   freq: ReminderFreq | null
@@ -410,6 +441,7 @@ export type TaskView = {
   text: string
   checked: boolean
   due: string | null
+  dueTime: string | null
   pageTitle: string
   spaceName: string
   isJournal: boolean

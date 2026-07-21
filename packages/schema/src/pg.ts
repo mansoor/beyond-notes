@@ -127,6 +127,8 @@ export const pages = pgTable('pages', {
   coverAttachmentId: text('cover_attachment_id'),
   // SEO: og/meta description on published sites; falls back to the text body
   metaDescription: text('meta_description'),
+  // a single emoji shown beside the page in the sidebar and published nav
+  icon: text('icon'),
   // archive: soft-removal from the app surfaces; restore puts it back where it
   // was. Set on the whole subtree at once. Publish state is deliberately
   // untouched — retiring is its own explicit act.
@@ -235,6 +237,8 @@ export const tasks = pgTable('tasks', {
   text: text('text').notNull(),
   checked: boolean('checked').notNull().default(false),
   due: text('due'),
+  // optional local time-of-day 'HH:MM' paired with `due`; null = no time set
+  dueTime: text('due_time'),
   position: integer('position').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
@@ -245,6 +249,8 @@ export const reminders = pgTable('reminders', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  // a single emoji shown in place of the default bell (birthday cake, etc.)
+  icon: text('icon'),
   // date-only scheduling (local dates); dueTime is display + notification time
   dueDate: text('due_date').notNull(),
   dueTime: text('due_time'),

@@ -79,23 +79,70 @@ function MemoItem(props: { memo: MemoView }) {
   const toJournal = trpc.memos.promoteToJournal.useMutation({ onSuccess: invalidate })
   const toTask = trpc.memos.promoteToTask.useMutation({ onSuccess: invalidate })
   const del = trpc.memos.delete.useMutation({ onSuccess: invalidate })
+  const update = trpc.memos.update.useMutation({ onSuccess: invalidate })
   const [choosingSpace, setChoosingSpace] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(props.memo.content)
 
   const m = props.memo
   const when = new Date(m.createdAt)
-  const busy = toJournal.isPending || toTask.isPending || del.isPending
+  const busy = toJournal.isPending || toTask.isPending || del.isPending || update.isPending
+
+  const saveEdit = async () => {
+    const value = draft.trim()
+    if (value && value !== m.content) await update.mutateAsync({ memoId: m.id, content: value })
+    setEditing(false)
+  }
 
   return (
     <div
-      className="border-b py-4"
+      className="group border-b py-4"
       style={{ borderColor: 'var(--border)', opacity: m.promotedTo ? 0.55 : 1 }}
     >
-      <div className="text-xs font-mono mb-1" style={{ color: 'var(--text-3)' }}>
+      <div
+        className="text-xs font-mono mb-1 flex items-center gap-2"
+        style={{ color: 'var(--text-3)' }}
+      >
         {when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-        {m.promotedTo && <span className="ml-2">promoted → {m.promotedTo}</span>}
+        {m.promotedTo && <span>promoted → {m.promotedTo}</span>}
+        {!m.promotedTo && !editing && (
+          <button
+            type="button"
+            title="Edit"
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => {
+              setDraft(m.content)
+              setEditing(true)
+            }}
+          >
+            ✎
+          </button>
+        )}
       </div>
-      <p className="text-[15px] whitespace-pre-wrap">{m.content}</p>
-      {!m.promotedTo && (
+      {editing ? (
+        <div>
+          <textarea
+            // biome-ignore lint/a11y/noAutofocus: an explicit edit action wants focus
+            autoFocus
+            rows={2}
+            className="w-full rounded-lg border px-3 py-2 text-[15px] outline-none resize-none"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEdit()
+              if (e.key === 'Escape') setEditing(false)
+            }}
+          />
+          <div className="flex gap-2 mt-1.5">
+            <ActionButton label="Save" disabled={busy} onClick={saveEdit} />
+            <ActionButton label="Cancel" onClick={() => setEditing(false)} />
+          </div>
+        </div>
+      ) : (
+        <p className="text-[15px] whitespace-pre-wrap">{m.content}</p>
+      )}
+      {!m.promotedTo && !editing && (
         <div className="flex gap-2 mt-2">
           <ActionButton label="→ Note" disabled={busy} onClick={() => setChoosingSpace(true)} />
           <ActionButton

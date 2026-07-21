@@ -106,6 +106,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
     // wikis are themed like websites (same tokens, same appearance rule)
     const theme = space.publicTheme
     const appearance = space.publicAppearance
+    const socials = parseSocialLinks(space.publicSocial)
     const tagsOfDoc = (entry: { entry: { version: { tags: string } } }): string[] => {
       try {
         const parsed = JSON.parse(entry.entry.version.tags)
@@ -148,6 +149,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           nav: site.nav,
           theme,
           appearance,
+          social: socials,
           query: q,
           results,
         }),
@@ -165,6 +167,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           nav: site.nav,
           theme,
           appearance,
+          social: socials,
           tag,
           items: site.flat
             .filter((f) => tagsOfDoc(f).includes(tag))
@@ -224,6 +227,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         prev: prev ? { title: prev.title, path: prev.path } : undefined,
         next: next ? { title: next.title, path: next.path } : undefined,
         crumbs,
+        social: socials,
         // the TOC is derived from the snapshot's blocks, so it always matches
         // the ids baked into the stored HTML
         toc: extractHeadings(hit.entry.version.content),
@@ -641,6 +645,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         noindex: true,
         theme: space.publicTheme,
         appearance: space.publicAppearance,
+        social: parseSocialLinks(space.publicSocial),
       }),
     )
   }

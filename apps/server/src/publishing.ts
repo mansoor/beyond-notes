@@ -416,6 +416,9 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
               title: e.version.title,
               path,
               active: path === activePath,
+              // icon is a live nav-presentation concern (like the tree structure),
+              // not part of the frozen snapshot — change it without republishing
+              icon: e.page.icon,
               children: buildNav(e.page.id),
             }
           })
