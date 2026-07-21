@@ -211,7 +211,7 @@ function WheelColumn(props: {
       className="relative overflow-y-auto [&::-webkit-scrollbar]:hidden"
       style={{
         height: VISIBLE * ROW,
-        minWidth: 38,
+        width: 26,
         scrollSnapType: 'y mandatory',
         scrollbarWidth: 'none',
       }}
@@ -245,7 +245,7 @@ function WheelColumn(props: {
 export function TimeWheel(props: { value: string; onChange: (v: string) => void }) {
   const { hourIdx, minIdx, periodIdx } = parse12(props.value)
   return (
-    <div className="relative flex justify-center gap-1 select-none">
+    <div className="relative flex justify-center select-none">
       {/* the highlighted centre band the chosen row sits in */}
       <div
         className="pointer-events-none absolute left-0 right-0 rounded-lg"
@@ -259,7 +259,7 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
       />
       <span
         className="flex items-center font-semibold"
-        style={{ height: VISIBLE * ROW, fontSize: 12, color: 'var(--text-2)' }}
+        style={{ height: VISIBLE * ROW, fontSize: 12, color: 'var(--text-3)' }}
       >
         :
       </span>
@@ -269,6 +269,7 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
         ariaLabel="Minute"
         onIndex={(i) => props.onChange(to24(hourIdx, i, periodIdx))}
       />
+      <span style={{ width: 5 }} />
       <WheelColumn
         values={PERIODS}
         index={periodIdx}
@@ -341,7 +342,7 @@ export function TimeField(props: {
       )}
       {open && props.value != null && (
         <div
-          className="absolute left-0 top-full z-40 mt-1 rounded-lg border px-2 py-1 shadow-lg"
+          className="absolute right-0 top-full z-40 mt-1 rounded-lg border px-1.5 py-1 shadow-lg"
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
           <TimeWheel value={props.value} onChange={(v) => props.onChange(v)} />
