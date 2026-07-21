@@ -162,6 +162,7 @@ export type PageMeta = {
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
+  icon: string | null
 }
 
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
@@ -191,6 +192,8 @@ export const updatePageOptionsInput = z.object({
   coverAttachmentId: z.string().nullable().optional(),
   // SEO description for published sites; null clears
   metaDescription: z.string().trim().max(300).nullable().optional(),
+  // a single emoji shown in the sidebar and published nav; null clears
+  icon: z.string().trim().min(1).max(8).nullable().optional(),
 })
 
 export type ArchivedPageView = {

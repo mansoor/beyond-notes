@@ -2,7 +2,7 @@ import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Modal } from '../components'
+import { IconPicker, Modal } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { trpc } from '../trpc'
 
@@ -148,6 +148,9 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
           <TypeSection page={props.page} category={category} />
         </ContextCard>
       )}
+      <ContextCard bare={props.bare} title="Icon">
+        <IconSection page={props.page} />
+      </ContextCard>
       <ContextCard bare={props.bare} title="Tags">
         <TagsSection pageId={props.page.id} />
       </ContextCard>
@@ -172,6 +175,24 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
         </ContextCard>
       )}
     </div>
+  )
+}
+
+/** Per-page emoji, shown in the app sidebar and the published wiki/site nav. */
+function IconSection(props: { page: PageMeta }) {
+  const utils = trpc.useUtils()
+  const update = trpc.pages.updateOptions.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.pages.get.invalidate({ pageId: props.page.id }),
+        utils.pages.tree.invalidate({ spaceId: props.page.spaceId }),
+      ]),
+  })
+  return (
+    <IconPicker
+      value={props.page.icon}
+      onPick={(icon) => update.mutate({ pageId: props.page.id, icon })}
+    />
   )
 }
 

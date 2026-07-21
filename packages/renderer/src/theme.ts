@@ -7,6 +7,8 @@ export type NavNode = {
   title: string
   path: string
   active?: boolean
+  /** a single emoji shown before the title in the sidebar */
+  icon?: string | null
   children: NavNode[]
 }
 
@@ -50,11 +52,14 @@ border-radius:6px;padding:4px 12px;font-size:13px;width:180px}
 nav.side{width:var(--sidew,240px);flex-shrink:0;border-right:1px solid var(--border);
 padding:24px 10px 24px 16px;font-size:14px;text-align:left}
 nav.side ul{list-style:none}
-nav.side li ul{padding-left:14px}
-nav.side a{display:block;padding:3px 10px;border-radius:5px;color:var(--text2);text-decoration:none;
-overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* children sit under a subtle guide line and indent a touch from the parent */
+nav.side li ul{margin-left:10px;padding-left:8px;border-left:1px solid var(--border)}
+nav.side a{display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:5px;
+color:var(--text2);text-decoration:none;overflow:hidden;white-space:nowrap}
+nav.side a>*{overflow:hidden;text-overflow:ellipsis}
 nav.side a.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
 nav.side a:hover{color:var(--text)}
+nav.side .ico{flex-shrink:0;font-size:14px;line-height:1;width:16px;text-align:center}
 .dragbar{width:5px;flex-shrink:0;cursor:col-resize;margin-left:-3px}
 .dragbar:hover,.dragbar.active{background:var(--accent-soft)}
 main{flex:1;min-width:0;padding:30px 48px}
@@ -106,9 +111,10 @@ align-self:flex-start;max-height:100vh;overflow-y:auto}
 .toc a.lvl4{padding-left:24px;font-size:12.5px}
 .toc a.here{color:var(--accent);font-weight:600}
 @media(max-width:1100px){.toc{display:none}}
-nav.side .grp{display:flex;align-items:center;gap:4px}
-nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:10px;
-padding:2px 4px;line-height:1;border-radius:4px}
+nav.side .grp{display:flex;align-items:center}
+nav.side .grp a{flex:1;min-width:0}
+nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:11px;
+padding:4px 8px;line-height:1;border-radius:4px;flex-shrink:0}
 nav.side .tw:hover{color:var(--text)}
 nav.side li.collapsed>ul{display:none}
 pre{position:relative}
@@ -132,10 +138,13 @@ function navHtml(nodes: NavNode[], basePath: string): string {
   if (nodes.length === 0) return ''
   const items = nodes
     .map((n) => {
-      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${escapeHtml(n.title)}</a>`
+      const ico = n.icon ? `<span class="ico">${escapeHtml(n.icon)}</span>` : ''
+      const link = `<a href="${escapeHtml(basePath + n.path)}"${n.active ? ' class="active"' : ''}>${ico}${escapeHtml(n.title)}</a>`
       if (n.children.length === 0) return `<li>${link}</li>`
       const open = hasActive(n)
-      return `<li class="${open ? '' : 'collapsed'}" data-sec="${escapeHtml(n.path)}"><span class="grp"><button class="tw" type="button" aria-label="Toggle section">${open ? '▾' : '▸'}</button>${link}</span>${navHtml(n.children, basePath)}</li>`
+      // readme-style: the link stays left-aligned like a leaf; the twisty rides
+      // the right edge; children indent under a guide line
+      return `<li class="${open ? '' : 'collapsed'}" data-sec="${escapeHtml(n.path)}"><span class="grp">${link}<button class="tw" type="button" aria-label="Toggle section">${open ? '▾' : '▸'}</button></span>${navHtml(n.children, basePath)}</li>`
     })
     .join('')
   return `<ul>${items}</ul>`

@@ -15,6 +15,18 @@ const CATEGORY_LABEL: Record<SpaceCategory, string> = {
 
 type PageAction = { kind: 'rename' | 'move' | 'template'; page: PageMeta } | null
 
+// drag-and-drop over the tree: drop above a row (reorder before), below it
+// (reorder after), or onto its middle (nest as a child)
+type DropZone = 'before' | 'after' | 'inside'
+type TreeDnd = {
+  dragId: string | null
+  over: { id: string; zone: DropZone } | null
+  setDragId: (id: string | null) => void
+  setOver: (o: { id: string; zone: DropZone } | null) => void
+  clear: () => void
+  drop: (draggedId: string, targetId: string, zone: DropZone) => void
+}
+
 export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
   const [creating, setCreating] = useState(false)
@@ -106,11 +118,49 @@ function SpaceItem(props: { space: SpaceView }) {
   const navigate = useNavigate()
   const [action, setAction] = useState<PageAction>(null)
   const [publishingOpen, setPublishingOpen] = useState(false)
+  const [reorgOpen, setReorgOpen] = useState(false)
 
   const addPage = async (parentId: string | null) => {
     const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
     await utils.pages.tree.invalidate({ spaceId: props.space.id })
     navigate({ to: '/p/$pageId', params: { pageId: page.id } })
+  }
+
+  const move = trpc.pages.move.useMutation({
+    onSuccess: () => utils.pages.tree.invalidate({ spaceId: props.space.id }),
+  })
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [over, setOver] = useState<{ id: string; zone: DropZone } | null>(null)
+  const dnd: TreeDnd = {
+    dragId,
+    over,
+    setDragId,
+    setOver,
+    clear: () => {
+      setDragId(null)
+      setOver(null)
+    },
+    drop: (draggedId, targetId, zone) => {
+      if (draggedId === targetId) return
+      const all = tree.data ?? []
+      const target = all.find((p) => p.id === targetId)
+      if (!target) return
+      if (zone === 'inside') {
+        move.mutate({ pageId: draggedId, parentId: target.id, index: 9999 })
+        return
+      }
+      // reorder among the target's siblings; movePage recomputes positions
+      // over the list with the dragged page removed, so index is measured there
+      const sibs = all
+        .filter((p) => p.parentId === target.parentId && p.id !== draggedId)
+        .sort((a, b) => a.position - b.position)
+      const ti = sibs.findIndex((p) => p.id === targetId)
+      move.mutate({
+        pageId: draggedId,
+        parentId: target.parentId,
+        index: zone === 'before' ? ti : ti + 1,
+      })
+    },
   }
 
   const roots = (tree.data ?? []).filter((p) => p.parentId === null)
@@ -152,6 +202,15 @@ function SpaceItem(props: { space: SpaceView }) {
           >
             ⚙
           </button>
+          <button
+            type="button"
+            title="Reorganize pages"
+            onClick={() => setReorgOpen(true)}
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ⇅
+          </button>
           <a
             title="Export as Markdown (.zip)"
             href={`/api/export/space/${props.space.id}`}
@@ -175,12 +234,21 @@ function SpaceItem(props: { space: SpaceView }) {
       {publishingOpen && (
         <SpacePublishingModal space={props.space} onClose={() => setPublishingOpen(false)} />
       )}
+      {reorgOpen && tree.data && (
+        <ReorganizeModal
+          spaceId={props.space.id}
+          spaceName={props.space.name}
+          pages={tree.data}
+          onClose={() => setReorgOpen(false)}
+        />
+      )}
       {expanded && tree.data && (
         <PageTreeLevel
           pages={tree.data}
           parentId={null}
           depth={0}
           category={props.space.category}
+          dnd={dnd}
           onAddChild={addPage}
           onAction={(a) => setAction(a)}
         />
@@ -501,15 +569,149 @@ function BrandingTab(props: {
   )
 }
 
+/**
+ * A keyboard/click-friendly reorg dialog — the robust companion to sidebar
+ * drag-and-drop. Every control calls the same movePage the tree uses; the list
+ * re-derives from the live tree after each move.
+ */
+function ReorganizeModal(props: {
+  spaceId: string
+  spaceName: string
+  pages: PageMeta[]
+  onClose: () => void
+}) {
+  const utils = trpc.useUtils()
+  const move = trpc.pages.move.useMutation({
+    onSuccess: () => utils.pages.tree.invalidate({ spaceId: props.spaceId }),
+  })
+  const busy = move.isPending
+
+  const childrenOf = (parentId: string | null) =>
+    props.pages.filter((p) => p.parentId === parentId).sort((a, b) => a.position - b.position)
+
+  const rows: Array<{ page: PageMeta; depth: number }> = []
+  const walk = (parentId: string | null, depth: number) => {
+    for (const p of childrenOf(parentId)) {
+      rows.push({ page: p, depth })
+      walk(p.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+
+  const up = (p: PageMeta, i: number) =>
+    move.mutate({ pageId: p.id, parentId: p.parentId, index: i - 1 })
+  const down = (p: PageMeta, i: number) =>
+    move.mutate({ pageId: p.id, parentId: p.parentId, index: i + 1 })
+  const indent = (p: PageMeta, prev: PageMeta) =>
+    move.mutate({ pageId: p.id, parentId: prev.id, index: 9999 })
+  const outdent = (p: PageMeta) => {
+    const parent = props.pages.find((x) => x.id === p.parentId)
+    if (!parent) return
+    const gp = childrenOf(parent.parentId)
+    move.mutate({
+      pageId: p.id,
+      parentId: parent.parentId,
+      index: gp.findIndex((x) => x.id === parent.id) + 1,
+    })
+  }
+
+  return (
+    <Modal title={`Reorganize — ${props.spaceName}`} onClose={props.onClose} width="lg">
+      <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+        Move a page within its level, indent (→) to nest it under the page above, or outdent (←) to
+        lift it out. You can also drag pages directly in the sidebar.
+      </p>
+      <div className="max-h-[60vh] overflow-y-auto -mx-1 px-1">
+        {rows.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+            No pages yet.
+          </p>
+        )}
+        {rows.map(({ page, depth }) => {
+          const sibs = childrenOf(page.parentId)
+          const i = sibs.findIndex((x) => x.id === page.id)
+          const prev = sibs[i - 1]
+          return (
+            <div
+              key={page.id}
+              className="flex items-center gap-1 py-1 border-b"
+              style={{ borderColor: 'var(--border)', paddingLeft: depth * 18 }}
+            >
+              <span className="truncate flex-1 text-sm" title={page.title}>
+                {pagePrefix(page)}
+                {page.title || 'Untitled'}
+              </span>
+              <ReorgBtn
+                label="↑"
+                title="Move up"
+                disabled={busy || i <= 0}
+                onClick={() => up(page, i)}
+              />
+              <ReorgBtn
+                label="↓"
+                title="Move down"
+                disabled={busy || i >= sibs.length - 1}
+                onClick={() => down(page, i)}
+              />
+              <ReorgBtn
+                label="→"
+                title="Indent — nest under the page above"
+                disabled={busy || !prev}
+                onClick={() => prev && indent(page, prev)}
+              />
+              <ReorgBtn
+                label="←"
+                title="Outdent — lift out to the parent's level"
+                disabled={busy || !page.parentId}
+                onClick={() => outdent(page)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </Modal>
+  )
+}
+
+function ReorgBtn(props: {
+  label: string
+  title: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={props.title}
+      disabled={props.disabled}
+      onClick={props.onClick}
+      className="w-6 h-6 rounded border text-xs disabled:opacity-30"
+      style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+    >
+      {props.label}
+    </button>
+  )
+}
+
+/** The blog/gallery fallback glyph, unless the page carries its own icon. */
+function pagePrefix(page: PageMeta): string {
+  if (page.icon) return `${page.icon} `
+  if (page.pageType === 'blog') return '📰 '
+  if (page.pageType === 'gallery') return '🖼 '
+  return ''
+}
+
 function PageTreeLevel(props: {
   pages: PageMeta[]
   parentId: string | null
   depth: number
   category: SpaceCategory
+  dnd: TreeDnd
   onAddChild: (parentId: string) => void
   onAction: (a: PageAction) => void
 }) {
   const params = useParams({ strict: false }) as { pageId?: string }
+  const { dnd } = props
   const level = props.pages
     .filter((p) => p.parentId === props.parentId)
     .sort((a, b) => a.position - b.position)
@@ -517,47 +719,85 @@ function PageTreeLevel(props: {
   if (level.length === 0) return null
   return (
     <div>
-      {level.map((page) => (
-        <div key={page.id}>
-          <div
-            className="group flex items-center gap-1 pr-2 py-0.5 rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
-            style={{
-              paddingLeft: `${26 + props.depth * 14}px`,
-              background: params.pageId === page.id ? 'var(--accent-soft)' : undefined,
-              color: params.pageId === page.id ? 'var(--accent)' : 'var(--text-2)',
-            }}
-          >
-            <Link
-              to="/p/$pageId"
-              params={{ pageId: page.id }}
-              className="truncate flex-1"
-              title={page.title}
+      {level.map((page) => {
+        const isOver = dnd.over?.id === page.id && dnd.dragId !== page.id
+        const zone = isOver ? dnd.over?.zone : undefined
+        return (
+          <div key={page.id}>
+            <div
+              className="group flex items-center gap-1 pr-2 py-0.5 rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move'
+                dnd.setDragId(page.id)
+              }}
+              onDragEnd={dnd.clear}
+              onDragOver={(e) => {
+                if (!dnd.dragId || dnd.dragId === page.id) return
+                e.preventDefault()
+                const r = e.currentTarget.getBoundingClientRect()
+                const y = e.clientY - r.top
+                const z: DropZone =
+                  y < r.height * 0.3 ? 'before' : y > r.height * 0.7 ? 'after' : 'inside'
+                if (dnd.over?.id !== page.id || dnd.over?.zone !== z)
+                  dnd.setOver({ id: page.id, zone: z })
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dnd.dragId) dnd.drop(dnd.dragId, page.id, dnd.over?.zone ?? 'inside')
+                dnd.clear()
+              }}
+              style={{
+                paddingLeft: `${26 + props.depth * 14}px`,
+                background:
+                  zone === 'inside'
+                    ? 'var(--accent-soft)'
+                    : params.pageId === page.id
+                      ? 'var(--accent-soft)'
+                      : undefined,
+                color: params.pageId === page.id ? 'var(--accent)' : 'var(--text-2)',
+                boxShadow:
+                  zone === 'before'
+                    ? 'inset 0 2px 0 var(--accent)'
+                    : zone === 'after'
+                      ? 'inset 0 -2px 0 var(--accent)'
+                      : undefined,
+                opacity: dnd.dragId === page.id ? 0.4 : 1,
+              }}
             >
-              {page.pageType === 'blog' ? '📰 ' : page.pageType === 'gallery' ? '🖼 ' : ''}
-              {page.title}
-            </Link>
-            <span className="hidden group-hover:flex items-center gap-0.5">
-              <button
-                type="button"
-                title="Add subpage"
-                className="text-xs px-0.5"
-                onClick={() => props.onAddChild(page.id)}
+              <Link
+                to="/p/$pageId"
+                params={{ pageId: page.id }}
+                className="truncate flex-1"
+                title={page.title}
               >
-                ＋
-              </button>
-              <PageMenu page={page} category={props.category} onAction={props.onAction} />
-            </span>
+                {pagePrefix(page)}
+                {page.title}
+              </Link>
+              <span className="hidden group-hover:flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title="Add subpage"
+                  className="text-xs px-0.5"
+                  onClick={() => props.onAddChild(page.id)}
+                >
+                  ＋
+                </button>
+                <PageMenu page={page} category={props.category} onAction={props.onAction} />
+              </span>
+            </div>
+            <PageTreeLevel
+              pages={props.pages}
+              parentId={page.id}
+              depth={props.depth + 1}
+              category={props.category}
+              dnd={dnd}
+              onAddChild={props.onAddChild}
+              onAction={props.onAction}
+            />
           </div>
-          <PageTreeLevel
-            pages={props.pages}
-            parentId={page.id}
-            depth={props.depth + 1}
-            category={props.category}
-            onAddChild={props.onAddChild}
-            onAction={props.onAction}
-          />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

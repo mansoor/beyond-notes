@@ -185,6 +185,7 @@ function toPageMeta(p: PageRow): PageMeta {
     shareEnabled: p.shareEnabled,
     coverAttachmentId: p.coverAttachmentId,
     metaDescription: p.metaDescription,
+    icon: p.icon,
   }
 }
 

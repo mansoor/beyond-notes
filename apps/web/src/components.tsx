@@ -244,6 +244,120 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
   )
 }
 
+// A curated grid of emoji for page icons — the ones that actually read well as
+// tiny nav glyphs. Not exhaustive; a page can only wear one.
+const PAGE_ICONS = [
+  '📄',
+  '📘',
+  '📗',
+  '📙',
+  '📕',
+  '📓',
+  '📔',
+  '📒',
+  '📝',
+  '🗂️',
+  '📁',
+  '📦',
+  '🚀',
+  '⚙️',
+  '🔧',
+  '🔑',
+  '🔒',
+  '🌐',
+  '💡',
+  '⭐',
+  '🔔',
+  '📊',
+  '📈',
+  '🧩',
+  '🧪',
+  '🎨',
+  '🖼️',
+  '🎬',
+  '🎵',
+  '🏷️',
+  '🔖',
+  '📌',
+  '✅',
+  '❓',
+  '⚠️',
+  'ℹ️',
+  '💬',
+  '👋',
+  '🏠',
+  '🧭',
+] as const
+
+/** Emoji picker in a click-away popover; `null` clears the icon. */
+export function IconPicker(props: { value: string | null; onPick: (v: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          title="Choose an icon"
+          className="w-9 h-9 rounded-lg border flex items-center justify-center text-lg leading-none"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+        >
+          {props.value || '＋'}
+        </button>
+        {props.value && (
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => props.onPick(null)}
+          >
+            remove
+          </button>
+        )}
+        <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Shown in the sidebar &amp; published nav
+        </span>
+      </div>
+      {open && (
+        <div
+          className="absolute z-40 mt-1 rounded-lg border p-2 grid gap-0.5 shadow-lg"
+          style={{
+            gridTemplateColumns: 'repeat(8, 1fr)',
+            width: 264,
+            background: 'var(--panel)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          {PAGE_ICONS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              className="w-7 h-7 rounded text-lg leading-none hover:bg-black/5 dark:hover:bg-white/10"
+              style={{ outline: props.value === e ? '2px solid var(--accent)' : undefined }}
+              onClick={() => {
+                props.onPick(e)
+                setOpen(false)
+              }}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function useSubmit(fn: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

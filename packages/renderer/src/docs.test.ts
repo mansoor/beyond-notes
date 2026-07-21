@@ -127,6 +127,28 @@ describe('docs chrome', () => {
     expect(docsShell(base)).not.toContain('noindex')
     expect(docsShell({ ...base, noindex: true })).toContain('content="noindex"')
   })
+
+  it('renders per-page icons and puts the twisty after the link (readme-style)', () => {
+    const html = docsShell({
+      ...base,
+      nav: [
+        {
+          title: 'Parent',
+          path: '/parent',
+          icon: '📘',
+          children: [{ title: 'Child', path: '/parent/child', children: [] }],
+        },
+        { title: 'Leaf', path: '/leaf', icon: '📄', children: [] },
+      ],
+    })
+    // the icon sits before the title
+    expect(html).toContain('<span class="ico">📘</span>')
+    expect(html).toContain('<span class="ico">📄</span>')
+    // in a parent row the link precedes the twisty (arrow on the right edge)
+    const grp = /<span class="grp">[\s\S]*?<\/span>\s*<ul>/.exec(html)?.[0] ?? ''
+    expect(grp.indexOf('<a ')).toBeGreaterThanOrEqual(0)
+    expect(grp.indexOf('<a ')).toBeLessThan(grp.indexOf('<button'))
+  })
 })
 
 describe('mermaid diagrams', () => {

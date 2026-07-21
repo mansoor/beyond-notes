@@ -63,6 +63,7 @@ export type PageRow = {
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
+  icon: string | null
   archivedAt: Date | null
   archivedBy: string | null
   trashedAt: Date | null
@@ -382,6 +383,7 @@ export function createRepo(appDb: AppDb) {
           | 'galleryAutoplaySecs'
           | 'shareEnabled'
           | 'coverAttachmentId'
+          | 'icon'
         >
       >,
     ): Promise<void> {

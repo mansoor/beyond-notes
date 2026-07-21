@@ -127,6 +127,8 @@ export const pages = pgTable('pages', {
   coverAttachmentId: text('cover_attachment_id'),
   // SEO: og/meta description on published sites; falls back to the text body
   metaDescription: text('meta_description'),
+  // a single emoji shown beside the page in the sidebar and published nav
+  icon: text('icon'),
   // archive: soft-removal from the app surfaces; restore puts it back where it
   // was. Set on the whole subtree at once. Publish state is deliberately
   // untouched — retiring is its own explicit act.

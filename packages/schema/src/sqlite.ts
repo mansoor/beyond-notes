@@ -98,6 +98,8 @@ export const pages = sqliteTable('pages', {
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
   metaDescription: text('meta_description'),
+  // a single emoji shown beside the page in the sidebar and published nav
+  icon: text('icon'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   archivedBy: text('archived_by'),
   trashedAt: integer('trashed_at', { mode: 'timestamp_ms' }),
