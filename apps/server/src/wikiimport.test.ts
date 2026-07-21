@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
 import { createDb } from './db'
-import { GithubError, parseRepoUrl } from './github'
+import { GithubError, parseRepoUrl, titleCase } from './github'
 import { createPagesService } from './pages'
 import { createPublishingService } from './publishing'
 import { createRepo } from './repo'
@@ -118,6 +118,13 @@ describe('planFromGithub', () => {
     expect(titles).not.toContain('Index')
     expect(plan.sourceLabel).toBe('github.com/acme/widgets @ main')
     expect(plan.suggestedName).toBe('Widgets')
+  })
+
+  it('spells acronyms in a name instead of "Ddns"', () => {
+    expect(titleCase('cloudflare-ddns-plus')).toBe('Cloudflare DDNS Plus')
+    expect(titleCase('my-api-sdk')).toBe('My API SDK')
+    expect(titleCase('CODE_OF_CONDUCT')).toBe('Code of Conduct')
+    expect(titleCase('beyond-notes')).toBe('Beyond Notes')
   })
 
   it('nests a docs/ folder under Documentation', async () => {

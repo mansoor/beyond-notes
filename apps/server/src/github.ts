@@ -146,19 +146,70 @@ function isTextDoc(path: string): boolean {
 
 const SMALL_WORDS = new Set(['of', 'the', 'and', 'for', 'to', 'in', 'a', 'an'])
 
-/** `CODE_OF_CONDUCT.md` -> `Code of Conduct`; `install-guide.md` -> `Install Guide`. */
-function titleFromPath(path: string): string {
-  const base = (path.split('/').pop() ?? path).replace(/\.(md|markdown|txt|rst)$/i, '')
-  const words = base.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ')
-  // SHOUTING filenames are a convention, not emphasis — title-case them
+/**
+ * Acronyms that repository and file names spell in lower case. Without this,
+ * `cloudflare-ddns-plus` becomes "Cloudflare Ddns Plus", which reads as a typo
+ * in a wiki title. The list is short and boring on purpose — anything not on it
+ * is title-cased normally and the user can still edit the name.
+ */
+const ACRONYMS = new Set([
+  'api',
+  'aws',
+  'cd',
+  'ci',
+  'cli',
+  'cpu',
+  'css',
+  'db',
+  'ddns',
+  'dns',
+  'gpu',
+  'html',
+  'http',
+  'https',
+  'id',
+  'ip',
+  'json',
+  'jwt',
+  'k8s',
+  'oauth',
+  'os',
+  'pdf',
+  'rss',
+  's3',
+  'sdk',
+  'seo',
+  'smtp',
+  'sql',
+  'ssh',
+  'ssl',
+  'tls',
+  'ui',
+  'url',
+  'ux',
+  'vpn',
+  'xml',
+  'yaml',
+])
+
+/** `cloudflare-ddns-plus` -> `Cloudflare DDNS Plus`; `CODE_OF_CONDUCT.md` -> `Code of Conduct`. */
+export function titleCase(raw: string): string {
+  const words = raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ')
+  // SHOUTING names are a filename convention, not emphasis — normalise them
   const shouty = /^[A-Z0-9 ]+$/.test(words.join(' '))
   return words
     .map((word, i) => {
       const w = shouty ? word.toLowerCase() : word
-      if (i > 0 && SMALL_WORDS.has(w.toLowerCase())) return w.toLowerCase()
+      const lower = w.toLowerCase()
+      if (ACRONYMS.has(lower)) return lower.toUpperCase()
+      if (i > 0 && SMALL_WORDS.has(lower)) return lower
       return w.charAt(0).toUpperCase() + w.slice(1)
     })
     .join(' ')
+}
+
+function titleFromPath(path: string): string {
+  return titleCase((path.split('/').pop() ?? path).replace(/\.(md|markdown|txt|rst)$/i, ''))
 }
 
 export { titleFromPath }

@@ -11,7 +11,7 @@
 
 import { markdownToBlocks, slugify } from '@bn/renderer'
 import type { ImportApplyInput, ImportNodePlan, ImportPlanView, ImportResultView } from '@bn/schema'
-import { type Fetcher, fetchRepoDocs, titleFromPath } from './github'
+import { type Fetcher, fetchRepoDocs, titleCase, titleFromPath } from './github'
 import { normalizeLevels, outlineMarkdown, rewriteAnchors } from './importplan'
 import { reconcileLinks } from './links'
 import type { PagesService } from './pages'
@@ -138,7 +138,7 @@ export async function planFromGithub(
 
   return {
     sourceLabel: `github.com/${repo.owner}/${repo.repo} @ ${repo.ref}`,
-    suggestedName: repo.repo.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    suggestedName: titleCase(repo.repo),
     nodes,
     warnings,
   }
