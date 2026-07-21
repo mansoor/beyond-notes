@@ -91,6 +91,10 @@ main p code{background:var(--code);border-radius:4px;padding:1px 5px}
 main blockquote{border-left:3px solid var(--border);padding-left:14px;color:var(--text2);margin:10px 0}
 main a{color:var(--accent)}
 main .indent{padding-left:18px}
+main .table-wrap{overflow-x:auto;margin:14px 0}
+main table{border-collapse:collapse;width:100%;font-size:14px}
+main th,main td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
+main thead th{background:var(--code);font-weight:600}
 .prevnext{display:flex;justify-content:space-between;gap:10px;margin-top:38px}
 .prevnext a{border:1px solid var(--border);border-radius:8px;padding:9px 15px;font-size:13px;
 text-decoration:none;color:var(--text2);flex:1}

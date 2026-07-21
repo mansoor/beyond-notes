@@ -160,3 +160,62 @@ describe('slugify', () => {
     expect(slugify('___')).toBe('page')
   })
 })
+
+describe('table blocks', () => {
+  const table = [
+    {
+      id: 't1',
+      type: 'table',
+      props: {},
+      content: {
+        type: 'tableContent',
+        headerRows: 1,
+        columnWidths: [null, null],
+        rows: [
+          {
+            cells: [
+              {
+                type: 'tableCell',
+                props: {},
+                content: [{ type: 'text', text: 'Name', styles: {} }],
+              },
+              {
+                type: 'tableCell',
+                props: {},
+                content: [{ type: 'text', text: 'Note', styles: {} }],
+              },
+            ],
+          },
+          {
+            cells: [
+              {
+                type: 'tableCell',
+                props: {},
+                content: [{ type: 'text', text: 'Ann', styles: {} }],
+              },
+              {
+                type: 'tableCell',
+                props: {},
+                content: [{ type: 'text', text: '<script>', styles: {} }],
+              },
+            ],
+          },
+        ],
+      },
+      children: [],
+    },
+  ]
+
+  it('renders a real table with a head and a body', () => {
+    const html = blocknoteToHtml(JSON.stringify(table))
+    expect(html).toContain('<table>')
+    expect(html).toContain('<thead><tr><th>Name</th><th>Note</th></tr></thead>')
+    expect(html).toContain('<td>Ann</td>')
+    expect(html).toContain('&lt;script&gt;') // escaped, as everywhere else
+    expect(html).not.toContain('<script>')
+  })
+
+  it('puts table text into plainText so search and descriptions see it', () => {
+    expect(plainText(JSON.stringify(table))).toContain('Ann')
+  })
+})

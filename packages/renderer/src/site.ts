@@ -117,6 +117,10 @@ padding:13px 15px;margin:12px 0;overflow-x:auto;font-size:13px}
 main code{font-family:ui-monospace,Consolas,monospace;font-size:.92em}
 main p code{background:var(--code);border-radius:4px;padding:1px 5px}
 main blockquote{border-left:3px solid var(--border);padding-left:14px;color:var(--text2);margin:10px 0}
+main .table-wrap{overflow-x:auto;margin:14px 0}
+main table{border-collapse:collapse;width:100%;font-size:14px}
+main th,main td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
+main thead th{background:var(--code);font-weight:600}
 main a{color:var(--accent)}
 .meta{color:var(--text3);font-size:13px;margin-bottom:18px}
 .postlist{margin-top:18px}

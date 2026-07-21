@@ -18,6 +18,8 @@ is a page that got published. Learn the editor once and you know the whole app.
   tables, Mermaid diagrams) with autosave
 - 📚 **Notebooks, wikis and websites** — private notes, published docs, or a
   full blog/gallery site, all from the same page tree
+- ⤒ **Import a README or a whole GitHub repo** into a wiki — proposed structure
+  first, your edits, then the pages
 - 🗓️ **Journal, Inbox, Tasks and Reminders** — frictionless capture and a real
   agenda, with notifications
 - 🗃️ **Databases** — spreadsheet-style tables with typed columns and
@@ -54,6 +56,7 @@ is a page that got published. Learn the editor once and you know the whole app.
 4. [Putting it on the internet](#putting-it-on-the-internet)
 5. [How-to guides](#how-to-guides)
    - [Publish a wiki](#publish-a-wiki)
+   - [Turn a README (or a repo) into a wiki](#turn-a-readme-or-a-repo-into-a-wiki)
    - [Run a blog](#run-a-blog)
    - [Collect submissions with a form](#collect-submissions-with-a-form)
    - [Embed a table in a page](#embed-a-table-in-a-page)
@@ -258,6 +261,18 @@ grouping only — the publishable unit is the individual space.
 Pages can be reordered by drag-and-drop, nested, duplicated, saved as
 **templates**, given an emoji or Material Symbols icon, and moved between
 parents with the *Reorganize* dialog.
+
+**Import a whole wiki in one step.** ⤒ *Import a wiki* (in the sidebar, or on a
+space) turns a long markdown document — or a GitHub repository — into a page
+tree: the prose before the contents list becomes *Introduction*, each `##`
+section becomes a page, each `###` its child, and the table of contents itself is
+dropped because the wiki's own navigation replaces it. From a repository it also
+picks up `docs/` and adds `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`,
+`LICENSE` and friends as pages at the bottom. **The first pass only proposes** —
+you rename, re-nest, reorder and untick rows, choose drafts or publish-on-import,
+and nothing is written until you approve. In-document links like
+`[Quick start](#quick-start)` are rewritten to point at the page that section
+became.
 
 ### Day, Inbox, Tasks, Reminders
 
@@ -475,6 +490,20 @@ world would see.
    live too).
 4. Visit `/s/<public-host>/` to see the docs layout: tree nav on the left,
    breadcrumbs, an on-this-page TOC, and prev/next links at the bottom.
+
+### Turn a README (or a repo) into a wiki
+
+1. Click **⤒ Import a wiki** in the sidebar — or the **⤒** on an existing space
+   to import into it.
+2. Either paste a GitHub repository URL (`https://github.com/owner/repo`, a
+   `/tree/<branch>` link, or just `owner/repo`) or choose/paste a markdown file.
+   Private repository? Open *Private repository?* and supply a read token — it is
+   used for that one request and never stored.
+3. **Review the proposed structure.** Rename a page, indent or outdent it (⇥ /
+   ⇤), move it (↑ / ↓), or untick anything you don't want.
+4. Pick the destination — a new wiki or an existing space — and decide whether
+   pages arrive as **drafts** (default) or **published**.
+5. Import. You land on the first page it created.
 
 ### Run a blog
 

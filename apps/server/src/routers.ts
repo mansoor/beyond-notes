@@ -10,6 +10,8 @@ import type {
   DbTableView,
   DocumentView,
   GalleryItemView,
+  ImportPlanView,
+  ImportResultView,
   InviteView,
   MemoView,
   PageMeta,
@@ -50,6 +52,9 @@ import {
   deleteRowInput,
   deleteTableInput,
   duplicateTableInput,
+  importApplyInput,
+  importGithubInput,
+  importMarkdownInput,
   insertRowInput,
   journalDayInput,
   journalMonthInput,
@@ -92,6 +97,7 @@ import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
+import { GithubError } from './github'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
 import type {
@@ -108,6 +114,7 @@ import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
+import { ImportError, applyImportPlan, planFromGithub, planFromMarkdown } from './wikiimport'
 
 function toUserView(u: UserRow): UserView {
   return {
@@ -175,6 +182,11 @@ function rethrow(err: unknown): never {
       code: err.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
       message: err.message,
     })
+  }
+  // an import failure is nearly always the source's fault (bad URL, private
+  // repo, empty document) — the message is the useful part, so keep it
+  if (err instanceof ImportError || err instanceof GithubError) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
   }
   throw err
 }
@@ -1632,6 +1644,49 @@ const tablesRouter = router({
   }),
 })
 
+/**
+ * Import is two calls on purpose: `preview*` reads the source and proposes a
+ * structure without writing anything, `apply` creates the pages from the plan
+ * the user approved. The plan round-trips through the browser, so the server
+ * keeps no import session and a reviewed plan can be edited freely.
+ */
+const importsRouter = router({
+  previewMarkdown: authedProcedure
+    .input(importMarkdownInput)
+    .mutation(async ({ input }): Promise<ImportPlanView> => {
+      try {
+        return planFromMarkdown(input.markdown, input.filename)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  previewGithub: authedProcedure
+    .input(importGithubInput)
+    .mutation(async ({ input }): Promise<ImportPlanView> => {
+      try {
+        return await planFromGithub(input)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  // not `apply` — tRPC reserves the Function.prototype method names
+  create: authedProcedure
+    .input(importApplyInput)
+    .mutation(async ({ ctx, input }): Promise<ImportResultView> => {
+      try {
+        return await applyImportPlan(
+          { repo: ctx.repo, pages: ctx.pages, publishing: ctx.publishing },
+          ctx.user,
+          input,
+        )
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
@@ -1651,6 +1706,7 @@ export const appRouter = router({
   templates: templatesRouter,
   databases: databasesRouter,
   tables: tablesRouter,
+  imports: importsRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

@@ -861,3 +861,77 @@ export function validateRowCells(
   }
   return { ok: true, cells: out }
 }
+
+// ---- wiki import (markdown / GitHub -> a tree of pages) ----
+
+/**
+ * One proposed page. The plan travels to the browser for review and comes back
+ * edited, so it carries its own content — the server holds no import session and
+ * a preview can be re-ordered, renamed or thrown away for free.
+ */
+export const importNodeKind = z.enum(['intro', 'section', 'file'])
+export type ImportNodeKind = z.infer<typeof importNodeKind>
+
+export const importNodePlan = z.object({
+  key: z.string().min(1).max(64),
+  title: z.string().trim().min(1).max(200),
+  /** 0 = a top-level page in the space; each step nests one deeper */
+  level: z.number().int().min(0).max(6),
+  kind: importNodeKind,
+  /** the source anchor this section had, so in-page links can be rewritten */
+  anchor: z.string().max(200).optional(),
+  /** repo-relative path, for nodes that came from a file */
+  path: z.string().max(400).optional(),
+  markdown: z.string().max(400_000),
+  excerpt: z.string().max(400),
+})
+export type ImportNodePlan = z.infer<typeof importNodePlan>
+
+export type ImportPlanView = {
+  /** what was read, shown above the review list */
+  sourceLabel: string
+  /** proposed name when the import creates its own space */
+  suggestedName: string
+  nodes: ImportNodePlan[]
+  warnings: string[]
+}
+
+export const importMarkdownInput = z.object({
+  markdown: z.string().min(1).max(2_000_000),
+  filename: z.string().trim().max(200).default(''),
+})
+
+export const importGithubInput = z.object({
+  url: z.string().trim().min(1).max(500),
+  /** optional read token for a private repo; used for this request only, never stored */
+  token: z.string().trim().max(200).default(''),
+  /** also scan docs/ for markdown files */
+  includeDocs: z.boolean().default(true),
+})
+
+export const importApplyInput = z
+  .object({
+    /** import into this existing space… */
+    spaceId: z.string().optional(),
+    /** …or create one with this name */
+    newSpaceName: z.string().trim().max(120).optional(),
+    category: spaceCategory.default('wiki'),
+    personal: z.boolean().default(false),
+    /** publish every created page instead of leaving drafts */
+    publish: z.boolean().default(false),
+    nodes: z.array(importNodePlan).min(1).max(500),
+  })
+  .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
+    message: 'Choose either an existing space or a name for a new one.',
+  })
+
+export type ImportResultView = {
+  spaceId: string
+  pages: number
+  published: number
+  firstPageId: string | null
+}
+
+export type ImportApplyInput = z.infer<typeof importApplyInput>
+export type ImportMarkdownInput = z.infer<typeof importMarkdownInput>
+export type ImportGithubInput = z.infer<typeof importGithubInput>

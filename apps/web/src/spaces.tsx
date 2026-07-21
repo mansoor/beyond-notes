@@ -13,6 +13,7 @@ import {
   useMenuAnchor,
   useSubmit,
 } from './components'
+import { ImportModal } from './import'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -38,6 +39,7 @@ type TreeDnd = {
 export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const groups: SpaceCategory[] = ['notebook', 'site', 'wiki']
 
@@ -50,6 +52,14 @@ export function SpacesNav() {
         style={{ color: 'var(--text-3)' }}
       >
         ＋ New space
+      </button>
+      <button
+        type="button"
+        onClick={() => setImporting(true)}
+        className="text-left text-sm px-2 py-1 rounded -mt-3"
+        style={{ color: 'var(--text-3)' }}
+      >
+        ⤒ Import a wiki
       </button>
       {groups.map((cat) => {
         const inGroup = spaces.data?.filter((s) => s.category === cat) ?? []
@@ -69,6 +79,7 @@ export function SpacesNav() {
         )
       })}
       {creating && <NewSpaceModal onClose={() => setCreating(false)} />}
+      {importing && <ImportModal onClose={() => setImporting(false)} />}
     </div>
   )
 }
@@ -127,6 +138,7 @@ function SpaceItem(props: { space: SpaceView }) {
   const [action, setAction] = useState<PageAction>(null)
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const addPage = async (parentId: string | null) => {
     const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
@@ -230,6 +242,15 @@ function SpaceItem(props: { space: SpaceView }) {
           </a>
           <button
             type="button"
+            title="Import pages from markdown or a GitHub repository"
+            onClick={() => setImportOpen(true)}
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ⤒
+          </button>
+          <button
+            type="button"
             title="New page"
             onClick={() => addPage(null)}
             className="text-xs px-1"
@@ -250,6 +271,7 @@ function SpaceItem(props: { space: SpaceView }) {
           onClose={() => setReorgOpen(false)}
         />
       )}
+      {importOpen && <ImportModal space={props.space} onClose={() => setImportOpen(false)} />}
       {expanded && tree.data && (
         <PageTreeLevel
           pages={tree.data}
