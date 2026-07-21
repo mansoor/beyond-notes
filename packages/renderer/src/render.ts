@@ -71,6 +71,13 @@ function headingId(text: string, seen: Map<string, number>): string {
   return n === 0 ? base : `${base}-${n + 1}`
 }
 
+/** BlockNote stores per-block alignment in props.textAlignment; 'left' is the
+ * implicit default and needs no style. */
+function alignStyle(block: Block): string {
+  const a = block.props?.textAlignment
+  return a === 'center' || a === 'right' || a === 'justify' ? ` style="text-align:${a}"` : ''
+}
+
 function renderChildren(block: Block, seen: Map<string, number>): string {
   if (!Array.isArray(block.children) || block.children.length === 0) return ''
   return `<div class="indent">${renderBlocks(block.children, seen)}</div>`
@@ -116,7 +123,7 @@ function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): s
         const id = headingId(inlinePlain(block.content), seen)
         // the anchor is a real link so it works without JS; CHROME_JS upgrades
         // it to copy-to-clipboard
-        out += `<h${h} id="${escapeHtml(id)}">${inner}<a class="hanchor" href="#${escapeHtml(id)}" aria-label="Link to this section">#</a></h${h}>`
+        out += `<h${h} id="${escapeHtml(id)}"${alignStyle(block)}>${inner}<a class="hanchor" href="#${escapeHtml(id)}" aria-label="Link to this section">#</a></h${h}>`
         break
       }
       case 'codeBlock': {
@@ -136,7 +143,7 @@ function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): s
         break
       }
       case 'quote':
-        out += `<blockquote>${renderInline(block.content)}</blockquote>`
+        out += `<blockquote${alignStyle(block)}>${renderInline(block.content)}</blockquote>`
         break
       case 'image': {
         const url = safeHref(block.props?.url)
@@ -148,7 +155,7 @@ function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): s
         break
       }
       default:
-        out += `<p>${renderInline(block.content)}</p>`
+        out += `<p${alignStyle(block)}>${renderInline(block.content)}</p>`
     }
     out += renderChildren(block, seen)
     i++

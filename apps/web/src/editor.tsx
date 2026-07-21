@@ -1,7 +1,14 @@
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
-import { SuggestionMenuController, useCreateBlockNote } from '@blocknote/react'
+import {
+  FormattingToolbar,
+  FormattingToolbarController,
+  SuggestionMenuController,
+  TextAlignButton,
+  getFormattingToolbarItems,
+  useCreateBlockNote,
+} from '@blocknote/react'
 import type { DocumentView } from '@bn/schema'
 import { useEffect, useRef, useState } from 'react'
 import { trpc } from './trpc'
@@ -103,7 +110,22 @@ export function DocumentEditor(props: {
         </div>
       )}
       <div className="-mx-[54px]">
-        <BlockNoteView editor={editor} onChange={scheduleSave} theme={dark ? 'dark' : 'light'}>
+        <BlockNoteView
+          editor={editor}
+          onChange={scheduleSave}
+          theme={dark ? 'dark' : 'light'}
+          formattingToolbar={false}
+        >
+          {/* default toolbar plus a Justify align button (BlockNote ships every
+              other alignment but not this one) */}
+          <FormattingToolbarController
+            formattingToolbar={() => (
+              <FormattingToolbar>
+                {...getFormattingToolbarItems()}
+                <TextAlignButton key="justify" textAlignment="justify" />
+              </FormattingToolbar>
+            )}
+          />
           {/* @-mention: link to another page; the link index derives from these */}
           <SuggestionMenuController
             triggerCharacter="@"
