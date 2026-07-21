@@ -113,7 +113,7 @@ align-self:flex-start;max-height:100vh;overflow-y:auto}
 @media(max-width:1100px){.toc{display:none}}
 nav.side .grp{display:flex;align-items:center}
 nav.side .grp a{flex:1;min-width:0}
-nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:11px;
+nav.side .tw{border:0;background:none;cursor:pointer;color:var(--text3);font-size:15px;
 padding:4px 8px;line-height:1;border-radius:4px;flex-shrink:0}
 nav.side .tw:hover{color:var(--text)}
 nav.side li.collapsed>ul{display:none}
