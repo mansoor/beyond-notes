@@ -1,7 +1,32 @@
-import type { FormEvent, ReactNode } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, FormEvent, ReactNode, RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MATERIAL_ICONS } from './material-icons'
+
+/**
+ * Fixed-position placement for a dropdown anchored to a trigger. `position:
+ * fixed` escapes the sidebar's `overflow` clipping, and the menu flips above the
+ * trigger when there isn't room below — so it always stays on screen.
+ */
+export function useMenuAnchor(
+  open: boolean,
+  ref: RefObject<HTMLElement | null>,
+  width = 160,
+): CSSProperties {
+  const [style, setStyle] = useState<CSSProperties>({ position: 'fixed', visibility: 'hidden' })
+  useLayoutEffect(() => {
+    if (!open || !ref.current) return
+    const r = ref.current.getBoundingClientRect()
+    const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))
+    const below = window.innerHeight - r.bottom
+    setStyle(
+      below < 280
+        ? { position: 'fixed', bottom: window.innerHeight - r.top + 4, left, width }
+        : { position: 'fixed', top: r.bottom + 4, left, width },
+    )
+  }, [open, ref, width])
+  return style
+}
 
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (

@@ -11,7 +11,7 @@ import type {
 } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
 import { trpc } from '../trpc'
 
 const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
@@ -82,18 +82,10 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [dropUp, setDropUp] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const menuStyle = useMenuAnchor(menuOpen, btnRef, 144)
   const [renaming, setRenaming] = useState(false)
   const params = useParams({ strict: false }) as { tableId?: string }
-
-  const toggleMenu = () => {
-    if (!menuOpen) {
-      const r = btnRef.current?.getBoundingClientRect()
-      setDropUp(r ? window.innerHeight - r.bottom < 200 : false)
-    }
-    setMenuOpen((o) => !o)
-  }
 
   const createTable = trpc.tables.create.useMutation({
     onSuccess: async (table) => {
@@ -138,14 +130,14 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
               title="Database menu"
               className="text-xs px-1"
               style={{ color: 'var(--text-3)' }}
-              onClick={toggleMenu}
+              onClick={() => setMenuOpen(!menuOpen)}
             >
               ⋯
             </button>
             {menuOpen && (
               <div
-                className={`absolute right-0 ${dropUp ? 'bottom-full mb-1' : 'top-5'} z-40 w-36 rounded-lg border py-1 text-sm shadow-sm`}
-                style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+                className="z-50 rounded-lg border py-1 text-sm shadow-lg"
+                style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
                 onMouseLeave={() => setMenuOpen(false)}
               >
                 <button
@@ -236,18 +228,9 @@ function TableRow(props: { table: DbTableView; active: boolean }) {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [dropUp, setDropUp] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const menuStyle = useMenuAnchor(menuOpen, btnRef, 160)
   const [action, setAction] = useState<null | 'rename' | 'move'>(null)
-
-  const toggleMenu = () => {
-    if (!menuOpen) {
-      // if there isn't room below (near the bottom of the sidebar), open upward
-      const r = btnRef.current?.getBoundingClientRect()
-      setDropUp(r ? window.innerHeight - r.bottom < 240 : false)
-    }
-    setMenuOpen((o) => !o)
-  }
 
   const refresh = () =>
     Promise.all([utils.tables.list.invalidate(), utils.databases.list.invalidate()])
@@ -297,14 +280,14 @@ function TableRow(props: { table: DbTableView; active: boolean }) {
           title="Table menu"
           className="hidden group-hover:block text-xs px-1"
           style={{ color: 'var(--text-3)' }}
-          onClick={toggleMenu}
+          onClick={() => setMenuOpen(!menuOpen)}
         >
           ⋯
         </button>
         {menuOpen && (
           <div
-            className={`absolute right-0 ${dropUp ? 'bottom-full mb-1' : 'top-5'} z-40 w-40 rounded-lg border py-1 text-sm shadow-sm`}
-            style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+            className="z-50 rounded-lg border py-1 text-sm shadow-lg"
+            style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
             onMouseLeave={() => setMenuOpen(false)}
           >
             <button
