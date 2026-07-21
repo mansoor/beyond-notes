@@ -137,13 +137,18 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   )
 }
 
+const THEME_CELL = 26 // px per swatch
+
 /**
- * Theme swatches that unfold from the one button. Cycling meant clicking twice
- * to reach Paper and never seeing where you were headed; here the strip widens,
- * hovering wears the theme for real, and leaving puts your own back.
+ * Theme swatches that grow out from the one you're on. The current theme keeps
+ * its spot and the others unfold to either side of it — lighter to the left,
+ * darker to the right, matching the THEMES order — so the row reads like a
+ * dimmer with your setting in the middle. Hovering wears a theme for real;
+ * leaving puts yours back.
  */
 function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) {
   const [open, setOpen] = useState(false)
+  const selected = Math.max(0, THEMES.indexOf(props.theme))
 
   const close = () => {
     setOpen(false)
@@ -151,32 +156,47 @@ function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) 
   }
 
   return (
-    <div
-      className="ml-auto flex items-center overflow-hidden rounded border"
-      style={{
-        borderColor: 'var(--border)',
-        width: open ? THEMES.length * 24 + 2 : 26,
-        transition: 'width 160ms ease',
-      }}
-      onMouseLeave={close}
-    >
-      {open ? (
-        THEMES.map((t) => (
+    // fixed-size anchor so the header never reflows; the strip overlays it
+    <div className="ml-auto relative" style={{ width: THEME_CELL, height: THEME_CELL }}>
+      <div
+        className="absolute top-0 flex items-center rounded border overflow-hidden"
+        style={{
+          borderColor: open ? 'var(--border)' : 'transparent',
+          background: open ? 'var(--panel)' : 'transparent',
+          // keep the selected cell pinned to the anchor: shift the strip left by
+          // the cells that unfold before it
+          left: open ? -selected * THEME_CELL : 0,
+          width: open ? THEMES.length * THEME_CELL : THEME_CELL,
+          transition: 'width 160ms ease, left 160ms ease',
+          zIndex: 40,
+        }}
+        onMouseLeave={close}
+      >
+        {(open ? THEMES : [props.theme]).map((t) => (
           <button
             key={t}
             type="button"
-            title={`${THEME_LABEL[t]}${t === props.theme ? ' (current)' : ' — hover to preview'}`}
-            className="w-6 h-6 text-xs shrink-0"
+            title={
+              open
+                ? `${THEME_LABEL[t]}${t === props.theme ? ' (current)' : ' — hover to preview'}`
+                : `Theme: ${THEME_LABEL[props.theme]} — click to choose`
+            }
+            className="h-6 text-xs shrink-0"
             style={{
-              color: t === props.theme ? 'var(--accent)' : 'var(--text-2)',
+              width: THEME_CELL,
+              color: open && t === props.theme ? 'var(--accent)' : 'var(--text-2)',
               background:
-                t === props.theme
+                open && t === props.theme
                   ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
                   : 'transparent',
             }}
-            onMouseEnter={() => previewTheme(t)}
-            onFocus={() => previewTheme(t)}
+            onMouseEnter={() => open && previewTheme(t)}
+            onFocus={() => open && previewTheme(t)}
             onClick={() => {
+              if (!open) {
+                setOpen(true)
+                return
+              }
               applyTheme(t)
               props.onPick(t)
               setOpen(false)
@@ -184,18 +204,8 @@ function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) 
           >
             {THEME_ICON[t]}
           </button>
-        ))
-      ) : (
-        <button
-          type="button"
-          title={`Theme: ${THEME_LABEL[props.theme]} — click to choose`}
-          className="w-6 h-6 text-xs shrink-0"
-          style={{ color: 'var(--text-2)' }}
-          onClick={() => setOpen(true)}
-        >
-          {THEME_ICON[props.theme]}
-        </button>
-      )}
+        ))}
+      </div>
     </div>
   )
 }

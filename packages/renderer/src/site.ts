@@ -51,9 +51,12 @@ export type AlbumCard = { title: string; path: string; coverUrl: string | null; 
 
 const SITE_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}
+/* one shared column so header, content and footer line up on both edges — the
+   header and footer used to run ~260px wider than the 880px content and jut out */
+:root{--site-w:880px}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
-header{padding:18px 40px;max-width:1140px;margin:0 auto}
+header{padding:18px 40px;max-width:var(--site-w);margin:0 auto}
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
 .brand img{height:44px;width:auto;border-radius:8px;display:block}
 .brand .bt{display:flex;flex-direction:column}
@@ -89,6 +92,7 @@ header nav{flex-direction:column;gap:4px;width:100%;padding-top:6px}
 .navitem>a .caret{display:none}
 .dropdown{display:block;position:static;border:0;box-shadow:none;padding:0 0 2px 16px;min-width:0}
 main{padding:20px 20px 50px}
+footer{padding:16px 20px}
 }
 .crumbs{font-size:13px;color:var(--text3);margin-bottom:14px}
 .crumbs a{color:var(--text3);text-decoration:none}
@@ -105,7 +109,7 @@ background:var(--code);border:1px solid var(--border)}
 .albums .cover.empty{display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:24px}
 .albums .name{font-weight:600;font-size:15px;margin-top:7px}
 .albums .n{color:var(--text3);font-size:12px}
-main{max-width:880px;margin:0 auto;padding:26px 40px 60px}
+main{max-width:var(--site-w);margin:0 auto;padding:26px 40px 60px}
 main h1{font-size:30px;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
 main h2{font-size:21px;margin:26px 0 8px}
 main h3{font-size:18px;margin:20px 0 6px}
@@ -144,7 +148,7 @@ main figure{margin:14px 0}
 main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
-display:flex;justify-content:space-between;max-width:1140px;margin:0 auto}
+display:flex;justify-content:space-between;max-width:var(--site-w);margin:0 auto}
 `
 
 /** Dropdown panel body: the subtree as one indented list — no nested flyouts.
