@@ -1,4 +1,4 @@
-import { CHROME_JS, GALLERY_CSS } from './chrome'
+import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
 import { type TocEntry, escapeHtml } from './render'
 import type { SiteMeta } from './site'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
@@ -22,6 +22,8 @@ export type ShellInput = {
   prev?: { title: string; path: string }
   next?: { title: string; path: string }
   searchQuery?: string
+  /** social links for the header; when present, search centers and these sit right */
+  social?: SocialLink[]
   /** draft previews must never be indexed */
   noindex?: boolean
   /** "On this page" entries, from the snapshot's headings */
@@ -48,6 +50,16 @@ header .logo{font-weight:700;text-decoration:none;color:var(--text);font-size:15
 header form{margin-left:auto}
 header input{border:1px solid var(--border);background:var(--panel);color:var(--text);
 border-radius:6px;padding:4px 12px;font-size:13px;width:180px}
+header.hassocial{display:grid;grid-template-columns:1fr auto 1fr;gap:18px}
+header.hassocial .logo{justify-self:start}
+header.hassocial form{margin:0;justify-self:center}
+header.hassocial .socials{justify-self:end}
+header .socials{display:flex;align-items:center;gap:13px}
+header .socials a{color:var(--text3);display:inline-flex}
+header .socials a:hover{color:var(--text)}
+header .socials svg{width:18px;height:18px;fill:currentColor}
+@media(max-width:640px){header.hassocial{grid-template-columns:1fr auto;row-gap:10px}
+header.hassocial form{grid-column:1/-1;justify-self:stretch}header.hassocial form input{width:100%}}
 .layout{display:flex;min-height:calc(100vh - 110px)}
 nav.side{width:var(--sidew,240px);flex-shrink:0;border-right:1px solid var(--border);
 padding:24px 10px 24px 16px;font-size:14px;text-align:left}
@@ -169,11 +181,18 @@ function navHtml(nodes: NavNode[], basePath: string): string {
 }
 
 function tocHtml(toc: TocEntry[]): string {
-  if (toc.length < 2) return '' // a single heading is not a table of contents
-  const links = toc
-    .map((t) => `<a class="lvl${t.level}" href="#${escapeHtml(t.id)}">${escapeHtml(t.text)}</a>`)
-    .join('')
-  return `<aside class="toc"><h4>On this page</h4><nav>${links}</nav></aside>`
+  // The column is ALWAYS rendered so the content never shifts left/right from
+  // page to page; it just sits empty when there's nothing to list (a single
+  // heading is not a table of contents).
+  const inner =
+    toc.length >= 2
+      ? `<h4>On this page</h4><nav>${toc
+          .map(
+            (t) => `<a class="lvl${t.level}" href="#${escapeHtml(t.id)}">${escapeHtml(t.text)}</a>`,
+          )
+          .join('')}</nav>`
+      : ''
+  return `<aside class="toc">${inner}</aside>`
 }
 
 function docsCrumbs(crumbs: Array<{ title: string; path: string }>, basePath: string): string {
@@ -324,13 +343,22 @@ ${body}
 </html>`
 }
 
-function headerHtml(siteTitle: string, basePath: string, searchQuery = '') {
-  return `<header>
-<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>
-<form action="${escapeHtml(`${basePath}/_search`)}" method="get">
+function headerHtml(
+  siteTitle: string,
+  basePath: string,
+  searchQuery = '',
+  social: SocialLink[] = [],
+) {
+  const logo = `<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>`
+  const search = `<form action="${escapeHtml(`${basePath}/_search`)}" method="get">
 <input type="search" name="q" placeholder="Search docs" value="${escapeHtml(searchQuery)}">
-</form>
-</header>`
+</form>`
+  const socials = socialLinksHtml(social)
+  // with socials the header is a three-track grid: logo left, search centered,
+  // socials right. Without, the search keeps its right-aligned place.
+  return socials
+    ? `<header class="hassocial">${logo}${search}${socials}</header>`
+    : `<header>${logo}${search}</header>`
 }
 
 export function docsShell(input: ShellInput): string {
@@ -354,7 +382,7 @@ export function docsShell(input: ShellInput): string {
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
-  const body = `${headerHtml(input.siteTitle, input.basePath)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -391,6 +419,7 @@ export function docsSearchResults(input: {
   results: Array<{ title: string; path: string; snippet: string }>
   theme?: ThemeName
   appearance?: ThemeAppearance
+  social?: SocialLink[]
 }): string {
   const list =
     input.results.length === 0
@@ -401,7 +430,7 @@ export function docsSearchResults(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, input.query)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -442,6 +471,7 @@ export function docsTagPage(input: {
   tag: string
   theme?: ThemeName
   appearance?: ThemeAppearance
+  social?: SocialLink[]
   items: Array<{ title: string; path: string; snippet: string }>
 }): string {
   const list =
@@ -453,7 +483,7 @@ export function docsTagPage(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>

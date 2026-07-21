@@ -73,6 +73,49 @@ describe('heading anchors + TOC', () => {
     expect(two).toContain('href="#one"')
     expect(two).toContain('class="lvl3"')
   })
+
+  it('always reserves the TOC column so pages do not shift', () => {
+    const base = {
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<p>x</p>',
+      nav: [],
+      basePath: '',
+    }
+    // no headings, one heading, many headings — the aside is present every time
+    expect(docsShell(base)).toContain('<aside class="toc">')
+    expect(docsShell({ ...base, toc: [{ level: 2, text: 'Only', id: 'only' }] })).toContain(
+      '<aside class="toc">',
+    )
+  })
+
+  it('centers search and shows socials in the header only when social links exist', () => {
+    const base = {
+      siteTitle: 'Docs',
+      footer: '',
+      pageTitle: 'P',
+      contentHtml: '<p>x</p>',
+      nav: [],
+      basePath: '',
+    }
+    const plain = docsShell(base)
+    expect(plain).not.toContain('<header class="hassocial">')
+    expect(plain).not.toContain('class="socials"')
+
+    const withSocial = docsShell({
+      ...base,
+      social: [
+        { platform: 'github', url: 'https://github.com/acme' },
+        { platform: 'x', url: 'https://x.com/acme' },
+      ],
+    })
+    expect(withSocial).toContain('<header class="hassocial">')
+    expect(withSocial).toContain('class="socials"')
+    expect(withSocial).toContain('https://github.com/acme')
+    // the search box is still there, now centered
+    expect(withSocial).toContain('name="q"')
+  })
 })
 
 describe('docs chrome', () => {

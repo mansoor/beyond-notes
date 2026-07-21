@@ -333,10 +333,15 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     headerLayout !== s.publicHeaderLayout
 
   const isSite = s.category === 'site'
+  const isWiki = s.category === 'wiki'
+  // wikis get social links too (product docs usually have a wider web presence),
+  // but not the logo/tagline/header-layout that only the website chrome renders
   const tabs = [
     { id: 'general', label: 'General', icon: '🌐' },
     { id: 'appearance', label: 'Appearance', icon: '🎨' },
-    ...(isSite ? [{ id: 'branding', label: 'Branding', icon: '✦' }] : []),
+    ...(isSite || isWiki
+      ? [{ id: 'branding', label: isSite ? 'Branding' : 'Social', icon: isSite ? '✦' : '🔗' }]
+      : []),
   ] as const
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('general')
 
@@ -443,6 +448,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             )}
             {tab === 'branding' && (
               <BrandingTab
+                socialOnly={!isSite}
                 tagline={tagline}
                 setTagline={setTagline}
                 logoId={logoId}
@@ -465,6 +471,8 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
 }
 
 function BrandingTab(props: {
+  /** wikis only render social links in their header, not a logo/tagline */
+  socialOnly?: boolean
   tagline: string
   setTagline: (v: string) => void
   logoId: string | null
@@ -477,41 +485,57 @@ function BrandingTab(props: {
   const { tagline, setTagline, logoId, setLogoId, logoBusy, uploadLogo, social, setSocial } = props
   return (
     <>
-      <Field label="Tagline (shown under the site title)" value={tagline} onChange={setTagline} />
-      <div className="mb-4 flex items-center gap-3">
-        <span className="text-sm font-medium">Logo</span>
-        {logoId ? (
-          <>
-            <img
-              src={`/api/files/${logoId}/thumb`}
-              alt="logo"
-              className="h-9 w-auto rounded"
-              style={{ background: 'var(--bg)' }}
-            />
-            <button
-              type="button"
-              className="text-xs underline"
-              style={{ color: 'var(--danger)' }}
-              onClick={() => setLogoId(null)}
-            >
-              remove
-            </button>
-          </>
-        ) : (
-          <label className="text-xs underline cursor-pointer" style={{ color: 'var(--text-2)' }}>
-            {logoBusy ? 'uploading…' : '+ upload logo'}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              disabled={logoBusy}
-              onChange={(e) => uploadLogo(e.target.files)}
-            />
-          </label>
-        )}
-      </div>
+      {props.socialOnly ? (
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          Links to your other web presence. When set, the wiki header centers its search box and
+          shows these on the right.
+        </p>
+      ) : (
+        <>
+          <Field
+            label="Tagline (shown under the site title)"
+            value={tagline}
+            onChange={setTagline}
+          />
+          <div className="mb-4 flex items-center gap-3">
+            <span className="text-sm font-medium">Logo</span>
+            {logoId ? (
+              <>
+                <img
+                  src={`/api/files/${logoId}/thumb`}
+                  alt="logo"
+                  className="h-9 w-auto rounded"
+                  style={{ background: 'var(--bg)' }}
+                />
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => setLogoId(null)}
+                >
+                  remove
+                </button>
+              </>
+            ) : (
+              <label
+                className="text-xs underline cursor-pointer"
+                style={{ color: 'var(--text-2)' }}
+              >
+                {logoBusy ? 'uploading…' : '+ upload logo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={logoBusy}
+                  onChange={(e) => uploadLogo(e.target.files)}
+                />
+              </label>
+            )}
+          </div>
+        </>
+      )}
       <div className="mb-4">
-        <span className="block text-sm font-medium mb-1">Social links (site header)</span>
+        <span className="block text-sm font-medium mb-1">Social links (header)</span>
         {social.map((link, i) => (
           <div key={`${link.platform}-${String(i)}`} className="flex gap-2 mb-1.5">
             <select
