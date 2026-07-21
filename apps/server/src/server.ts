@@ -29,6 +29,7 @@ import {
 } from './scheduler'
 import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
+import { createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { makeCreateContext } from './trpc'
 import { createWebhooksService } from './webhooks'
@@ -52,6 +53,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
   const webhooks = createWebhooksService(repo, daily)
+  const tables = createTablesService(repo)
 
   const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
 
@@ -258,6 +260,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         mailer,
         settings,
         webhooks,
+        tables,
       }),
     },
   })
@@ -279,6 +282,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     mailer,
     settings,
     webhooks,
+    tables,
     blobs,
   })
 

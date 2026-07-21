@@ -334,3 +334,30 @@ export const pins = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )
+
+// ---- data tables (lightweight structured data / forms) ----
+// Column definitions live in the `columns` JSON array (each carries a stable
+// id); a row's cells key by column id. No runtime DDL — one fixed pair.
+export const dbTables = sqliteTable('db_tables', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  // JSON array of {id,name,type,required,choices}
+  columns: text('columns').notNull().default('[]'),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const dbRows = sqliteTable('db_rows', {
+  id: text('id').primaryKey(),
+  tableId: text('table_id')
+    .notNull()
+    .references(() => dbTables.id, { onDelete: 'cascade' }),
+  // JSON object of cell values keyed by column id
+  cells: text('cells').notNull().default('{}'),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})

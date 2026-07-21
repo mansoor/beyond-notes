@@ -7,6 +7,7 @@ import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
 import { THEME_LABEL, applyTheme, currentTheme, nextTheme } from '../theme'
 import { trpc } from '../trpc'
+import { DataNav } from './Data'
 
 export function Shell(props: { me: UserView; children: ReactNode }) {
   const utils = trpc.useUtils()
@@ -122,6 +123,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <DailyNav />
           <PinnedNav />
           <SpacesNav />
+          <DataNav />
         </div>
 
         <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />

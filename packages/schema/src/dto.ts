@@ -562,3 +562,158 @@ export const createDayNoteInput = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   title: z.string().trim().min(1).max(120),
 })
+
+// ---- data tables (lightweight structured data / forms) ----
+
+export const dbColumnType = z.enum([
+  'text',
+  'longtext',
+  'number',
+  'checkbox',
+  'date',
+  'select',
+  'email',
+])
+export type DbColumnType = z.infer<typeof dbColumnType>
+
+/**
+ * A column definition, as stored inside db_tables.columns (a JSON array). `id`
+ * is a stable slug assigned by the server — row cells key by it, so a rename or
+ * reorder never rewrites a single row. `choices` is only meaningful for select.
+ */
+export type DbColumn = {
+  id: string
+  name: string
+  type: DbColumnType
+  required: boolean
+  choices: string[]
+}
+
+/** A single cell value. Stored as-is inside db_rows.cells. */
+export type DbCellValue = string | number | boolean | null
+export const dbCellValue = z.union([z.string(), z.number(), z.boolean(), z.null()])
+
+export const createTableInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  personal: z.boolean().default(false),
+})
+export type CreateTableInput = z.infer<typeof createTableInput>
+
+export const renameTableInput = z.object({
+  tableId: z.string(),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).nullable().default(null),
+})
+
+/** A column as proposed by the schema editor. `id` is absent for new columns; the
+ * server assigns one and preserves existing ids. */
+export const dbColumnDraft = z.object({
+  id: z.string().min(1).max(40).optional(),
+  name: z.string().trim().min(1).max(80),
+  type: dbColumnType,
+  required: z.boolean().default(false),
+  choices: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
+})
+export type DbColumnDraft = z.infer<typeof dbColumnDraft>
+
+export const updateTableColumnsInput = z.object({
+  tableId: z.string(),
+  columns: z.array(dbColumnDraft).max(50),
+})
+
+export const deleteTableInput = z.object({ tableId: z.string() })
+
+export const insertRowInput = z.object({
+  tableId: z.string(),
+  // validated against the table's columns in the service, not here
+  cells: z.record(z.string(), dbCellValue),
+})
+
+export const updateRowInput = z.object({
+  rowId: z.string(),
+  cells: z.record(z.string(), dbCellValue),
+})
+
+export const deleteRowInput = z.object({ rowId: z.string() })
+
+export type DbTableView = {
+  id: string
+  name: string
+  description: string | null
+  personal: boolean
+  columns: DbColumn[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type DbRowView = {
+  id: string
+  tableId: string
+  cells: Record<string, DbCellValue>
+  createdAt: string
+  updatedAt: string
+}
+
+export type CellCheck =
+  | { ok: true; cells: Record<string, DbCellValue> }
+  | { ok: false; error: string }
+
+/**
+ * Coerce and validate a proposed row against a table's columns. Keeps only
+ * known columns (orphan keys from dropped columns are dropped). `requireAll`
+ * enforces `required` — off for grid edits (you fill a row after adding it),
+ * on for public form submissions.
+ */
+export function validateRowCells(
+  columns: DbColumn[],
+  input: Record<string, unknown>,
+  opts: { requireAll?: boolean } = {},
+): CellCheck {
+  const out: Record<string, DbCellValue> = {}
+  for (const col of columns) {
+    const raw = input[col.id]
+    const empty = raw === undefined || raw === null || raw === ''
+    if (empty) {
+      if (opts.requireAll && col.required) return { ok: false, error: `"${col.name}" is required.` }
+      out[col.id] = null
+      continue
+    }
+    switch (col.type) {
+      case 'number': {
+        const n = typeof raw === 'number' ? raw : Number(String(raw).trim())
+        if (!Number.isFinite(n)) return { ok: false, error: `"${col.name}" must be a number.` }
+        out[col.id] = n
+        break
+      }
+      case 'checkbox':
+        out[col.id] = raw === true || raw === 'true' || raw === 1 || raw === '1'
+        break
+      case 'date': {
+        const s = String(raw).trim()
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
+          return { ok: false, error: `"${col.name}" must be a date (YYYY-MM-DD).` }
+        out[col.id] = s
+        break
+      }
+      case 'select': {
+        const s = String(raw)
+        if (col.choices.length > 0 && !col.choices.includes(s))
+          return { ok: false, error: `"${col.name}" must be one of its choices.` }
+        out[col.id] = s
+        break
+      }
+      case 'email': {
+        const s = String(raw).trim()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) || s.length > 254)
+          return { ok: false, error: `"${col.name}" must be a valid email.` }
+        out[col.id] = s
+        break
+      }
+      default: {
+        // text / longtext
+        out[col.id] = String(raw).slice(0, col.type === 'longtext' ? 10000 : 2000)
+      }
+    }
+  }
+  return { ok: true, cells: out }
+}

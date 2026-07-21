@@ -1,6 +1,7 @@
 import { Outlet, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { AcceptInvitePage } from './pages/AcceptInvite'
 import { ArchivePage } from './pages/Archive'
+import { DataPage } from './pages/Data'
 import { EditorPage } from './pages/Editor'
 import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
@@ -94,6 +95,12 @@ const tagsRoute = createRoute({
   component: TagsPage,
 })
 
+const dataRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/$tableId',
+  component: DataPage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
@@ -109,6 +116,7 @@ export const router = createRouter({
       trashRoute,
       staleRoute,
       tagsRoute,
+      dataRoute,
     ]),
   ]),
 })

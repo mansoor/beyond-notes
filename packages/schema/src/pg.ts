@@ -393,3 +393,33 @@ export const pins = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )
+
+// ---- data tables (lightweight structured data / forms) ----
+// A user-defined table. Column definitions live in the `columns` JSON array
+// (each carries a stable id), so a row's cell values key by column id and a
+// rename/reorder never rewrites a single row. No runtime DDL — this stays one
+// fixed pair of tables in both dialects.
+export const dbTables = pgTable('db_tables', {
+  id: text('id').primaryKey(),
+  // null = shared with every member; set = personal to that user (spaces rule)
+  ownerId: text('owner_id').references(() => users.id),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  // JSON array of {id,name,type,required,choices}
+  columns: text('columns').notNull().default('[]'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const dbRows = pgTable('db_rows', {
+  id: text('id').primaryKey(),
+  tableId: text('table_id')
+    .notNull()
+    .references(() => dbTables.id, { onDelete: 'cascade' }),
+  // JSON object of cell values keyed by column id
+  cells: text('cells').notNull().default('{}'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})

@@ -4,6 +4,8 @@ import type {
   ArchivedPageView,
   AuthStatus,
   BacklinkView,
+  DbRowView,
+  DbTableView,
   DocumentView,
   GalleryItemView,
   InviteView,
@@ -37,8 +39,12 @@ import {
   createPageInput,
   createReminderInput,
   createSpaceInput,
+  createTableInput,
   createTemplateInput,
   createWebhookInput,
+  deleteRowInput,
+  deleteTableInput,
+  insertRowInput,
   journalDayInput,
   journalMonthInput,
   loginInput,
@@ -50,6 +56,7 @@ import {
   promoteToTaskInput,
   quickAddTaskInput,
   renamePageInput,
+  renameTableInput,
   requestPasswordResetInput,
   resetPasswordInput,
   saveDocumentInput,
@@ -65,6 +72,8 @@ import {
   updateProfileInput,
   updatePublishingInput,
   updateReminderInput,
+  updateRowInput,
+  updateTableColumnsInput,
   updateTaskInput,
 } from '@bn/schema'
 import { TRPCError } from '@trpc/server'
@@ -74,7 +83,16 @@ import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
-import type { InviteRow, PageRow, SpaceRow, UserRow, WebhookRow } from './repo'
+import type {
+  DbRowRow,
+  DbTableRow,
+  InviteRow,
+  PageRow,
+  SpaceRow,
+  UserRow,
+  WebhookRow,
+} from './repo'
+import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
@@ -139,6 +157,12 @@ function rethrow(err: unknown): never {
             ? 'CONFLICT'
             : 'BAD_REQUEST'
     throw new TRPCError({ code, message: err.message })
+  }
+  if (err instanceof TablesError) {
+    throw new TRPCError({
+      code: err.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+      message: err.message,
+    })
   }
   throw err
 }
@@ -1379,6 +1403,119 @@ const galleryRouter = router({
     }),
 })
 
+function parseColumns(raw: string): DbTableView['columns'] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function toDbTableView(row: DbTableRow): DbTableView {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || null,
+    personal: row.ownerId !== null,
+    columns: parseColumns(row.columns),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+function toDbRowView(row: DbRowRow): DbRowView {
+  let cells: DbRowView['cells']
+  try {
+    const parsed = JSON.parse(row.cells)
+    cells = parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    cells = {}
+  }
+  return {
+    id: row.id,
+    tableId: row.tableId,
+    cells,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+const tablesRouter = router({
+  list: authedProcedure.query(async ({ ctx }) =>
+    (await ctx.tables.listTables(ctx.user)).map(toDbTableView),
+  ),
+  get: authedProcedure.input(z.object({ tableId: z.string() })).query(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.getTable(ctx.user, input.tableId))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  create: authedProcedure.input(createTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.createTable(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rename: authedProcedure.input(renameTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.renameTable(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  updateColumns: authedProcedure.input(updateTableColumnsInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.tables.updateColumns(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  delete: authedProcedure.input(deleteTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.deleteTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rows: router({
+    list: authedProcedure.input(z.object({ tableId: z.string() })).query(async ({ ctx, input }) => {
+      try {
+        return (await ctx.tables.listRows(ctx.user, input.tableId)).map(toDbRowView)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    create: authedProcedure.input(insertRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        return toDbRowView(await ctx.tables.insertRow(ctx.user, input))
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    update: authedProcedure.input(updateRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.tables.updateRow(ctx.user, input)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+    delete: authedProcedure.input(deleteRowInput).mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.tables.deleteRow(ctx.user, input.rowId)
+        return { ok: true }
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+  }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
@@ -1396,6 +1533,7 @@ export const appRouter = router({
   tags: tagsRouter,
   pins: pinsRouter,
   templates: templatesRouter,
+  tables: tablesRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 
