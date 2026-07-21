@@ -1233,6 +1233,7 @@ const tasksRouter = router({
       text: task.text,
       checked: task.checked,
       due: task.due,
+      dueTime: task.dueTime,
       pageTitle: page.title,
       spaceName: space.name,
       isJournal: space.kind === 'journal',
@@ -1259,7 +1260,7 @@ const tasksRouter = router({
 
   edit: authedProcedure.input(updateTaskInput).mutation(async ({ ctx, input }) => {
     try {
-      await ctx.tasks.edit(ctx.user, input.taskId, input.text, input.due)
+      await ctx.tasks.edit(ctx.user, input.taskId, input.text, input.due, input.dueTime)
       return { ok: true }
     } catch (err) {
       rethrow(err)

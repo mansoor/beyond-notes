@@ -1,7 +1,7 @@
 import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { trpc } from '../trpc'
@@ -43,6 +43,9 @@ function PageView(props: {
   const rename = trpc.pages.rename.useMutation()
   const [title, setTitle] = useState(props.page.title)
   const [state, setState] = useState<SaveState>('saved')
+  // the live document, seeded from the load and updated in place on each save
+  // (never via a refetch — see DocumentEditor.onSaved)
+  const [content, setContent] = useState(props.doc.content)
 
   const commitTitle = async () => {
     const next = title.trim() || 'Untitled'
@@ -74,6 +77,7 @@ function PageView(props: {
         <DocumentEditor
           pageId={props.page.id}
           doc={props.doc}
+          onSaved={setContent}
           onStateChange={(s) => {
             setState(s)
             // a save may have changed inline #tags or @-links — refresh the rail
@@ -84,7 +88,7 @@ function PageView(props: {
           }}
           onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
         />
-        <MermaidPreview pageId={props.page.id} saveState={state} />
+        <MermaidPreview content={content} />
         {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
       </div>
       <aside
@@ -265,20 +269,15 @@ function PreviewSection(props: { pageId: string }) {
  * self-hosted library the published pages load, so what you see here is what
  * readers get.
  */
-function MermaidPreview(props: { pageId: string; saveState: SaveState }) {
-  const page = trpc.pages.get.useQuery({ pageId: props.pageId })
+function MermaidPreview(props: { content: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState(false)
 
-  // re-read the saved document whenever a save lands
-  const utils = trpc.useUtils()
-  useEffect(() => {
-    if (props.saveState === 'saved') utils.pages.get.invalidate({ pageId: props.pageId })
-  }, [props.saveState, props.pageId, utils])
-
-  const sources: string[] = (() => {
+  // stable per document text, so the render effect fires only when a diagram's
+  // source actually changes — not on every keystroke elsewhere in the page
+  const sources: string[] = useMemo(() => {
     try {
-      const blocks = JSON.parse(page.data?.doc.content ?? '[]')
+      const blocks = JSON.parse(props.content)
       if (!Array.isArray(blocks)) return []
       const out: string[] = []
       const walk = (list: unknown[]) => {
@@ -300,9 +299,8 @@ function MermaidPreview(props: { pageId: string; saveState: SaveState }) {
     } catch {
       return []
     }
-  })()
+  }, [props.content])
 
-  const key = sources.join(' ')
   useEffect(() => {
     const host = hostRef.current
     if (!host || sources.length === 0) return
@@ -344,7 +342,7 @@ function MermaidPreview(props: { pageId: string; saveState: SaveState }) {
     return () => {
       cancelled = true
     }
-  }, [key, sources])
+  }, [sources])
 
   if (sources.length === 0) return null
   return (

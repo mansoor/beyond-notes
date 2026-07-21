@@ -53,8 +53,34 @@ describe('extractTasks (pure)', () => {
     ])
     const tasks = extractTasks(content)
     expect(tasks).toEqual([
-      { blockId: 't1', text: 'Renew insurance @2026-07-21', checked: false, due: '2026-07-21' },
-      { blockId: 't2', text: 'nested done', checked: true, due: null },
+      {
+        blockId: 't1',
+        text: 'Renew insurance @2026-07-21',
+        checked: false,
+        due: '2026-07-21',
+        dueTime: null,
+      },
+      { blockId: 't2', text: 'nested done', checked: true, due: null, dueTime: null },
+    ])
+  })
+
+  it('reads a time off a @dateTHH:MM token', () => {
+    const content = JSON.stringify([
+      {
+        id: 't1',
+        type: 'checkListItem',
+        props: { checked: false },
+        content: [{ type: 'text', text: 'Call the bank @2026-08-01T14:30', styles: {} }],
+      },
+    ])
+    expect(extractTasks(content)).toEqual([
+      {
+        blockId: 't1',
+        text: 'Call the bank @2026-08-01T14:30',
+        checked: false,
+        due: '2026-08-01',
+        dueTime: '14:30',
+      },
     ])
   })
 
@@ -250,6 +276,35 @@ for (const dialect of dialects) {
       agenda = await tasks.agenda(admin)
       expect(agenda[0]?.task.due).toBeNull()
       expect(agenda[0]?.task.text).toBe('Call the plumber back')
+      await appDb.close()
+    })
+
+    it('a task carries an optional time-of-day, dropped when the date is cleared', async () => {
+      const { appDb, daily, tasks, admin } = await setup()
+      await daily.quickAddTask(admin, 'Call the bank')
+      let agenda = await tasks.agenda(admin)
+      const t = agenda[0]
+      if (!t) throw new Error('missing task')
+
+      // set a date and a time
+      await tasks.edit(admin, t.task.id, 'Call the bank', '2026-08-01', '14:30')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+      expect(agenda[0]?.task.dueTime).toBe('14:30')
+      expect(agenda[0]?.task.text).toContain('@2026-08-01T14:30')
+
+      // drop just the time, keep the date
+      await tasks.edit(admin, t.task.id, 'Call the bank', '2026-08-01', null)
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBe('2026-08-01')
+      expect(agenda[0]?.task.dueTime).toBeNull()
+      expect(agenda[0]?.task.text).toBe('Call the bank @2026-08-01')
+
+      // a time without a date is meaningless — clearing the date drops both
+      await tasks.edit(admin, t.task.id, 'Call the bank', null, '14:30')
+      agenda = await tasks.agenda(admin)
+      expect(agenda[0]?.task.due).toBeNull()
+      expect(agenda[0]?.task.dueTime).toBeNull()
       await appDb.close()
     })
 

@@ -59,6 +59,7 @@ export function JournalPage() {
         icon: string
         title: string
         date: string
+        time: string | null
         hint: string
         pageId: string
         pageTitle: string
@@ -84,8 +85,9 @@ export function JournalPage() {
           kind: 'task',
           key: `t:${t.id}`,
           icon: '☐',
-          title: t.text.replace(/@\d{4}-\d{2}-\d{2}\b/, '').trim() || t.text,
+          title: t.text.replace(/@\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\b/, '').trim() || t.text,
           date: t.due as string,
+          time: t.dueTime,
           hint: t.pageTitle,
           pageId: t.pageId,
           pageTitle: t.pageTitle,
@@ -272,7 +274,8 @@ export function JournalPage() {
               Coming up
             </h4>
             {comingUp.map((item) => {
-              const dateLabel = item.date === today ? 'today' : item.date.slice(5)
+              const timeSuffix = item.kind === 'task' && item.time ? ` ${item.time}` : ''
+              const dateLabel = (item.date === today ? 'today' : item.date.slice(5)) + timeSuffix
               const body = (
                 <>
                   <span className="truncate">
@@ -289,16 +292,22 @@ export function JournalPage() {
               )
               if (item.kind === 'task') {
                 const isDayPage = item.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(item.pageTitle)
+                // quick-added tasks share one "Tasks inbox" page; sending you to
+                // the raw page dumps every checkbox at once — the agenda is the
+                // real home for them. Journal-day tasks open their day; note
+                // tasks open their note.
+                const go = () => {
+                  if (item.pageTitle === 'Tasks inbox') navigate({ to: '/tasks' })
+                  else if (isDayPage)
+                    navigate({ to: '/day/$date', params: { date: item.pageTitle } })
+                  else navigate({ to: '/p/$pageId', params: { pageId: item.pageId } })
+                }
                 return (
                   <button
                     key={item.key}
                     type="button"
                     className="flex w-full justify-between gap-2 py-1 text-left"
-                    onClick={() =>
-                      isDayPage
-                        ? navigate({ to: '/day/$date', params: { date: item.pageTitle } })
-                        : navigate({ to: '/p/$pageId', params: { pageId: item.pageId } })
-                    }
+                    onClick={go}
                   >
                     {body}
                   </button>

@@ -1,11 +1,12 @@
 import type { ReminderFreq, ReminderView, TaskView } from '@bn/schema'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
+import { ErrorNote, Modal, SubmitButton, TimeWheel, useSubmit } from '../components'
 import { todayKey } from '../editor'
 import { trpc } from '../trpc'
 
-const DUE_TOKEN = /@(\d{4}-\d{2}-\d{2})\b/
+// a due token: `@YYYY-MM-DD`, optionally carrying `THH:MM` — stripped whole for display
+const DUE_TOKEN = /@(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2})?\b/
 
 // Emoji a reminder can wear instead of the bell — the occasions people
 // actually set recurring reminders for.
@@ -428,6 +429,7 @@ export function TaskRowItem(props: { task: TaskView }) {
   const [editing, setEditing] = useState(false)
   const [draftText, setDraftText] = useState(displayText)
   const [draftDue, setDraftDue] = useState(t.due ?? '')
+  const [draftTime, setDraftTime] = useState(t.dueTime ?? '')
 
   const source = t.isJournal
     ? t.pageTitle === 'Tasks inbox'
@@ -436,23 +438,36 @@ export function TaskRowItem(props: { task: TaskView }) {
     : `${t.spaceName} / ${t.pageTitle}`
   const isDayPage = t.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(t.pageTitle)
 
+  const openEdit = () => {
+    setDraftText(displayText)
+    setDraftDue(t.due ?? '')
+    setDraftTime(t.dueTime ?? '')
+    setEditing(true)
+  }
+
   const save = async () => {
     const value = draftText.trim()
     if (!value) return
-    await edit.mutateAsync({ taskId: t.id, text: value, due: draftDue || null })
+    await edit.mutateAsync({
+      taskId: t.id,
+      text: value,
+      due: draftDue || null,
+      // a time is only meaningful with a date
+      dueTime: draftDue && draftTime ? draftTime : null,
+    })
     setEditing(false)
   }
 
   if (editing) {
     return (
       <div
-        className="flex items-center gap-2 py-1.5 border-b text-sm flex-wrap"
-        style={{ borderColor: 'var(--border)' }}
+        className="rounded-lg border p-3 my-1.5 flex flex-col gap-2.5 text-sm"
+        style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
       >
         <input
           // biome-ignore lint/a11y/noAutofocus: the edit pencil hands off focus here
           autoFocus
-          className="flex-1 min-w-[160px] rounded-lg border px-2 py-1 text-sm outline-none"
+          className="w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
           value={draftText}
           onChange={(e) => setDraftText(e.target.value)}
@@ -461,41 +476,70 @@ export function TaskRowItem(props: { task: TaskView }) {
             if (e.key === 'Escape') setEditing(false)
           }}
         />
-        <input
-          type="date"
-          className="rounded-lg border px-2 py-1 text-xs"
-          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-          value={draftDue}
-          onChange={(e) => setDraftDue(e.target.value)}
-        />
-        {draftDue && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="date"
+            className="rounded-lg border px-2 py-1 text-xs"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={draftDue}
+            onChange={(e) => setDraftDue(e.target.value)}
+          />
+          {draftDue && (
+            <>
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 text-xs"
+                style={{
+                  borderColor: 'var(--border)',
+                  color: draftTime ? 'var(--accent)' : 'var(--text-3)',
+                }}
+                // default a fresh time to the end of the day; toggle off clears it
+                onClick={() => setDraftTime(draftTime ? '' : '23:59')}
+              >
+                {draftTime ? `🕑 ${draftTime}` : '＋ add time'}
+              </button>
+              <button
+                type="button"
+                title="Clear due date"
+                className="text-xs"
+                style={{ color: 'var(--text-3)' }}
+                onClick={() => {
+                  setDraftDue('')
+                  setDraftTime('')
+                }}
+              >
+                clear date
+              </button>
+            </>
+          )}
+        </div>
+        {draftDue && draftTime && (
+          <div
+            className="self-start rounded-lg border px-3 py-1"
+            style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+          >
+            <TimeWheel value={draftTime} onChange={setDraftTime} />
+          </div>
+        )}
+        <div className="flex gap-2">
           <button
             type="button"
-            title="Clear due date"
+            onClick={save}
+            disabled={edit.isPending || !draftText.trim()}
+            className="rounded-md px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            style={{ background: 'var(--accent)' }}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
             className="text-xs"
             style={{ color: 'var(--text-3)' }}
-            onClick={() => setDraftDue('')}
           >
-            ✕
+            Cancel
           </button>
-        )}
-        <button
-          type="button"
-          onClick={save}
-          disabled={edit.isPending || !draftText.trim()}
-          className="rounded-md px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
-          style={{ background: 'var(--accent)' }}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="text-xs"
-          style={{ color: 'var(--text-3)' }}
-        >
-          Cancel
-        </button>
+        </div>
       </div>
     )
   }
@@ -518,11 +562,7 @@ export function TaskRowItem(props: { task: TaskView }) {
         title="Edit task"
         className="opacity-0 group-hover:opacity-100 transition-opacity text-xs"
         style={{ color: 'var(--text-3)' }}
-        onClick={() => {
-          setDraftText(displayText)
-          setDraftDue(t.due ?? '')
-          setEditing(true)
-        }}
+        onClick={openEdit}
       >
         ✎
       </button>
@@ -545,15 +585,12 @@ export function TaskRowItem(props: { task: TaskView }) {
       <button
         type="button"
         className={`ml-auto text-xs whitespace-nowrap ${t.due ? '' : 'opacity-0 group-hover:opacity-100 transition-opacity'}`}
-        title="Edit due date"
+        title="Edit due date & time"
         style={{ color: !t.checked && t.due && t.due < today ? 'var(--danger)' : 'var(--text-3)' }}
-        onClick={() => {
-          setDraftText(displayText)
-          setDraftDue(t.due ?? '')
-          setEditing(true)
-        }}
+        onClick={openEdit}
       >
         {t.due ? (t.due === today ? 'today' : t.due) : '+ date'}
+        {t.due && t.dueTime ? ` · ${t.dueTime}` : ''}
       </button>
     </div>
   )

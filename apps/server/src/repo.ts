@@ -167,6 +167,7 @@ export type TaskRow = {
   text: string
   checked: boolean
   due: string | null
+  dueTime: string | null
   position: number
   updatedAt: Date
 }
@@ -589,7 +590,9 @@ export function createRepo(appDb: AppDb) {
 
     async updateTask(
       id: string,
-      patch: Partial<Pick<TaskRow, 'text' | 'checked' | 'due' | 'position' | 'updatedAt'>>,
+      patch: Partial<
+        Pick<TaskRow, 'text' | 'checked' | 'due' | 'dueTime' | 'position' | 'updatedAt'>
+      >,
     ): Promise<void> {
       await db.update(t.tasks).set(patch).where(eq(t.tasks.id, id))
     },

@@ -191,6 +191,8 @@ export const tasks = sqliteTable('tasks', {
   text: text('text').notNull(),
   checked: integer('checked', { mode: 'boolean' }).notNull().default(false),
   due: text('due'),
+  // optional local time-of-day 'HH:MM' paired with `due`; null = no time set
+  dueTime: text('due_time'),
   position: integer('position').notNull().default(0),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

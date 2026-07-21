@@ -249,6 +249,7 @@ export type DocumentView = {
 // ---- journal, inbox, tasks (M2) ----
 
 export const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+export const timeKey = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM')
 
 export const journalDayInput = z.object({ date: dateKey })
 export const journalMonthInput = z.object({
@@ -400,11 +401,16 @@ export type CreateReminderInput = z.infer<typeof createReminderInput>
 export const updateReminderInput = createReminderInput.extend({ id: z.string() })
 export type UpdateReminderInput = z.infer<typeof updateReminderInput>
 
-/** Editing a task rewrites its checklist block: text plus an optional due. */
+/**
+ * Editing a task rewrites its checklist block: text plus an optional due date
+ * and an optional time-of-day. A time only makes sense with a date, so it is
+ * dropped server-side when `due` is null.
+ */
 export const updateTaskInput = z.object({
   taskId: z.string(),
   text: z.string().trim().min(1).max(500),
   due: dateKey.nullable(),
+  dueTime: timeKey.nullable().default(null),
 })
 
 export const updateMemoInput = z.object({
@@ -431,6 +437,7 @@ export type TaskView = {
   text: string
   checked: boolean
   due: string | null
+  dueTime: string | null
   pageTitle: string
   spaceName: string
   isJournal: boolean

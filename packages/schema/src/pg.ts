@@ -235,6 +235,8 @@ export const tasks = pgTable('tasks', {
   text: text('text').notNull(),
   checked: boolean('checked').notNull().default(false),
   due: text('due'),
+  // optional local time-of-day 'HH:MM' paired with `due`; null = no time set
+  dueTime: text('due_time'),
   position: integer('position').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

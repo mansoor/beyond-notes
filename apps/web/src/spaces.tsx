@@ -19,7 +19,7 @@ export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
   const [creating, setCreating] = useState(false)
 
-  const groups: SpaceCategory[] = ['wiki', 'notebook', 'site']
+  const groups: SpaceCategory[] = ['notebook', 'site', 'wiki']
 
   return (
     <div className="flex flex-col gap-4">

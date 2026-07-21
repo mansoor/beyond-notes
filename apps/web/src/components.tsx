@@ -140,6 +140,110 @@ export function Modal(props: {
   )
 }
 
+// ---- iOS-alarm-style time wheel ----
+//
+// Two scroll-snap columns (hours, minutes); the row sitting in the centre band
+// is the value. Scrolling settles onto a row and reports it up. Value is 'HH:MM'.
+
+const ROW = 34
+const VISIBLE = 5 // odd, so exactly one row is centred
+const PAD = ((VISIBLE - 1) / 2) * ROW
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+
+function WheelColumn(props: {
+  values: string[]
+  index: number
+  onIndex: (i: number) => void
+  ariaLabel: string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // keep the scroll position pinned to the selected row; re-runs when the value
+  // changes from outside (and harmlessly no-ops when the user's own scroll set it)
+  useEffect(() => {
+    const el = ref.current
+    if (el && Math.round(el.scrollTop / ROW) !== props.index) el.scrollTop = props.index * ROW
+  }, [props.index])
+
+  const onScroll = () => {
+    const el = ref.current
+    if (!el) return
+    if (settle.current) clearTimeout(settle.current)
+    settle.current = setTimeout(() => {
+      const i = Math.max(0, Math.min(props.values.length - 1, Math.round(el.scrollTop / ROW)))
+      if (i !== props.index) props.onIndex(i)
+    }, 110)
+  }
+
+  return (
+    <div
+      ref={ref}
+      onScroll={onScroll}
+      aria-label={props.ariaLabel}
+      className="relative overflow-y-auto [&::-webkit-scrollbar]:hidden"
+      style={{ height: VISIBLE * ROW, scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
+    >
+      <div style={{ height: PAD }} />
+      {props.values.map((v, i) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => ref.current?.scrollTo({ top: i * ROW, behavior: 'smooth' })}
+          className="flex w-full items-center justify-center"
+          style={{
+            height: ROW,
+            scrollSnapAlign: 'center',
+            fontVariantNumeric: 'tabular-nums',
+            color: i === props.index ? 'var(--text)' : 'var(--text-3)',
+            fontWeight: i === props.index ? 650 : 400,
+            fontSize: i === props.index ? 19 : 15,
+            opacity: Math.abs(i - props.index) >= 2 ? 0.4 : 1,
+            transition: 'color .1s, font-size .1s, opacity .1s',
+          }}
+        >
+          {v}
+        </button>
+      ))}
+      <div style={{ height: PAD }} />
+    </div>
+  )
+}
+
+export function TimeWheel(props: { value: string; onChange: (v: string) => void }) {
+  const [h = '00', m = '00'] = props.value.split(':')
+  const hi = Math.max(0, HOURS.indexOf(h))
+  const mi = Math.max(0, MINUTES.indexOf(m))
+  return (
+    <div className="relative flex justify-center gap-1 select-none">
+      {/* the highlighted centre band the chosen row sits in */}
+      <div
+        className="pointer-events-none absolute left-0 right-0 rounded-lg"
+        style={{ top: PAD, height: ROW, background: 'var(--accent-soft)' }}
+      />
+      <WheelColumn
+        values={HOURS}
+        index={hi}
+        ariaLabel="Hour"
+        onIndex={(i) => props.onChange(`${HOURS[i]}:${MINUTES[mi]}`)}
+      />
+      <span
+        className="flex items-center font-semibold"
+        style={{ height: VISIBLE * ROW, color: 'var(--text-2)' }}
+      >
+        :
+      </span>
+      <WheelColumn
+        values={MINUTES}
+        index={mi}
+        ariaLabel="Minute"
+        onIndex={(i) => props.onChange(`${HOURS[hi]}:${MINUTES[i]}`)}
+      />
+    </div>
+  )
+}
+
 export function useSubmit(fn: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

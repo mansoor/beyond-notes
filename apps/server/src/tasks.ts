@@ -23,9 +23,19 @@ function inlineText(content: unknown): string {
     .join('')
 }
 
-const DUE_TOKEN = /@(\d{4}-\d{2}-\d{2})\b/
+// `@YYYY-MM-DD` optionally carrying a time, `@YYYY-MM-DDTHH:MM`. The time only
+// exists alongside a date. One matcher used to read tasks; ANY_DUE_TOKEN (global)
+// is used to strip old tokens before writing a fresh one.
+const DUE_TOKEN = /@(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?\b/
+const ANY_DUE_TOKEN = /@\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\b/g
 
-export type ExtractedTask = { blockId: string; text: string; checked: boolean; due: string | null }
+export type ExtractedTask = {
+  blockId: string
+  text: string
+  checked: boolean
+  due: string | null
+  dueTime: string | null
+}
 
 /** Walk a BlockNote document and collect every checkbox block, in document order. */
 export function extractTasks(content: string): ExtractedTask[] {
@@ -41,8 +51,14 @@ export function extractTasks(content: string): ExtractedTask[] {
     for (const block of list) {
       if (block?.type === 'checkListItem' && typeof block.id === 'string') {
         const text = inlineText(block.content).trim()
-        const due = DUE_TOKEN.exec(text)?.[1] ?? null
-        found.push({ blockId: block.id, text, checked: block.props?.checked === true, due })
+        const m = DUE_TOKEN.exec(text)
+        found.push({
+          blockId: block.id,
+          text,
+          checked: block.props?.checked === true,
+          due: m?.[1] ?? null,
+          dueTime: m?.[2] ?? null,
+        })
       }
       if (Array.isArray(block?.children) && block.children.length > 0) walk(block.children)
     }
@@ -61,14 +77,14 @@ export function setBlockTask(
   blockId: string,
   text: string,
   due: string | null,
+  dueTime: string | null = null,
 ): string | null {
   const blocks = JSON.parse(content) as Block[]
   // one due token, appended; strip any the caller left in the text first
-  const cleaned = text
-    .replace(/@\d{4}-\d{2}-\d{2}\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  const finalText = due ? `${cleaned} @${due}` : cleaned
+  const cleaned = text.replace(ANY_DUE_TOKEN, '').replace(/\s+/g, ' ').trim()
+  // a time is meaningless without a date
+  const token = due ? (dueTime ? `@${due}T${dueTime}` : `@${due}`) : ''
+  const finalText = token ? `${cleaned} ${token}` : cleaned
   let hit = false
   const walk = (list: Block[]) => {
     for (const block of list) {
@@ -162,6 +178,7 @@ export async function reconcileTasks(
         text: task.text,
         checked: task.checked,
         due: task.due,
+        dueTime: task.dueTime,
         position: i,
         updatedAt: now,
       })
@@ -169,12 +186,14 @@ export async function reconcileTasks(
       row.text !== task.text ||
       row.checked !== task.checked ||
       row.due !== task.due ||
+      row.dueTime !== task.dueTime ||
       row.position !== i
     ) {
       await repo.updateTask(row.id, {
         text: task.text,
         checked: task.checked,
         due: task.due,
+        dueTime: task.dueTime,
         position: i,
         updatedAt: now,
       })
@@ -232,8 +251,14 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       await reconcileTasks(repo, page.id, next, when)
     },
 
-    /** Edit a task's text and/or due date from the agenda. */
-    async edit(user: UserRow, taskId: string, text: string, due: string | null): Promise<void> {
+    /** Edit a task's text, due date, and/or time-of-day from the agenda. */
+    async edit(
+      user: UserRow,
+      taskId: string,
+      text: string,
+      due: string | null,
+      dueTime: string | null = null,
+    ): Promise<void> {
       const task = await repo.getTask(taskId)
       if (!task) throw new PagesError('NOT_FOUND', 'Task not found.')
       const page = await repo.getPage(task.pageId)
@@ -243,7 +268,8 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       }
       const doc = await repo.getDocument(page.id)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
-      const next = setBlockTask(doc.content, task.blockId, text, due)
+      // a time only lives with a date
+      const next = setBlockTask(doc.content, task.blockId, text, due, due ? dueTime : null)
       if (next === null) {
         await reconcileTasks(repo, page.id, doc.content, now())
         throw new PagesError('CONFLICT', 'Task block no longer exists. Refresh the list.')
