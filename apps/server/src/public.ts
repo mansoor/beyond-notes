@@ -2,6 +2,8 @@ import {
   FORM_CSS,
   FORM_JS,
   RECAPTCHA_SCRIPT,
+  TABLE_EMBED_CSS,
+  TABLE_EMBED_JS,
   albumCardsHtml,
   buildRss,
   buildSitemap,
@@ -19,6 +21,7 @@ import {
   sitePost,
   siteSearchResults,
   siteTagPage,
+  tableEmbedHtml,
 } from '@bn/renderer'
 import type {
   AlbumCard,
@@ -28,7 +31,7 @@ import type {
   SiteNavItem,
   SocialLink,
 } from '@bn/renderer'
-import type { DbColumn, FormConfig } from '@bn/schema'
+import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
 import type { PublishingService } from './publishing'
@@ -769,34 +772,164 @@ async function renderFormById(
   }
 }
 
-/**
- * Expand `[[form:<tableId>]]` tokens in published content into live intake
- * forms. Forms are composed at serve time (not baked at publish), so editing a
- * form updates every page that embeds it without republishing. A token alone in
- * its own paragraph replaces the whole `<p>` so a block form isn't nested in it.
- */
-async function expandForms(repo: Repo, html: string, security: PublicSecurity): Promise<string> {
-  if (!html.includes('[[form:')) return html
-  const ids = new Set<string>()
-  for (const m of html.matchAll(FORM_TOKEN)) ids.add(m[1] as string)
-  const rendered = new Map<string, string>()
-  let anyRecaptcha = false
-  for (const id of ids) {
-    const r = await renderFormById(repo, id, security)
-    if (r) {
-      rendered.set(id, r.html)
-      if (r.recaptcha) anyRecaptcha = true
+const TABLE_TOKEN = /\[\[table=[^\]]*\]\]/g
+
+function parseEmbedAttrs(inner: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  for (const m of inner.matchAll(/(\w+)\s*=\s*('[^']*'|"[^"]*"|[^\s\]]+)/g)) {
+    attrs[(m[1] as string).toLowerCase()] = (m[2] ?? '').replace(/^['"]|['"]$/g, '')
+  }
+  return attrs
+}
+
+function cellDisplay(v: DbCellValue | undefined, type: string): string {
+  if (v === null || v === undefined) return ''
+  if (type === 'checkbox') return v === true || v === 'true' ? 'Yes' : 'No'
+  return String(v)
+}
+
+const PRIVATE_EMBED =
+  '<div class="bn-table-embed"><p class="bn-embed-empty">This table is private and can’t be shown publicly.</p></div>'
+
+/** Render one `[[table=...]]` token as a read-only presentation, or null to
+ *  leave the token untouched (unknown table id). Personal-database tables are
+ *  never exposed — their data may not cross onto a public page. */
+async function renderTableEmbed(repo: Repo, token: string): Promise<string | null> {
+  // the token was escaped by the renderer at publish (quotes -> &#39;/&quot;),
+  // so undo that before reading the attributes
+  const inner = token
+    .slice(2, -2)
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+  const attrs = parseEmbedAttrs(inner)
+  const id = attrs.table || attrs.id
+  if (!id) return null
+  const table = await repo.getDbTable(id)
+  if (!table) return null
+  const database = await repo.getDbDatabase(table.databaseId)
+  if (!database || database.ownerId !== null) return PRIVATE_EMBED
+
+  let columns: DbColumn[]
+  try {
+    columns = JSON.parse(table.columns) as DbColumn[]
+  } catch {
+    columns = []
+  }
+  const findCol = (ref: string) =>
+    columns.find((c) => c.id === ref || c.name.toLowerCase() === ref.toLowerCase()) ?? null
+  if (attrs.columns) {
+    const chosen = attrs.columns
+      .split(',')
+      .map((s) => findCol(s.trim()))
+      .filter((c): c is DbColumn => Boolean(c))
+    if (chosen.length > 0) columns = chosen
+  }
+
+  const cellsOf = (raw: string): Record<string, DbCellValue> => {
+    try {
+      const p = JSON.parse(raw)
+      return p && typeof p === 'object' ? p : {}
+    } catch {
+      return {}
     }
   }
-  if (rendered.size === 0) return html
-  let out = html.replace(
-    /<p[^>]*>\s*\[\[form:([A-Za-z0-9_-]+)\]\]\s*<\/p>/g,
-    (m, id: string) => rendered.get(id) ?? m,
+
+  let rows = (await repo.listDbRows(id)).sort(
+    (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
   )
-  out = out.replace(FORM_TOKEN, (m, id: string) => rendered.get(id) ?? m)
-  out += `<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
-  if (anyRecaptcha) out += RECAPTCHA_SCRIPT
-  return out
+  if (attrs.filter?.includes(':')) {
+    const [ref, ...rest] = attrs.filter.split(':')
+    const col = findCol(ref as string)
+    const want = rest.join(':').toLowerCase()
+    if (col)
+      rows = rows.filter((r) => String(cellsOf(r.cells)[col.id] ?? '').toLowerCase() === want)
+  }
+  if (attrs.sort) {
+    const [ref, dir] = attrs.sort.split(':')
+    const col = findCol(ref as string)
+    if (col) {
+      const sign = dir?.toLowerCase() === 'desc' ? -1 : 1
+      rows = [...rows].sort((a, b) => {
+        const av = cellsOf(a.cells)[col.id]
+        const bv = cellsOf(b.cells)[col.id]
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sign
+        return String(av ?? '').localeCompare(String(bv ?? '')) * sign
+      })
+    }
+  }
+  const limit = Math.min(Math.max(Number(attrs.limit) || 500, 1), 2000)
+  rows = rows.slice(0, limit)
+
+  const layout = attrs.layout === 'cards' || attrs.layout === 'list' ? attrs.layout : 'table'
+  const pageSize = Math.min(Math.max(Number(attrs.pagesize) || 0, 0), 500)
+  const displayRows = rows.map((r) => {
+    const cells = cellsOf(r.cells)
+    return columns.map((c) => cellDisplay(cells[c.id], c.type))
+  })
+  return tableEmbedHtml({
+    columns: columns.map((c) => c.name),
+    rows: displayRows,
+    layout,
+    pageSize,
+  })
+}
+
+/**
+ * Expand `[[form:<id>]]` and `[[table=...]]` tokens in published content into
+ * live intake forms and read-only table presentations. Both compose at serve
+ * time (not baked at publish), so edits show without republishing. A token
+ * alone in its own paragraph replaces the whole `<p>`.
+ */
+async function expandForms(repo: Repo, html: string, security: PublicSecurity): Promise<string> {
+  const hasForm = html.includes('[[form:')
+  const hasTable = html.includes('[[table=')
+  if (!hasForm && !hasTable) return html
+  let out = html
+  let tail = ''
+
+  if (hasForm) {
+    const ids = new Set<string>()
+    for (const m of out.matchAll(FORM_TOKEN)) ids.add(m[1] as string)
+    const rendered = new Map<string, string>()
+    let anyRecaptcha = false
+    for (const id of ids) {
+      const r = await renderFormById(repo, id, security)
+      if (r) {
+        rendered.set(id, r.html)
+        if (r.recaptcha) anyRecaptcha = true
+      }
+    }
+    if (rendered.size > 0) {
+      out = out.replace(
+        /<p[^>]*>\s*\[\[form:([A-Za-z0-9_-]+)\]\]\s*<\/p>/g,
+        (m, id: string) => rendered.get(id) ?? m,
+      )
+      out = out.replace(FORM_TOKEN, (m, id: string) => rendered.get(id) ?? m)
+      tail += `<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
+      if (anyRecaptcha) tail += RECAPTCHA_SCRIPT
+    }
+  }
+
+  if (hasTable) {
+    const tokens = new Set<string>()
+    for (const m of out.matchAll(TABLE_TOKEN)) tokens.add(m[0])
+    const rendered = new Map<string, string>()
+    for (const token of tokens) {
+      const h = await renderTableEmbed(repo, token)
+      if (h) rendered.set(token, h)
+    }
+    if (rendered.size > 0) {
+      out = out.replace(
+        /<p[^>]*>\s*(\[\[table=[^\]]*\]\])\s*<\/p>/g,
+        (m, tok: string) => rendered.get(tok) ?? m,
+      )
+      out = out.replace(TABLE_TOKEN, (m) => rendered.get(m) ?? m)
+      tail += `<style>${TABLE_EMBED_CSS}</style><script>${TABLE_EMBED_JS}</script>`
+    }
+  }
+
+  return out + tail
 }
 
 function parseSocialLinks(raw: string): SocialLink[] {

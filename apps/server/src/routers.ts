@@ -47,11 +47,13 @@ import {
   deleteDatabaseInput,
   deleteRowInput,
   deleteTableInput,
+  duplicateTableInput,
   insertRowInput,
   journalDayInput,
   journalMonthInput,
   loginInput,
   movePageInput,
+  moveTableInput,
   ntfySettings,
   pageTagInput,
   promoteToJournalInput,
@@ -1540,6 +1542,21 @@ const tablesRouter = router({
   updateForm: authedProcedure.input(updateFormInput).mutation(async ({ ctx, input }) => {
     try {
       return await ctx.tables.updateForm(ctx.user, input)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  duplicate: authedProcedure.input(duplicateTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDbTableView(await ctx.tables.duplicateTable(ctx.user, input.tableId))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  move: authedProcedure.input(moveTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.moveTable(ctx.user, input)
+      return { ok: true }
     } catch (err) {
       rethrow(err)
     }

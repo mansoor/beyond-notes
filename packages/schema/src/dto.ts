@@ -679,6 +679,8 @@ export const updateTableColumnsInput = z.object({
 })
 
 export const deleteTableInput = z.object({ tableId: z.string() })
+export const duplicateTableInput = z.object({ tableId: z.string() })
+export const moveTableInput = z.object({ tableId: z.string(), databaseId: z.string() })
 
 export const insertRowInput = z.object({
   tableId: z.string(),

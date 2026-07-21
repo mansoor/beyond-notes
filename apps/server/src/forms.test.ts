@@ -3,8 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
 import { loadConfig } from './config'
 import { type AppDb, createDb } from './db'
-import { createPagesService } from './pages'
-import { createPublishingService } from './publishing'
+import { type PagesService, createPagesService } from './pages'
+import { type PublishingService, createPublishingService } from './publishing'
 import { createRepo } from './repo'
 import type { UserRow } from './repo'
 import { buildServer } from './server'
@@ -53,6 +53,8 @@ for (const dialect of dialects) {
     let server: Awaited<ReturnType<typeof buildServer>>
     let repo: ReturnType<typeof createRepo>
     let tables: TablesService
+    let pages: PagesService
+    let publishing: PublishingService
     let user: UserRow
     const HOST = 'forms.example.test'
     let tableId: string
@@ -82,8 +84,8 @@ for (const dialect of dialects) {
       server = await buildServer(config, appDb)
       repo = createRepo(appDb)
       const auth = createAuthService(repo)
-      const pages = createPagesService(repo)
-      const publishing = createPublishingService(repo)
+      pages = createPagesService(repo)
+      publishing = createPublishingService(repo)
       tables = createTablesService(repo)
       user = (await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })).user
 
@@ -197,6 +199,59 @@ for (const dialect of dialects) {
         }
       }
       expect(sawLimit).toBe(true)
+    })
+
+    it('embeds a shared table read-only and hides a personal one', async () => {
+      // a shared (household) table with a row
+      const shared = await tables.createDatabase(user, { name: 'Facts', personal: false })
+      const fruit = await tables.createTable(user, { databaseId: shared.id, name: 'Fruit' })
+      const cols = await tables.updateColumns(user, {
+        tableId: fruit.id,
+        columns: [{ name: 'Item', type: 'text', required: false, choices: [] }],
+      })
+      const itemId = cols[0]?.id as string
+      await tables.insertRow(user, { tableId: fruit.id, cells: { [itemId]: 'Mango' } })
+
+      // a personal table
+      const priv = await tables.createDatabase(user, { name: 'Priv', personal: true })
+      const secret = await tables.createTable(user, { databaseId: priv.id, name: 'Secret' })
+
+      // a published site embedding both
+      const site = await pages.createSpace(user, { name: 'f', category: 'site', personal: false })
+      const p1 = await pages.createPage(user, { spaceId: site.id, parentId: null, title: 'Fruit' })
+      const p2 = await pages.createPage(user, { spaceId: site.id, parentId: null, title: 'Secret' })
+      const save = async (id: string, body: string) => {
+        const { doc: d } = await pages.getPage(user, id)
+        await pages.saveDocument(user, {
+          pageId: id,
+          content: doc(body),
+          baseUpdatedAt: d.updatedAt.toISOString(),
+        })
+      }
+      await save(p1.id, `[[table='${fruit.id}' layout=table]]`)
+      await save(p2.id, `[[table='${secret.id}']]`)
+      await publishing.updateSpacePublishing(user, {
+        spaceId: site.id,
+        enabled: true,
+        host: 'facts.example.test',
+        title: 'F',
+        footer: '',
+        theme: 'paper',
+      })
+      await publishing.publish(user, p1.id)
+      await publishing.publish(user, p2.id)
+
+      const get = (path: string) =>
+        server.inject({ method: 'GET', url: path, headers: { host: 'facts.example.test' } })
+
+      const shownRes = await get('/fruit')
+      expect(shownRes.body).toContain('bn-embed-table')
+      expect(shownRes.body).toContain('Mango')
+      expect(shownRes.body).not.toContain(`[[table='${fruit.id}'`) // token consumed
+
+      const hiddenRes = await get('/secret')
+      expect(hiddenRes.body).toContain('private') // personal table not exposed
+      expect(hiddenRes.body).not.toContain(`[[table='${secret.id}'`)
     })
 
     // runs last: it switches the form to the basic captcha

@@ -181,23 +181,7 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
       </div>
       {expanded &&
         props.tables.map((table) => (
-          <Link
-            key={table.id}
-            to="/data/$tableId"
-            params={{ tableId: table.id }}
-            className="block truncate rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
-            style={{
-              paddingLeft: 26,
-              paddingRight: 8,
-              paddingTop: 2,
-              paddingBottom: 2,
-              color: params.tableId === table.id ? 'var(--accent)' : 'var(--text-2)',
-              background: params.tableId === table.id ? 'var(--accent-soft)' : undefined,
-            }}
-            title={table.name}
-          >
-            ▦ {table.name}
-          </Link>
+          <TableRow key={table.id} table={table} active={params.tableId === table.id} />
         ))}
       {expanded && props.tables.length === 0 && (
         <div className="text-xs py-1" style={{ paddingLeft: 26, color: 'var(--text-3)' }}>
@@ -236,6 +220,184 @@ function RenameDatabaseModal(props: { database: DatabaseView; onClose: () => voi
   )
 }
 
+function TableRow(props: { table: DbTableView; active: boolean }) {
+  const { table } = props
+  const utils = trpc.useUtils()
+  const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [action, setAction] = useState<null | 'rename' | 'move'>(null)
+
+  const refresh = () =>
+    Promise.all([utils.tables.list.invalidate(), utils.databases.list.invalidate()])
+  const duplicate = trpc.tables.duplicate.useMutation({
+    onSuccess: async (copy) => {
+      await utils.tables.list.invalidate()
+      navigate({ to: '/data/$tableId', params: { tableId: copy.id } })
+    },
+  })
+  const del = trpc.tables.delete.useMutation({
+    onSuccess: async () => {
+      await utils.tables.list.invalidate()
+      navigate({ to: '/' })
+    },
+  })
+  const item = 'block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5'
+
+  return (
+    <div
+      className="group flex items-center rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
+      style={{ background: props.active ? 'var(--accent-soft)' : undefined }}
+    >
+      <Link
+        to="/data/$tableId"
+        params={{ tableId: table.id }}
+        className="block truncate flex-1"
+        style={{
+          paddingLeft: 26,
+          paddingTop: 2,
+          paddingBottom: 2,
+          color: props.active ? 'var(--accent)' : 'var(--text-2)',
+        }}
+        title={table.name}
+      >
+        ▦ {table.name}
+      </Link>
+      <span className="relative pr-1">
+        <button
+          type="button"
+          title="Table menu"
+          className="hidden group-hover:block text-xs px-1"
+          style={{ color: 'var(--text-3)' }}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-5 z-40 w-40 rounded-lg border py-1 text-sm shadow-sm"
+            style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+            onMouseLeave={() => setMenuOpen(false)}
+          >
+            <button
+              type="button"
+              className={item}
+              style={{ color: 'var(--text)' }}
+              onClick={() => {
+                setMenuOpen(false)
+                setAction('rename')
+              }}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              className={item}
+              style={{ color: 'var(--text)' }}
+              onClick={() => {
+                setMenuOpen(false)
+                duplicate.mutate({ tableId: table.id })
+              }}
+            >
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className={item}
+              style={{ color: 'var(--text)' }}
+              onClick={() => {
+                setMenuOpen(false)
+                setAction('move')
+              }}
+            >
+              Move to…
+            </button>
+            <a
+              href={`/api/export/table/${table.id}`}
+              download
+              className={item}
+              style={{ color: 'var(--text)' }}
+              onClick={() => setMenuOpen(false)}
+            >
+              Export CSV
+            </a>
+            <button
+              type="button"
+              className={item}
+              style={{ color: 'var(--danger)' }}
+              onClick={() => {
+                setMenuOpen(false)
+                if (confirm(`Delete "${table.name}" and all its rows? This cannot be undone.`)) {
+                  del.mutate({ tableId: table.id })
+                }
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </span>
+      {action === 'rename' && (
+        <RenameModal
+          table={table}
+          onClose={() => setAction(null)}
+          onSaved={async () => {
+            await refresh()
+            setAction(null)
+          }}
+        />
+      )}
+      {action === 'move' && (
+        <MoveTableModal
+          table={table}
+          onClose={() => setAction(null)}
+          onSaved={async () => {
+            await refresh()
+            setAction(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function MoveTableModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
+  const databases = trpc.databases.list.useQuery()
+  const move = trpc.tables.move.useMutation()
+  const [databaseId, setDatabaseId] = useState(props.table.databaseId)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await move.mutateAsync({ tableId: props.table.id, databaseId })
+    props.onSaved()
+  })
+  return (
+    <Modal
+      title={`Move "${props.table.name}"`}
+      onClose={props.onClose}
+      dirty={databaseId !== props.table.databaseId}
+    >
+      <form onSubmit={onSubmit}>
+        <label className="block mb-4">
+          <span className="block text-sm font-medium mb-1">Database</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={databaseId}
+            onChange={(e) => setDatabaseId(e.target.value)}
+          >
+            {databases.data?.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+                {d.id === props.table.databaseId ? ' (current)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <ErrorNote message={error} />
+        <SubmitButton label="Move" busy={busy} />
+      </form>
+    </Modal>
+  )
+}
+
 // ---- table page ----
 
 export function DataPage() {
@@ -267,6 +429,7 @@ function TableView(props: { table: DbTableView }) {
 
   const [editingCols, setEditingCols] = useState(false)
   const [editingForm, setEditingForm] = useState(false)
+  const [embedOpen, setEmbedOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
 
   const databases = trpc.databases.list.useQuery()
@@ -329,6 +492,7 @@ function TableView(props: { table: DbTableView }) {
             label={table.form?.enabled ? 'Form ●' : 'Form'}
             onClick={() => setEditingForm(true)}
           />
+          <HeaderBtn label="Embed" onClick={() => setEmbedOpen(true)} />
           <a
             href={`/api/export/table/${table.id}`}
             download
@@ -495,6 +659,7 @@ function TableView(props: { table: DbTableView }) {
           }}
         />
       )}
+      {embedOpen && <EmbedModal table={table} onClose={() => setEmbedOpen(false)} />}
       {renaming && (
         <RenameModal
           table={table}
@@ -1024,6 +1189,72 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
           </button>
         )}
       </form>
+    </Modal>
+  )
+}
+
+function EmbedModal(props: { table: DbTableView; onClose: () => void }) {
+  const [copied, setCopied] = useState('')
+  const base = `[[table='${props.table.id}']]`
+  const full = `[[table='${props.table.id}' layout=table pagesize=10]]`
+  const copy = (text: string, tag: string) => {
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(tag)
+        setTimeout(() => setCopied(''), 1500)
+      })
+      .catch(() => {})
+  }
+  const Snippet = (p: { text: string; tag: string }) => (
+    <div className="flex items-center gap-2 mb-2">
+      <code
+        className="text-xs px-2 py-1 rounded flex-1 break-all"
+        style={{ background: 'var(--bg)' }}
+      >
+        {p.text}
+      </code>
+      <button
+        type="button"
+        className="text-xs underline"
+        style={{ color: 'var(--text-2)' }}
+        onClick={() => copy(p.text, p.tag)}
+      >
+        {copied === p.tag ? 'copied' : 'copy'}
+      </button>
+    </div>
+  )
+  return (
+    <Modal title={`Embed — ${props.table.name}`} onClose={props.onClose} width="lg">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Paste a token into a website or wiki page to show this table&apos;s rows read-only. It
+        reflects the live data — no republish needed.
+      </p>
+      <Snippet text={base} tag="base" />
+      <Snippet text={full} tag="full" />
+      <div className="text-xs mt-3 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+        <p className="font-medium mb-1" style={{ color: 'var(--text-2)' }}>
+          Options (all optional):
+        </p>
+        <ul className="list-disc pl-5 space-y-0.5">
+          <li>
+            <code>layout=</code> table · cards · list
+          </li>
+          <li>
+            <code>columns=</code> comma-separated column names to show (and their order)
+          </li>
+          <li>
+            <code>pagesize=</code> rows per page (adds pagination)
+          </li>
+          <li>
+            <code>limit=</code> max rows · <code>sort=</code> Column or Column:desc ·{' '}
+            <code>filter=</code> Column:value
+          </li>
+        </ul>
+        <p className="mt-2">
+          Only tables in a shared (non-personal) database can be shown publicly.
+        </p>
+      </div>
     </Modal>
   )
 }

@@ -261,6 +261,49 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       return form
     },
 
+    /** Copy a table's structure and rows into the same database. The public
+     * form is deliberately not copied — a copy shouldn't silently go live. */
+    async duplicateTable(user: UserRow, tableId: string): Promise<DbTableRow> {
+      const { table } = await requireTable(tableId, user)
+      const existing = await repo.listDbTablesInDatabase(table.databaseId)
+      const copy: DbTableRow = {
+        ...table,
+        id: nanoid(),
+        name: `${table.name} (copy)`,
+        form: null,
+        position: existing.length,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      await repo.insertDbTable(copy)
+      const rows = (await repo.listDbRows(tableId)).sort(
+        (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+      )
+      for (const r of rows) {
+        await repo.insertDbRow({
+          ...r,
+          id: nanoid(),
+          tableId: copy.id,
+          createdAt: now(),
+          updatedAt: now(),
+        })
+      }
+      return copy
+    },
+
+    /** Move a table to another database the user can access. */
+    async moveTable(user: UserRow, input: { tableId: string; databaseId: string }): Promise<void> {
+      const { table } = await requireTable(input.tableId, user)
+      await requireDatabase(input.databaseId, user)
+      if (input.databaseId === table.databaseId) return
+      const existing = await repo.listDbTablesInDatabase(input.databaseId)
+      await repo.updateDbTable(input.tableId, {
+        databaseId: input.databaseId,
+        position: existing.length,
+        updatedAt: now(),
+      })
+    },
+
     async deleteTable(user: UserRow, tableId: string): Promise<void> {
       await requireTable(tableId, user)
       await repo.deleteDbTable(tableId)

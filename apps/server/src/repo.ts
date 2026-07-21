@@ -1069,7 +1069,10 @@ export function createRepo(appDb: AppDb) {
     async updateDbTable(
       id: string,
       patch: Partial<
-        Pick<DbTableRow, 'name' | 'description' | 'columns' | 'form' | 'position' | 'updatedAt'>
+        Pick<
+          DbTableRow,
+          'databaseId' | 'name' | 'description' | 'columns' | 'form' | 'position' | 'updatedAt'
+        >
       >,
     ): Promise<void> {
       await db.update(t.dbTables).set(patch).where(eq(t.dbTables.id, id))

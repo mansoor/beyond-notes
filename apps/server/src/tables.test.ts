@@ -327,6 +327,48 @@ for (const dialect of dialects) {
       expect(form?.fields).toEqual([realId])
     })
 
+    it('duplicates a table with its rows but not its form', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [{ name: 'X', type: 'text', required: false, choices: [] }],
+      })
+      const x = req(cols[0]).id
+      await tables.insertRow(admin, { tableId: table.id, cells: { [x]: 'a' } })
+      await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: true,
+          fields: [x],
+          title: '',
+          description: '',
+          submitLabel: 'Submit',
+          successMessage: 'ok',
+          notify: false,
+          captcha: 'none',
+        },
+      })
+      const copy = await tables.duplicateTable(admin, table.id)
+      expect(copy.name).toBe('T (copy)')
+      expect(copy.form).toBeNull() // a copy never inherits the public form
+      const rows = await tables.listRows(admin, copy.id)
+      expect(rows).toHaveLength(1)
+      expect(JSON.parse(req(rows[0]).cells)[x]).toBe('a')
+    })
+
+    it('moves a table to another database', async () => {
+      const { tables, admin } = await setup()
+      const a = await tables.createDatabase(admin, { name: 'A', personal: false })
+      const b = await tables.createDatabase(admin, { name: 'B', personal: false })
+      const table = await tables.createTable(admin, { databaseId: a.id, name: 'T' })
+      await tables.moveTable(admin, { tableId: table.id, databaseId: b.id })
+      expect((await tables.getTable(admin, table.id)).databaseId).toBe(b.id)
+      // and it no longer lists under the old database
+      expect((await tables.listTables(admin)).find((t) => t.id === table.id)?.databaseId).toBe(b.id)
+    })
+
     it('exports a table as CSV with headers and quoting', async () => {
       const { tables, admin } = await setup()
       const database = await tables.createDatabase(admin, { name: 'D', personal: false })
