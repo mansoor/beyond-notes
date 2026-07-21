@@ -172,6 +172,20 @@ export async function applyImportPlan(
       })
   if (!space) throw new ImportError('That space no longer exists.')
 
+  // Re-importing a wiki over itself is the common case (the source moved on),
+  // and the old pages are what makes that a mess. Archiving rather than deleting
+  // keeps every published version and every restore path intact.
+  let archived = 0
+  if (input.archiveExisting && input.spaceId) {
+    const existing = await deps.repo.listPagesInSpace(space.id)
+    // archiving a page takes its subtree with it, so only the roots need asking
+    const roots = existing.filter((p) => p.parentId === null && p.archivedAt === null)
+    for (const page of roots) {
+      await deps.pages.archivePage(user, page.id)
+      archived++
+    }
+  }
+
   // pass 1: create every page, so anchors can resolve to real ids in pass 2
   const parents: string[] = []
   const created: Array<{ node: ImportNodePlan; pageId: string }> = []
@@ -216,6 +230,7 @@ export async function applyImportPlan(
     spaceId: space.id,
     pages: created.length,
     published,
+    archived,
     firstPageId: created[0]?.pageId ?? null,
   }
 }

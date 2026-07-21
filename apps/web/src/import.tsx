@@ -5,7 +5,8 @@
  * created, which is why the preview call writes nothing.
  */
 
-import type { ImportNodePlan, ImportPlanView, SpaceView } from '@bn/schema'
+import type { ImportNodePlan, ImportPlanView, MergeMap, SpaceView } from '@bn/schema'
+import { foldMergedNodes } from '@bn/schema'
 import { useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from './components'
@@ -170,6 +171,13 @@ function SourceStep(props: { onPlan: (plan: ImportPlanView) => void }) {
 
 // ---- step 2: review, edit, approve ----
 
+/**
+ * A merge the user asked for: this row's content is appended to `target`
+ * instead of becoming a page. `shifted`/`delta` record what the merge did to
+ * the row's children so unmerging can put them back exactly.
+ */
+type Merge = { target: string; shifted: string[]; delta: number }
+
 function ReviewStep(props: {
   plan: ImportPlanView
   space?: SpaceView
@@ -183,11 +191,19 @@ function ReviewStep(props: {
 
   const [nodes, setNodes] = useState<ImportNodePlan[]>(props.plan.nodes)
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
+  const [merges, setMerges] = useState<Record<string, Merge>>({})
   const [name, setName] = useState(props.plan.suggestedName)
   const [publish, setPublish] = useState(false)
+  const [archiveExisting, setArchiveExisting] = useState(false)
   const [targetId, setTargetId] = useState<string>(props.space?.id ?? '')
 
-  const included = nodes.filter((n) => !skipped.has(n.key))
+  // what the target space already holds, so "archive first" can say how much
+  const existing = trpc.pages.tree.useQuery({ spaceId: targetId }, { enabled: targetId !== '' })
+  const existingCount = targetId === '' ? 0 : (existing.data?.length ?? 0)
+
+  const titleOf = (key: string) => nodes.find((n) => n.key === key)?.title ?? 'a page'
+  const isMerged = (key: string) => Boolean(merges[key])
+  const included = nodes.filter((n) => !skipped.has(n.key) && !isMerged(n.key))
 
   const patch = (key: string, change: Partial<ImportNodePlan>) =>
     setNodes((list) => list.map((n) => (n.key === key ? { ...n, ...change } : n)))
@@ -202,22 +218,78 @@ function ReviewStep(props: {
       return next
     })
 
-  // a page can only ever be one level deeper than the row above it
-  const maxLevelAt = (index: number) => {
+  /** The row a merge would fold into: the nearest live row above this one. */
+  const mergeTargetAt = (index: number): ImportNodePlan | null => {
     for (let i = index - 1; i >= 0; i--) {
       const prev = nodes[i]
-      if (prev && !skipped.has(prev.key)) return prev.level + 1
+      if (prev && !skipped.has(prev.key) && !isMerged(prev.key)) return prev
     }
-    return 0
+    return null
+  }
+
+  /** Rows nested under this one — they outlive the merge and re-parent to the target. */
+  const descendantsOf = (index: number): ImportNodePlan[] => {
+    const node = nodes[index]
+    if (!node) return []
+    const out: ImportNodePlan[] = []
+    for (let i = index + 1; i < nodes.length; i++) {
+      const next = nodes[i]
+      if (!next || next.level <= node.level) break
+      out.push(next)
+    }
+    return out
+  }
+
+  const mergeRow = (index: number) => {
+    const node = nodes[index]
+    const target = mergeTargetAt(index)
+    if (!node || !target) return
+    const delta = target.level - node.level
+    const shifted = descendantsOf(index).map((d) => d.key)
+    setNodes((list) =>
+      list.map((n) =>
+        shifted.includes(n.key) ? { ...n, level: Math.max(0, n.level + delta) } : n,
+      ),
+    )
+    setMerges((m) => ({ ...m, [node.key]: { target: target.key, shifted, delta } }))
+  }
+
+  const unmergeRow = (key: string) => {
+    const record = merges[key]
+    if (!record) return
+    setNodes((list) =>
+      list.map((n) =>
+        record.shifted.includes(n.key) ? { ...n, level: Math.max(0, n.level - record.delta) } : n,
+      ),
+    )
+    setMerges((m) => {
+      const next = { ...m }
+      delete next[key]
+      return next
+    })
+  }
+
+  // a page can only ever be one level deeper than the row above it
+  const maxLevelAt = (index: number) => {
+    const target = mergeTargetAt(index)
+    return target ? target.level + 1 : 0
   }
 
   const { busy, error, onSubmit } = useSubmit(async () => {
+    // fold merges here, once: until now they were an intent the user could undo
+    const mergeMap: MergeMap = {}
+    for (const [key, record] of Object.entries(merges)) mergeMap[key] = record.target
+    const folded = foldMergedNodes(
+      nodes.filter((n) => !skipped.has(n.key)),
+      mergeMap,
+    )
     const result = await apply.mutateAsync({
       ...(targetId ? { spaceId: targetId } : { newSpaceName: name.trim() || 'Imported wiki' }),
       category: 'wiki',
       personal: false,
       publish,
-      nodes: included.map((n) => ({ ...n, level: Math.min(n.level, 6) })),
+      archiveExisting: targetId !== '' && archiveExisting,
+      nodes: folded.map((n) => ({ ...n, level: Math.min(n.level, 6) })),
     })
     await utils.spaces.list.invalidate()
     await utils.pages.tree.invalidate()
@@ -225,11 +297,14 @@ function ReviewStep(props: {
     if (result.firstPageId) navigate({ to: '/p/$pageId', params: { pageId: result.firstPageId } })
   })
 
+  const mergedCount = Object.keys(merges).length
+
   return (
     <form onSubmit={onSubmit}>
       <p className="text-sm mb-1" style={{ color: 'var(--text-2)' }}>
         Read <b>{props.plan.sourceLabel}</b> — {included.length} page
-        {included.length === 1 ? '' : 's'} to create.
+        {included.length === 1 ? '' : 's'} to create
+        {mergedCount > 0 ? `, ${mergedCount} merged in` : ''}.
       </p>
       {props.plan.warnings.map((w) => (
         <p key={w} className="text-xs mb-1" style={{ color: 'var(--text-3)' }}>
@@ -242,7 +317,28 @@ function ReviewStep(props: {
         style={{ borderColor: 'var(--border)', maxHeight: '22rem' }}
       >
         {nodes.map((node, index) => {
+          const merged = merges[node.key]
           const off = skipped.has(node.key)
+          if (merged) {
+            return (
+              <div
+                key={node.key}
+                className="flex items-center gap-2 px-2 py-1.5 border-b last:border-b-0 text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span style={{ width: '16px' }} />
+                <span style={{ width: `${node.level * 16}px` }} />
+                <span className="flex-1 min-w-0 truncate" style={{ color: 'var(--text-3)' }}>
+                  ↳ <s>{node.title}</s> — merged into <b>{titleOf(merged.target)}</b>
+                </span>
+                <RowBtn
+                  label="undo"
+                  title="Keep as its own page"
+                  onClick={() => unmergeRow(node.key)}
+                />
+              </div>
+            )
+          }
           return (
             <div
               key={node.key}
@@ -271,11 +367,21 @@ function ReviewStep(props: {
               />
               <span
                 className="text-[11px] truncate hidden sm:block"
-                style={{ color: 'var(--text-3)', maxWidth: '14rem' }}
+                style={{ color: 'var(--text-3)', maxWidth: '12rem' }}
                 title={node.excerpt}
               >
                 {node.path ?? node.excerpt}
               </span>
+              <RowBtn
+                label="⊕"
+                title={
+                  mergeTargetAt(index)
+                    ? `Merge into “${mergeTargetAt(index)?.title}” — its text is appended there instead of becoming a page`
+                    : 'Nothing above to merge into'
+                }
+                disabled={!mergeTargetAt(index) || off}
+                onClick={() => mergeRow(index)}
+              />
               <RowBtn
                 label="⇤"
                 title="Outdent"
@@ -334,6 +440,24 @@ function ReviewStep(props: {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+      ) : null}
+
+      {existingCount > 0 ? (
+        <>
+          <label className="flex items-center gap-2 mb-1 text-sm">
+            <input
+              type="checkbox"
+              checked={archiveExisting}
+              onChange={(e) => setArchiveExisting(e.target.checked)}
+            />
+            Archive the {existingCount} page{existingCount === 1 ? '' : 's'} already in this space
+          </label>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+            {archiveExisting
+              ? 'The old pages move to Archive — nothing is deleted, published versions are kept, and you can restore any of them.'
+              : 'The imported pages are added alongside what is already there.'}
+          </p>
+        </>
       ) : null}
 
       <label className="flex items-center gap-2 mb-1 text-sm">

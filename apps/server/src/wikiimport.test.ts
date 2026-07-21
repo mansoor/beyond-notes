@@ -1,3 +1,4 @@
+import { type ImportNodePlan, foldMergedNodes } from '@bn/schema'
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
 import { createDb } from './db'
@@ -169,6 +170,7 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: false,
+      archiveExisting: false,
       nodes: plan.nodes,
     })
 
@@ -189,6 +191,7 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: false,
+      archiveExisting: false,
       nodes: planFromMarkdown('# T\n\n## A\n\ntext\n\n- one\n- two', 'r.md').nodes,
     })
     const page = (await repo.listPagesInSpace(result.spaceId)).find((p) => p.title === 'A')
@@ -205,6 +208,7 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: false,
+      archiveExisting: false,
       nodes: planFromMarkdown(md, 'r.md').nodes,
     })
     const all = await repo.listPagesInSpace(result.spaceId)
@@ -222,6 +226,7 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: true,
+      archiveExisting: false,
       nodes: planFromMarkdown(README, 'README.md').nodes,
     })
     expect(result.published).toBe(4)
@@ -241,10 +246,59 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: false,
+      archiveExisting: false,
       nodes: planFromMarkdown('# T\n\n## A\n\nx', 'r.md').nodes,
     })
     expect(result.spaceId).toBe(space.id)
     expect(await repo.listPagesInSpace(space.id)).toHaveLength(1)
+  })
+
+  it('archives what the target space already held, when asked', async () => {
+    const { repo, pages, publishing, user } = await setup()
+    const space = await pages.createSpace(user, {
+      name: 'Docs',
+      category: 'wiki',
+      personal: false,
+    })
+    const old = await pages.createPage(user, {
+      spaceId: space.id,
+      parentId: null,
+      title: 'Old page',
+    })
+    const oldChild = await pages.createPage(user, {
+      spaceId: space.id,
+      parentId: old.id,
+      title: 'Old child',
+    })
+
+    const result = await applyImportPlan({ repo, pages, publishing }, user, {
+      spaceId: space.id,
+      category: 'wiki',
+      personal: false,
+      publish: false,
+      archiveExisting: true,
+      nodes: planFromMarkdown('# T\n\n## Fresh\n\nnew', 'r.md').nodes,
+    })
+
+    expect(result.archived).toBe(1) // one root — its subtree goes with it
+    const after = await repo.listPagesInSpace(space.id)
+    expect(req(after.find((p) => p.id === old.id)).archivedAt).not.toBeNull()
+    expect(req(after.find((p) => p.id === oldChild.id)).archivedAt).not.toBeNull()
+    // the newly imported page is live in the sidebar, not archived
+    expect(req(after.find((p) => p.title === 'Fresh')).archivedAt).toBeNull()
+  })
+
+  it('never archives when creating a new space — there is nothing to lose', async () => {
+    const { repo, pages, publishing, user } = await setup()
+    const result = await applyImportPlan({ repo, pages, publishing }, user, {
+      newSpaceName: 'Fresh wiki',
+      category: 'wiki',
+      personal: false,
+      publish: false,
+      archiveExisting: true,
+      nodes: planFromMarkdown('# T\n\n## A\n\nx', 'r.md').nodes,
+    })
+    expect(result.archived).toBe(0)
   })
 
   it('repairs an impossible nesting jump instead of orphaning a page', async () => {
@@ -254,6 +308,7 @@ describe('applyImportPlan', () => {
       category: 'wiki',
       personal: false,
       publish: false,
+      archiveExisting: false,
       nodes: [
         { key: 'a', title: 'A', level: 0, kind: 'section', markdown: 'a', excerpt: '' },
         { key: 'b', title: 'B', level: 5, kind: 'section', markdown: 'b', excerpt: '' },
@@ -262,5 +317,42 @@ describe('applyImportPlan', () => {
     const all = await repo.listPagesInSpace(result.spaceId)
     const a = req(all.find((p) => p.title === 'A'))
     expect(req(all.find((p) => p.title === 'B')).parentId).toBe(a.id)
+  })
+})
+
+describe('foldMergedNodes (pure)', () => {
+  const node = (key: string, title: string, markdown: string, level = 0): ImportNodePlan => ({
+    key,
+    title,
+    level,
+    kind: 'section',
+    markdown,
+    excerpt: '',
+  })
+  const nodes = [
+    node('a', 'License', 'MIT.'),
+    node('b', 'License', 'Full licence text.'),
+    node('c', 'Usage', 'Run it.'),
+  ]
+
+  it('appends a merged page under its own heading, and drops the row', () => {
+    const out = foldMergedNodes(nodes, { b: 'a' })
+    expect(out.map((n) => n.key)).toEqual(['a', 'c'])
+    expect(out[0]?.markdown).toBe('MIT.\n\n## License\n\nFull licence text.')
+  })
+
+  it('follows a chain: merged into something itself merged', () => {
+    const out = foldMergedNodes(nodes, { c: 'b', b: 'a' })
+    expect(out.map((n) => n.key)).toEqual(['a'])
+    expect(out[0]?.markdown).toContain('Full licence text.')
+    expect(out[0]?.markdown).toContain('Run it.')
+  })
+
+  it('leaves an unmerged plan untouched', () => {
+    expect(foldMergedNodes(nodes, {})).toEqual(nodes)
+  })
+
+  it('survives a merge into a row that is no longer there', () => {
+    expect(foldMergedNodes([nodes[1] as ImportNodePlan], { b: 'gone' })).toEqual([])
   })
 })

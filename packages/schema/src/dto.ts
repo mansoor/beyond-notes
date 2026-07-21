@@ -919,6 +919,8 @@ export const importApplyInput = z
     personal: z.boolean().default(false),
     /** publish every created page instead of leaving drafts */
     publish: z.boolean().default(false),
+    /** archive whatever the target space already holds, first */
+    archiveExisting: z.boolean().default(false),
     nodes: z.array(importNodePlan).min(1).max(500),
   })
   .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
@@ -929,9 +931,50 @@ export type ImportResultView = {
   spaceId: string
   pages: number
   published: number
+  /** pages that were already in the target space and got archived first */
+  archived: number
   firstPageId: string | null
 }
 
 export type ImportApplyInput = z.infer<typeof importApplyInput>
 export type ImportMarkdownInput = z.infer<typeof importMarkdownInput>
 export type ImportGithubInput = z.infer<typeof importGithubInput>
+
+/**
+ * Merging in the import review: a row can be folded into an earlier one instead
+ * of becoming its own page — the classic case is a README `## License` section
+ * next to a LICENSE file, or a subsection too small to deserve a page.
+ *
+ * The plan records the intent (`key -> target key`) rather than concatenating
+ * as you click, so a merge stays visible and reversible in the review list. The
+ * fold happens once, here, when the user approves.
+ */
+export type MergeMap = Record<string, string>
+
+export function foldMergedNodes(nodes: ImportNodePlan[], merges: MergeMap): ImportNodePlan[] {
+  // A merged into B and B into C means A's content belongs to C
+  const resolve = (key: string): string => {
+    const seen = new Set<string>()
+    let current = key
+    while (merges[current] && !seen.has(current)) {
+      seen.add(current)
+      current = merges[current] as string
+    }
+    return current
+  }
+
+  const kept = new Map<string, ImportNodePlan>()
+  for (const node of nodes) if (!merges[node.key]) kept.set(node.key, { ...node })
+
+  for (const node of nodes) {
+    if (!merges[node.key]) continue
+    const target = kept.get(resolve(node.key))
+    if (!target) continue // merged into something that was itself dropped
+    // the folded section keeps its title as a heading, so nothing reads as if
+    // it had been silently glued on
+    const heading = node.title.trim() ? `## ${node.title.trim()}\n\n` : ''
+    target.markdown = `${target.markdown}\n\n${heading}${node.markdown}`.trim()
+  }
+
+  return nodes.filter((n) => !merges[n.key]).map((n) => kept.get(n.key) as ImportNodePlan)
+}

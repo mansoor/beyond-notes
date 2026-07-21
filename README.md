@@ -501,8 +501,17 @@ world would see.
    used for that one request and never stored.
 3. **Review the proposed structure.** Rename a page, indent or outdent it (⇥ /
    ⇤), move it (↑ / ↓), or untick anything you don't want.
+   - **⊕ merges a row into the page above it** — its text is appended there
+     under its own heading instead of becoming a page of its own. Useful for a
+     `## License` section sitting next to a LICENSE file, or a subsection too
+     small to deserve a page. Nested rows re-parent instead of disappearing, and
+     **undo** puts everything back.
 4. Pick the destination — a new wiki or an existing space — and decide whether
    pages arrive as **drafts** (default) or **published**.
+   - Importing into a space that already has pages offers **"Archive the N pages
+     already in this space"**, which is how you re-import a wiki over itself
+     without ending up with two of everything. Archived pages are not deleted:
+     published versions survive and any of them can be restored from *Archive*.
 5. Import. You land on the first page it created.
 
 ### Run a blog
