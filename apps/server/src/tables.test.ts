@@ -112,7 +112,8 @@ for (const dialect of dialects) {
 
     it('creates a table with a default column and one row round-trips', async () => {
       const { tables, admin } = await setup()
-      const table = await tables.createTable(admin, { name: 'Contacts', personal: false })
+      const database = await tables.createDatabase(admin, { name: 'CRM', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'Contacts' })
       const cols = await tables.updateColumns(admin, {
         tableId: table.id,
         columns: [
@@ -138,7 +139,8 @@ for (const dialect of dialects) {
 
     it('preserves column ids across a rename so rows keep their cells', async () => {
       const { tables, admin } = await setup()
-      const table = await tables.createTable(admin, { name: 'T', personal: false })
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
       const c1 = req(
         (
           await tables.updateColumns(admin, {
@@ -162,21 +164,31 @@ for (const dialect of dialects) {
       expect(JSON.parse(req(rows[0]).cells)[c1.id]).toBe('value')
     })
 
-    it('hides a personal table from other members', async () => {
+    it('hides a personal database (and its tables) from other members', async () => {
       const { tables, admin, member } = await setup()
-      const personal = await tables.createTable(admin, { name: 'Private', personal: true })
-      const household = await tables.createTable(admin, { name: 'Shared', personal: false })
+      const privateDb = await tables.createDatabase(admin, { name: 'Private', personal: true })
+      const sharedDb = await tables.createDatabase(admin, { name: 'Shared', personal: false })
+      const secret = await tables.createTable(admin, { databaseId: privateDb.id, name: 'Secret' })
+      const shared = await tables.createTable(admin, { databaseId: sharedDb.id, name: 'Shared' })
 
-      const memberList = await tables.listTables(member)
-      expect(memberList.map((t) => t.id)).toContain(household.id)
-      expect(memberList.map((t) => t.id)).not.toContain(personal.id)
+      const memberDbs = await tables.listDatabases(member)
+      expect(memberDbs.map((d) => d.id)).toContain(sharedDb.id)
+      expect(memberDbs.map((d) => d.id)).not.toContain(privateDb.id)
 
-      await expect(tables.getTable(member, personal.id)).rejects.toBeInstanceOf(TablesError)
+      const memberTables = await tables.listTables(member)
+      expect(memberTables.map((t) => t.id)).toContain(shared.id)
+      expect(memberTables.map((t) => t.id)).not.toContain(secret.id)
+
+      await expect(tables.getTable(member, secret.id)).rejects.toBeInstanceOf(TablesError)
+      await expect(
+        tables.createTable(member, { databaseId: privateDb.id, name: 'X' }),
+      ).rejects.toBeInstanceOf(TablesError)
     })
 
     it('rejects a row whose value fails its column type', async () => {
       const { tables, admin } = await setup()
-      const table = await tables.createTable(admin, { name: 'T', personal: false })
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
       const c = req(
         (
           await tables.updateColumns(admin, {
@@ -190,9 +202,10 @@ for (const dialect of dialects) {
       ).rejects.toBeInstanceOf(TablesError)
     })
 
-    it('cascades rows when a table is deleted', async () => {
+    it('cascades tables and rows when a database is deleted', async () => {
       const { repo, tables, admin } = await setup()
-      const table = await tables.createTable(admin, { name: 'T', personal: false })
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
       const c = req(
         (
           await tables.updateColumns(admin, {
@@ -202,9 +215,18 @@ for (const dialect of dialects) {
         )[0],
       )
       await tables.insertRow(admin, { tableId: table.id, cells: { [c.id]: 'a' } })
+
+      // deleting a single table takes its rows
       await tables.deleteTable(admin, table.id)
       expect(await repo.listDbRows(table.id)).toHaveLength(0)
       expect(await repo.getDbTable(table.id)).toBeNull()
+
+      // deleting the database cascades to any remaining tables and their rows
+      const t2 = await tables.createTable(admin, { databaseId: database.id, name: 'T2' })
+      await tables.insertRow(admin, { tableId: t2.id, cells: {} })
+      await tables.deleteDatabase(admin, database.id)
+      expect(await repo.getDbTable(t2.id)).toBeNull()
+      expect(await repo.getDbDatabase(database.id)).toBeNull()
     })
   })
 }

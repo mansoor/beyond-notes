@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6964ebe6-59ef-4443-8957-22e7211584e8",
+  "id": "ea64c060-0b7e-4554-939e-393f66e8ae98",
   "prevId": "537e6743-0558-4e43-98ac-d363db756ab9",
   "tables": {
     "attachments": {
@@ -108,6 +108,73 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "db_databases": {
+      "name": "db_databases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "db_databases_owner_id_users_id_fk": {
+          "name": "db_databases_owner_id_users_id_fk",
+          "tableFrom": "db_databases",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "db_rows": {
       "name": "db_rows",
       "columns": {
@@ -186,11 +253,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "owner_id": {
-          "name": "owner_id",
+        "database_id": {
+          "name": "database_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "name": {
@@ -241,17 +308,17 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "db_tables_owner_id_users_id_fk": {
-          "name": "db_tables_owner_id_users_id_fk",
+        "db_tables_database_id_db_databases_id_fk": {
+          "name": "db_tables_database_id_db_databases_id_fk",
           "tableFrom": "db_tables",
-          "tableTo": "users",
+          "tableTo": "db_databases",
           "columnsFrom": [
-            "owner_id"
+            "database_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

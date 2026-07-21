@@ -1,6 +1,6 @@
 import { type DbColumn, type DbColumnDraft, validateRowCells } from '@bn/schema'
 import { nanoid } from 'nanoid'
-import type { DbRowRow, DbTableRow, Repo, UserRow } from './repo'
+import type { DbDatabaseRow, DbRowRow, DbTableRow, Repo, UserRow } from './repo'
 
 export class TablesError extends Error {
   constructor(
@@ -25,21 +25,33 @@ function parseColumns(raw: string): DbColumn[] {
   }
 }
 
-function assertTableAccess(table: DbTableRow | null, user: UserRow): asserts table is DbTableRow {
-  if (!table) throw new TablesError('NOT_FOUND', 'Table not found.')
-  // personal tables are invisible to everyone but their owner (spaces rule)
-  if (table.ownerId !== null && table.ownerId !== user.id) {
-    throw new TablesError('NOT_FOUND', 'Table not found.')
+function assertAccess(db: DbDatabaseRow | null, user: UserRow): asserts db is DbDatabaseRow {
+  if (!db) throw new TablesError('NOT_FOUND', 'Database not found.')
+  // personal databases are invisible to everyone but their owner (spaces rule)
+  if (db.ownerId !== null && db.ownerId !== user.id) {
+    throw new TablesError('NOT_FOUND', 'Database not found.')
   }
 }
 
 export function createTablesService(repo: Repo, opts: { now?: () => Date } = {}) {
   const now = opts.now ?? (() => new Date())
 
-  async function requireTable(tableId: string, user: UserRow): Promise<DbTableRow> {
+  async function requireDatabase(databaseId: string, user: UserRow): Promise<DbDatabaseRow> {
+    const database = await repo.getDbDatabase(databaseId)
+    assertAccess(database, user)
+    return database
+  }
+
+  /** A table plus the database that governs its access. */
+  async function requireTable(
+    tableId: string,
+    user: UserRow,
+  ): Promise<{ table: DbTableRow; database: DbDatabaseRow }> {
     const table = await repo.getDbTable(tableId)
-    assertTableAccess(table, user)
-    return table
+    if (!table) throw new TablesError('NOT_FOUND', 'Table not found.')
+    const database = await repo.getDbDatabase(table.databaseId)
+    assertAccess(database, user)
+    return { table, database }
   }
 
   /** Assign stable ids to new columns, preserve existing ones, and drop the
@@ -60,30 +72,75 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
   }
 
   return {
-    /** Tables this user can see: household tables plus their own personal ones. */
+    // ---- databases ----
+
+    /** Databases this user can see: household ones plus their own personal ones. */
+    async listDatabases(user: UserRow): Promise<DbDatabaseRow[]> {
+      const all = await repo.listDbDatabases()
+      return all
+        .filter((d) => d.ownerId === null || d.ownerId === user.id)
+        .sort((a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime())
+    },
+
+    async createDatabase(
+      user: UserRow,
+      input: { name: string; personal: boolean },
+    ): Promise<DbDatabaseRow> {
+      const all = await repo.listDbDatabases()
+      const row: DbDatabaseRow = {
+        id: nanoid(),
+        ownerId: input.personal ? user.id : null,
+        name: input.name,
+        position: all.length,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      await repo.insertDbDatabase(row)
+      return row
+    },
+
+    async renameDatabase(
+      user: UserRow,
+      input: { databaseId: string; name: string },
+    ): Promise<void> {
+      await requireDatabase(input.databaseId, user)
+      await repo.updateDbDatabase(input.databaseId, { name: input.name, updatedAt: now() })
+    },
+
+    async deleteDatabase(user: UserRow, databaseId: string): Promise<void> {
+      await requireDatabase(databaseId, user)
+      await repo.deleteDbDatabase(databaseId)
+    },
+
+    // ---- tables ----
+
+    /** Every table across the databases this user can see. */
     async listTables(user: UserRow): Promise<DbTableRow[]> {
+      const dbs = await this.listDatabases(user)
+      const ids = new Set(dbs.map((d) => d.id))
       const all = await repo.listDbTables()
       return all
-        .filter((tb) => tb.ownerId === null || tb.ownerId === user.id)
+        .filter((tb) => ids.has(tb.databaseId))
         .sort((a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime())
     },
 
     async getTable(user: UserRow, tableId: string): Promise<DbTableRow> {
-      return requireTable(tableId, user)
+      return (await requireTable(tableId, user)).table
     },
 
     async createTable(
       user: UserRow,
-      input: { name: string; personal: boolean },
+      input: { databaseId: string; name: string },
     ): Promise<DbTableRow> {
-      const all = await repo.listDbTables()
+      await requireDatabase(input.databaseId, user)
+      const existing = await repo.listDbTablesInDatabase(input.databaseId)
       const row: DbTableRow = {
         id: nanoid(),
-        ownerId: input.personal ? user.id : null,
+        databaseId: input.databaseId,
         name: input.name,
         description: '',
         columns: JSON.stringify(defaultColumns()),
-        position: all.length,
+        position: existing.length,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -121,6 +178,8 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       await repo.deleteDbTable(tableId)
     },
 
+    // ---- rows ----
+
     async listRows(user: UserRow, tableId: string): Promise<DbRowRow[]> {
       await requireTable(tableId, user)
       return (await repo.listDbRows(tableId)).sort(
@@ -132,7 +191,7 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       user: UserRow,
       input: { tableId: string; cells: Record<string, unknown> },
     ): Promise<DbRowRow> {
-      const table = await requireTable(input.tableId, user)
+      const { table } = await requireTable(input.tableId, user)
       // grid edits don't enforce `required` — a row is filled after it's added
       const checked = validateRowCells(parseColumns(table.columns), input.cells)
       if (!checked.ok) throw new TablesError('BAD_REQUEST', checked.error)
@@ -155,7 +214,7 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
     ): Promise<void> {
       const existing = await repo.getDbRow(input.rowId)
       if (!existing) throw new TablesError('NOT_FOUND', 'Row not found.')
-      const table = await requireTable(existing.tableId, user)
+      const { table } = await requireTable(existing.tableId, user)
       const checked = validateRowCells(parseColumns(table.columns), input.cells)
       if (!checked.ok) throw new TablesError('BAD_REQUEST', checked.error)
       await repo.updateDbRow(input.rowId, {

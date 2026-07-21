@@ -394,15 +394,26 @@ export const pins = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.pageId] })],
 )
 
-// ---- data tables (lightweight structured data / forms) ----
-// A user-defined table. Column definitions live in the `columns` JSON array
-// (each carries a stable id), so a row's cell values key by column id and a
-// rename/reorder never rewrites a single row. No runtime DDL — this stays one
-// fixed pair of tables in both dialects.
-export const dbTables = pgTable('db_tables', {
+// ---- data (lightweight structured data / forms) ----
+// A database is the container level (parity with a space): it owns visibility
+// and holds tables. A table's column definitions live in the `columns` JSON
+// array (each carries a stable id), so a row's cells key by column id and a
+// rename/reorder never rewrites a single row. No runtime DDL — a fixed trio.
+export const dbDatabases = pgTable('db_databases', {
   id: text('id').primaryKey(),
   // null = shared with every member; set = personal to that user (spaces rule)
   ownerId: text('owner_id').references(() => users.id),
+  name: text('name').notNull(),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const dbTables = pgTable('db_tables', {
+  id: text('id').primaryKey(),
+  databaseId: text('database_id')
+    .notNull()
+    .references(() => dbDatabases.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   // JSON array of {id,name,type,required,choices}

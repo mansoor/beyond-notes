@@ -204,9 +204,18 @@ export type InviteRow = {
   revokedAt: Date | null
 }
 
-export type DbTableRow = {
+export type DbDatabaseRow = {
   id: string
   ownerId: string | null
+  name: string
+  position: number
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type DbTableRow = {
+  id: string
+  databaseId: string
   name: string
   description: string
   columns: string // JSON array of column definitions
@@ -1009,7 +1018,34 @@ export function createRepo(appDb: AppDb) {
         .where(and(eq(t.pages.spaceId, spaceId), eq(t.pages.dateKey, dateKey)))
     },
 
-    // ---- data tables ----
+    // ---- data: databases ----
+
+    async insertDbDatabase(row: DbDatabaseRow): Promise<void> {
+      await db.insert(t.dbDatabases).values(row)
+    },
+
+    async getDbDatabase(id: string): Promise<DbDatabaseRow | null> {
+      const rows = await db.select().from(t.dbDatabases).where(eq(t.dbDatabases.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async listDbDatabases(): Promise<DbDatabaseRow[]> {
+      return db.select().from(t.dbDatabases)
+    },
+
+    async updateDbDatabase(
+      id: string,
+      patch: Partial<Pick<DbDatabaseRow, 'name' | 'position' | 'updatedAt'>>,
+    ): Promise<void> {
+      await db.update(t.dbDatabases).set(patch).where(eq(t.dbDatabases.id, id))
+    },
+
+    async deleteDbDatabase(id: string): Promise<void> {
+      // FK cascade removes the database's tables and their rows on both dialects
+      await db.delete(t.dbDatabases).where(eq(t.dbDatabases.id, id))
+    },
+
+    // ---- data: tables ----
 
     async insertDbTable(row: DbTableRow): Promise<void> {
       await db.insert(t.dbTables).values(row)
@@ -1022,6 +1058,10 @@ export function createRepo(appDb: AppDb) {
 
     async listDbTables(): Promise<DbTableRow[]> {
       return db.select().from(t.dbTables)
+    },
+
+    async listDbTablesInDatabase(databaseId: string): Promise<DbTableRow[]> {
+      return db.select().from(t.dbTables).where(eq(t.dbTables.databaseId, databaseId))
     },
 
     async updateDbTable(
@@ -1090,6 +1130,10 @@ export function createRepo(appDb: AppDb) {
 
     async listAllJobs(): Promise<JobRow[]> {
       return db.select().from(t.scheduledJobs)
+    },
+
+    async listAllDbDatabases(): Promise<DbDatabaseRow[]> {
+      return db.select().from(t.dbDatabases)
     },
 
     async listAllDbTables(): Promise<DbTableRow[]> {

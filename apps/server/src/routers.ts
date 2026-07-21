@@ -4,6 +4,7 @@ import type {
   ArchivedPageView,
   AuthStatus,
   BacklinkView,
+  DatabaseView,
   DbRowView,
   DbTableView,
   DocumentView,
@@ -34,6 +35,7 @@ import {
   acceptInviteInput,
   captureMemoInput,
   changePasswordInput,
+  createDatabaseInput,
   createDayNoteInput,
   createInviteInput,
   createPageInput,
@@ -42,6 +44,7 @@ import {
   createTableInput,
   createTemplateInput,
   createWebhookInput,
+  deleteDatabaseInput,
   deleteRowInput,
   deleteTableInput,
   insertRowInput,
@@ -55,6 +58,7 @@ import {
   promoteToNoteInput,
   promoteToTaskInput,
   quickAddTaskInput,
+  renameDatabaseInput,
   renamePageInput,
   renameTableInput,
   requestPasswordResetInput,
@@ -84,6 +88,7 @@ import { createS3BlobStore } from './blobstore-s3'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
 import type {
+  DbDatabaseRow,
   DbRowRow,
   DbTableRow,
   InviteRow,
@@ -1412,12 +1417,22 @@ function parseColumns(raw: string): DbTableView['columns'] {
   }
 }
 
-function toDbTableView(row: DbTableRow): DbTableView {
+function toDatabaseView(row: DbDatabaseRow): DatabaseView {
   return {
     id: row.id,
     name: row.name,
-    description: row.description || null,
     personal: row.ownerId !== null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+function toDbTableView(row: DbTableRow): DbTableView {
+  return {
+    id: row.id,
+    databaseId: row.databaseId,
+    name: row.name,
+    description: row.description || null,
     columns: parseColumns(row.columns),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -1440,6 +1455,35 @@ function toDbRowView(row: DbRowRow): DbRowView {
     updatedAt: row.updatedAt.toISOString(),
   }
 }
+
+const databasesRouter = router({
+  list: authedProcedure.query(async ({ ctx }) =>
+    (await ctx.tables.listDatabases(ctx.user)).map(toDatabaseView),
+  ),
+  create: authedProcedure.input(createDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      return toDatabaseView(await ctx.tables.createDatabase(ctx.user, input))
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  rename: authedProcedure.input(renameDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.renameDatabase(ctx.user, input)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  delete: authedProcedure.input(deleteDatabaseInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.deleteDatabase(ctx.user, input.databaseId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
 
 const tablesRouter = router({
   list: authedProcedure.query(async ({ ctx }) =>
@@ -1533,6 +1577,7 @@ export const appRouter = router({
   tags: tagsRouter,
   pins: pinsRouter,
   templates: templatesRouter,
+  databases: databasesRouter,
   tables: tablesRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })

@@ -1,4 +1,11 @@
-import type { DbCellValue, DbColumnDraft, DbColumnType, DbRowView, DbTableView } from '@bn/schema'
+import type {
+  DatabaseView,
+  DbCellValue,
+  DbColumnDraft,
+  DbColumnType,
+  DbRowView,
+  DbTableView,
+} from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
@@ -18,17 +25,17 @@ const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : Str
 
 // ---- sidebar section ----
 
-/** Top-level "Data" section: user-defined tables, peers to Notebooks/Sites/Wikis. */
-export function DataNav() {
+/** Top-level "Databases" section: each database holds tables, a peer to the
+ * Notebooks/Sites/Wikis spaces above it. */
+export function DatabasesNav() {
   const utils = trpc.useUtils()
+  const databases = trpc.databases.list.useQuery()
   const tables = trpc.tables.list.useQuery()
-  const navigate = useNavigate()
-  const create = trpc.tables.create.useMutation({
-    onSuccess: async (table) => {
-      await utils.tables.list.invalidate()
-      navigate({ to: '/data/$tableId', params: { tableId: table.id } })
-    },
+  const create = trpc.databases.create.useMutation({
+    onSuccess: () => utils.databases.list.invalidate(),
   })
+
+  const newDatabase = () => create.mutate({ name: 'Untitled database', personal: false })
 
   return (
     <div>
@@ -36,44 +43,184 @@ export function DataNav() {
         className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center"
         style={{ color: 'var(--text-3)' }}
       >
-        Data
+        Databases
         <button
           type="button"
-          title="New table"
+          title="New database"
           className="ml-auto text-xs px-1"
           disabled={create.isPending}
-          onClick={() => create.mutate({ name: 'Untitled table', personal: false })}
+          onClick={newDatabase}
         >
           ＋
         </button>
       </div>
-      {tables.data?.map((table) => (
-        <Link
-          key={table.id}
-          to="/data/$tableId"
-          params={{ tableId: table.id }}
-          className="block truncate px-2 py-1 rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
-          style={{ color: 'var(--text-2)' }}
-          activeProps={{ style: { color: 'var(--accent)', background: 'var(--accent-soft)' } }}
-          title={table.name}
-        >
-          ▦ {table.name}
-          {table.personal && <span className="ml-1 text-[10px]">⛭</span>}
-        </Link>
+      {databases.data?.map((database) => (
+        <DatabaseItem
+          key={database.id}
+          database={database}
+          tables={(tables.data ?? []).filter((t) => t.databaseId === database.id)}
+        />
       ))}
-      {tables.data?.length === 0 && (
+      {databases.data?.length === 0 && (
         <div className="text-xs px-2 py-1" style={{ color: 'var(--text-3)' }}>
           none yet —{' '}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => create.mutate({ name: 'Untitled table', personal: false })}
-          >
-            new table
+          <button type="button" className="underline" onClick={newDatabase}>
+            new database
           </button>
         </div>
       )}
     </div>
+  )
+}
+
+function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) {
+  const { database } = props
+  const utils = trpc.useUtils()
+  const navigate = useNavigate()
+  const [expanded, setExpanded] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const params = useParams({ strict: false }) as { tableId?: string }
+
+  const createTable = trpc.tables.create.useMutation({
+    onSuccess: async (table) => {
+      await utils.tables.list.invalidate()
+      navigate({ to: '/data/$tableId', params: { tableId: table.id } })
+    },
+  })
+  const del = trpc.databases.delete.useMutation({
+    onSuccess: () =>
+      Promise.all([utils.databases.list.invalidate(), utils.tables.list.invalidate()]),
+  })
+
+  return (
+    <div className="mb-1">
+      <div
+        className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
+        style={{ color: 'var(--text-2)' }}
+      >
+        <button type="button" onClick={() => setExpanded(!expanded)} className="w-4 text-xs">
+          {expanded ? '▾' : '▸'}
+        </button>
+        <span className="truncate">{database.name}</span>
+        {database.personal && (
+          <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal">
+            ⛭
+          </span>
+        )}
+        <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
+          <button
+            type="button"
+            title="New table"
+            className="text-xs px-1"
+            style={{ color: 'var(--text-3)' }}
+            onClick={() => createTable.mutate({ databaseId: database.id, name: 'Untitled table' })}
+          >
+            ＋
+          </button>
+          <span className="relative">
+            <button
+              type="button"
+              title="Database menu"
+              className="text-xs px-1"
+              style={{ color: 'var(--text-3)' }}
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-5 z-40 w-36 rounded-lg border py-1 text-sm shadow-sm"
+                style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+                onMouseLeave={() => setMenuOpen(false)}
+              >
+                <button
+                  type="button"
+                  className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+                  style={{ color: 'var(--text)' }}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setRenaming(true)
+                  }}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    if (
+                      confirm(
+                        `Delete "${database.name}" and every table and row inside it? This cannot be undone.`,
+                      )
+                    ) {
+                      del.mutate({ databaseId: database.id })
+                    }
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </span>
+        </span>
+      </div>
+      {expanded &&
+        props.tables.map((table) => (
+          <Link
+            key={table.id}
+            to="/data/$tableId"
+            params={{ tableId: table.id }}
+            className="block truncate rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
+            style={{
+              paddingLeft: 26,
+              paddingRight: 8,
+              paddingTop: 2,
+              paddingBottom: 2,
+              color: params.tableId === table.id ? 'var(--accent)' : 'var(--text-2)',
+              background: params.tableId === table.id ? 'var(--accent-soft)' : undefined,
+            }}
+            title={table.name}
+          >
+            ▦ {table.name}
+          </Link>
+        ))}
+      {expanded && props.tables.length === 0 && (
+        <div className="text-xs py-1" style={{ paddingLeft: 26, color: 'var(--text-3)' }}>
+          empty —{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => createTable.mutate({ databaseId: database.id, name: 'Untitled table' })}
+          >
+            add a table
+          </button>
+        </div>
+      )}
+      {renaming && <RenameDatabaseModal database={database} onClose={() => setRenaming(false)} />}
+    </div>
+  )
+}
+
+function RenameDatabaseModal(props: { database: DatabaseView; onClose: () => void }) {
+  const utils = trpc.useUtils()
+  const rename = trpc.databases.rename.useMutation()
+  const [name, setName] = useState(props.database.name)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await rename.mutateAsync({ databaseId: props.database.id, name: name.trim() })
+    await utils.databases.list.invalidate()
+    props.onClose()
+  })
+  return (
+    <Modal title="Rename database" onClose={props.onClose} dirty={name !== props.database.name}>
+      <form onSubmit={onSubmit}>
+        <Field label="Name" value={name} onChange={setName} autoFocus />
+        <ErrorNote message={error} />
+        <SubmitButton label="Save" busy={busy} />
+      </form>
+    </Modal>
   )
 }
 
@@ -109,6 +256,9 @@ function TableView(props: { table: DbTableView }) {
   const [editingCols, setEditingCols] = useState(false)
   const [renaming, setRenaming] = useState(false)
 
+  const databases = trpc.databases.list.useQuery()
+  const databaseName = databases.data?.find((d) => d.id === table.databaseId)?.name
+
   const updateRow = trpc.tables.rows.update.useMutation()
   const createRow = trpc.tables.rows.create.useMutation({
     onSuccess: (row) => setRows((prev) => [...prev, row]),
@@ -140,14 +290,14 @@ function TableView(props: { table: DbTableView }) {
 
   return (
     <div className="max-w-6xl mx-auto px-10 py-8">
+      {databaseName && (
+        <div className="text-xs mb-1" style={{ color: 'var(--text-3)' }}>
+          {databaseName} /
+        </div>
+      )}
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xl">▦</span>
         <h1 className="text-2xl font-bold truncate">{table.name}</h1>
-        {table.personal && (
-          <span className="text-[11px]" style={{ color: 'var(--text-3)' }} title="Personal table">
-            ⛭ personal
-          </span>
-        )}
         <div className="ml-auto flex items-center gap-2">
           <HeaderBtn label="Columns" onClick={() => setEditingCols(true)} />
           <HeaderBtn label="Rename" onClick={() => setRenaming(true)} />

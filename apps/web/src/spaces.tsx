@@ -35,6 +35,14 @@ export function SpacesNav() {
 
   return (
     <div className="flex flex-col gap-4">
+      <button
+        type="button"
+        onClick={() => setCreating(true)}
+        className="text-left text-sm px-2 py-1 rounded"
+        style={{ color: 'var(--text-3)' }}
+      >
+        ＋ New space
+      </button>
       {groups.map((cat) => {
         const inGroup = spaces.data?.filter((s) => s.category === cat) ?? []
         if (inGroup.length === 0) return null
@@ -52,14 +60,6 @@ export function SpacesNav() {
           </div>
         )
       })}
-      <button
-        type="button"
-        onClick={() => setCreating(true)}
-        className="text-left text-sm px-2 py-1 rounded"
-        style={{ color: 'var(--text-3)' }}
-      >
-        ＋ New space
-      </button>
       {creating && <NewSpaceModal onClose={() => setCreating(false)} />}
     </div>
   )

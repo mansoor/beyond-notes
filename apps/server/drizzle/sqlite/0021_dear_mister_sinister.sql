@@ -1,3 +1,13 @@
+CREATE TABLE `db_databases` (
+	`id` text PRIMARY KEY NOT NULL,
+	`owner_id` text,
+	`name` text NOT NULL,
+	`position` integer DEFAULT 0 NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `db_rows` (
 	`id` text PRIMARY KEY NOT NULL,
 	`table_id` text NOT NULL,
@@ -10,12 +20,12 @@ CREATE TABLE `db_rows` (
 --> statement-breakpoint
 CREATE TABLE `db_tables` (
 	`id` text PRIMARY KEY NOT NULL,
-	`owner_id` text,
+	`database_id` text NOT NULL,
 	`name` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
 	`columns` text DEFAULT '[]' NOT NULL,
 	`position` integer DEFAULT 0 NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`database_id`) REFERENCES `db_databases`(`id`) ON UPDATE no action ON DELETE cascade
 );

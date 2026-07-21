@@ -1,5 +1,5 @@
 {
-  "id": "0ffe6c65-7b49-451a-9ecd-8f81eceafc54",
+  "id": "5154ac6c-f8c8-4dba-83b2-d3cacce13766",
   "prevId": "593f3ec2-dc0a-4510-960a-8e01ec9f7233",
   "version": "7",
   "dialect": "postgresql",
@@ -102,6 +102,70 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.db_databases": {
+      "name": "db_databases",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "db_databases_owner_id_users_id_fk": {
+          "name": "db_databases_owner_id_users_id_fk",
+          "tableFrom": "db_databases",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.db_rows": {
       "name": "db_rows",
       "schema": "",
@@ -177,11 +241,11 @@
           "primaryKey": true,
           "notNull": true
         },
-        "owner_id": {
-          "name": "owner_id",
+        "database_id": {
+          "name": "database_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "name": {
           "name": "name",
@@ -225,17 +289,17 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "db_tables_owner_id_users_id_fk": {
-          "name": "db_tables_owner_id_users_id_fk",
+        "db_tables_database_id_db_databases_id_fk": {
+          "name": "db_tables_database_id_db_databases_id_fk",
           "tableFrom": "db_tables",
-          "tableTo": "users",
+          "tableTo": "db_databases",
           "columnsFrom": [
-            "owner_id"
+            "database_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

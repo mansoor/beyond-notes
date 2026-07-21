@@ -593,9 +593,31 @@ export type DbColumn = {
 export type DbCellValue = string | number | boolean | null
 export const dbCellValue = z.union([z.string(), z.number(), z.boolean(), z.null()])
 
-export const createTableInput = z.object({
+// A database is the container: it owns visibility and holds tables.
+export const createDatabaseInput = z.object({
   name: z.string().trim().min(1).max(80),
   personal: z.boolean().default(false),
+})
+export type CreateDatabaseInput = z.infer<typeof createDatabaseInput>
+
+export const renameDatabaseInput = z.object({
+  databaseId: z.string(),
+  name: z.string().trim().min(1).max(80),
+})
+
+export const deleteDatabaseInput = z.object({ databaseId: z.string() })
+
+export type DatabaseView = {
+  id: string
+  name: string
+  personal: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export const createTableInput = z.object({
+  databaseId: z.string(),
+  name: z.string().trim().min(1).max(80),
 })
 export type CreateTableInput = z.infer<typeof createTableInput>
 
@@ -638,9 +660,9 @@ export const deleteRowInput = z.object({ rowId: z.string() })
 
 export type DbTableView = {
   id: string
+  databaseId: string
   name: string
   description: string | null
-  personal: boolean
   columns: DbColumn[]
   createdAt: string
   updatedAt: string
