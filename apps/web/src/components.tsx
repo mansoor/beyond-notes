@@ -61,6 +61,7 @@ export function Field(props: {
   value: string
   onChange: (v: string) => void
   autoFocus?: boolean
+  placeholder?: string
 }) {
   return (
     <label className="block mb-4">
@@ -71,6 +72,7 @@ export function Field(props: {
         type={props.type ?? 'text'}
         value={props.value}
         autoFocus={props.autoFocus}
+        placeholder={props.placeholder}
         onChange={(e) => props.onChange(e.target.value)}
       />
     </label>

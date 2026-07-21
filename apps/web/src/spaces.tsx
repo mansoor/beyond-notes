@@ -38,8 +38,8 @@ type TreeDnd = {
 
 export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
-  const [creating, setCreating] = useState(false)
-  const [importing, setImporting] = useState(false)
+  // null = closed; otherwise the kind the New space dialog opens on
+  const [creating, setCreating] = useState<NewKind | null>(null)
 
   const groups: SpaceCategory[] = ['notebook', 'site', 'wiki']
 
@@ -47,73 +47,170 @@ export function SpacesNav() {
     <div className="flex flex-col gap-4">
       <button
         type="button"
-        onClick={() => setCreating(true)}
+        onClick={() => setCreating('notebook')}
         className="text-left text-sm px-2 py-1 rounded"
         style={{ color: 'var(--text-3)' }}
       >
         ＋ New space
       </button>
-      <button
-        type="button"
-        onClick={() => setImporting(true)}
-        className="text-left text-sm px-2 py-1 rounded -mt-3"
-        style={{ color: 'var(--text-3)' }}
-      >
-        ⤒ Import a wiki
-      </button>
       {groups.map((cat) => {
         const inGroup = spaces.data?.filter((s) => s.category === cat) ?? []
-        if (inGroup.length === 0) return null
         return (
           <div key={cat}>
             <div
-              className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2"
+              className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center"
               style={{ color: 'var(--text-3)' }}
             >
               {CATEGORY_LABEL[cat]}
+              <button
+                type="button"
+                title={`New ${cat}`}
+                className="ml-auto text-xs px-1"
+                onClick={() => setCreating(cat)}
+              >
+                ＋
+              </button>
             </div>
             {inGroup.map((space) => (
               <SpaceItem key={space.id} space={space} />
             ))}
+            {inGroup.length === 0 ? (
+              <button
+                type="button"
+                className="text-xs px-2 py-0.5 underline"
+                style={{ color: 'var(--text-3)' }}
+                onClick={() => setCreating(cat)}
+              >
+                none yet — create one
+              </button>
+            ) : null}
           </div>
         )
       })}
-      {creating && <NewSpaceModal onClose={() => setCreating(false)} />}
-      {importing && <ImportModal onClose={() => setImporting(false)} />}
+      {creating && <NewSpaceModal preset={creating} onClose={() => setCreating(null)} />}
     </div>
   )
 }
 
-function NewSpaceModal(props: { onClose: () => void }) {
+/** The four things "new space" can mean. A database is not a page tree, but it
+ * is a top-level container the sidebar creates, so it belongs in the same door. */
+type NewKind = SpaceCategory | 'database'
+
+const KIND_BLURB: Record<NewKind, string> = {
+  notebook: 'A private tree of notes. Publishable later if you ever want it to be.',
+  wiki: 'A tree of pages built to be read — docs layout, left nav, breadcrumbs, on-this-page.',
+  site: 'A website: home page, blog with RSS, galleries, tags, share buttons.',
+  database: 'Spreadsheet-style tables you can publish as a form or embed read-only.',
+}
+
+/**
+ * One door for every top-level container, asking for what that kind actually
+ * needs: a wiki or site can be pointed at its public host here rather than
+ * making you find the publishing dialog afterwards, a database can start with
+ * its first table, and anything page-shaped can hand straight over to the
+ * importer instead of being created empty.
+ */
+export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) {
   const utils = trpc.useUtils()
-  const create = trpc.spaces.create.useMutation()
+  const navigate = useNavigate()
+  const createSpace = trpc.spaces.create.useMutation()
+  const createDatabase = trpc.databases.create.useMutation()
+  const createTable = trpc.tables.create.useMutation()
+  const updatePublishing = trpc.publish.updateSpace.useMutation()
+
+  const [kind, setKind] = useState<NewKind>(props.preset ?? 'notebook')
   const [name, setName] = useState('')
-  const [category, setCategory] = useState<SpaceCategory>('notebook')
   const [personal, setPersonal] = useState(false)
+  const [publishNow, setPublishNow] = useState(false)
+  const [host, setHost] = useState('')
+  const [siteTitle, setSiteTitle] = useState('')
+  const [tagline, setTagline] = useState('')
+  const [firstTable, setFirstTable] = useState('')
+  const [importAfter, setImportAfter] = useState(false)
+  // set once the space exists and the importer should take over
+  const [importInto, setImportInto] = useState<SpaceView | null>(null)
+
+  const publishable = kind === 'wiki' || kind === 'site'
+  const importable = kind !== 'database'
+
   const { busy, error, onSubmit } = useSubmit(async () => {
-    await create.mutateAsync({ name, category, personal })
+    if (kind === 'database') {
+      const database = await createDatabase.mutateAsync({ name, personal })
+      if (firstTable.trim()) {
+        await createTable.mutateAsync({ databaseId: database.id, name: firstTable.trim() })
+      }
+      await utils.databases.list.invalidate()
+      await utils.tables.list.invalidate()
+      props.onClose()
+      return
+    }
+
+    const space = await createSpace.mutateAsync({ name, category: kind, personal })
+    if (publishable && publishNow && host.trim()) {
+      await updatePublishing.mutateAsync({
+        spaceId: space.id,
+        enabled: true,
+        host: host.trim(),
+        title: siteTitle.trim() || name,
+        footer: null,
+        theme: 'paper',
+        appearance: 'auto',
+        social: [],
+        logoAttachmentId: null,
+        tagline: kind === 'site' ? tagline.trim() || null : null,
+        headerLayout: 'classic',
+      })
+    }
     await utils.spaces.list.invalidate()
+    if (importAfter) {
+      // hand over to the importer rather than leaving an empty space behind
+      setImportInto(space)
+      return
+    }
     props.onClose()
+    navigate({ to: '/' })
   })
-  const dirty = name.trim() !== '' || category !== 'notebook' || personal
+
+  if (importInto) {
+    return (
+      <ImportModal
+        space={importInto}
+        onClose={() => {
+          setImportInto(null)
+          props.onClose()
+        }}
+      />
+    )
+  }
+
+  const dirty = name.trim() !== '' || personal || publishNow || importAfter
 
   return (
-    <Modal title="New space" onClose={props.onClose} dirty={dirty}>
+    <Modal title="New space" onClose={props.onClose} dirty={dirty} width="lg">
       <form onSubmit={onSubmit}>
+        <span className="block text-sm font-medium mb-1">Kind</span>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {(['notebook', 'wiki', 'site', 'database'] as NewKind[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className="px-3 py-1.5 rounded-lg text-sm border capitalize"
+              style={{
+                borderColor: kind === k ? 'var(--accent)' : 'var(--border)',
+                color: kind === k ? 'var(--accent)' : 'var(--text-2)',
+              }}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+          {KIND_BLURB[kind]}
+        </p>
+
         <Field label="Name" value={name} onChange={setName} autoFocus />
-        <label className="block mb-4">
-          <span className="block text-sm font-medium mb-1">Kind</span>
-          <select
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={category}
-            onChange={(e) => setCategory(e.target.value as SpaceCategory)}
-          >
-            <option value="notebook">Notebook — private notes tree</option>
-            <option value="wiki">Wiki — publishable as a docs site</option>
-            <option value="site">Site — publishable as a website (blog, pages)</option>
-          </select>
-        </label>
+
         <label className="flex items-center gap-2 mb-4 text-sm">
           <input
             type="checkbox"
@@ -122,8 +219,85 @@ function NewSpaceModal(props: { onClose: () => void }) {
           />
           Personal (only you can see it)
         </label>
+
+        {publishable ? (
+          <>
+            <label className="flex items-center gap-2 mb-1 text-sm">
+              <input
+                type="checkbox"
+                checked={publishNow}
+                onChange={(e) => setPublishNow(e.target.checked)}
+              />
+              {kind === 'wiki' ? 'Publish as a docs site' : 'Publish as a website'}
+            </label>
+            {publishNow ? (
+              <div className="pl-6 mb-3">
+                <Field
+                  label="Public host"
+                  value={host}
+                  onChange={setHost}
+                  placeholder="docs.example.com"
+                />
+                <Field
+                  label="Site title"
+                  value={siteTitle}
+                  onChange={setSiteTitle}
+                  placeholder={name || 'Shown in the header and browser tab'}
+                />
+                {kind === 'site' ? (
+                  <Field
+                    label="Tagline (optional)"
+                    value={tagline}
+                    onChange={setTagline}
+                    placeholder="One line under the title"
+                  />
+                ) : null}
+                <p className="text-xs mb-2" style={{ color: 'var(--text-3)' }}>
+                  Pages still arrive as drafts — the space being public only means a published page
+                  can be served. Before DNS exists, read it at{' '}
+                  <code>/s/{host || 'your-host'}/</code>.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+                Stays private. You can turn this on later from the space's ⋯ menu.
+              </p>
+            )}
+          </>
+        ) : null}
+
+        {kind === 'database' ? (
+          <Field
+            label="First table (optional)"
+            value={firstTable}
+            onChange={setFirstTable}
+            placeholder="Contacts"
+          />
+        ) : null}
+
+        {importable ? (
+          <>
+            <label className="flex items-center gap-2 mb-1 text-sm">
+              <input
+                type="checkbox"
+                checked={importAfter}
+                onChange={(e) => setImportAfter(e.target.checked)}
+              />
+              Import content into it — a markdown file or a GitHub repository
+            </label>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+              {importAfter
+                ? 'Creating it opens the importer, where you review the proposed pages before anything is written.'
+                : 'Starts empty. You can import into it later from the space’s ⋯ menu.'}
+            </p>
+          </>
+        ) : null}
+
         <ErrorNote message={error} />
-        <SubmitButton label="Create space" busy={busy} />
+        <SubmitButton
+          label={importAfter ? 'Create and choose a source' : `Create ${kind}`}
+          busy={busy || name.trim() === ''}
+        />
       </form>
     </Modal>
   )
@@ -139,6 +313,8 @@ function SpaceItem(props: { space: SpaceView }) {
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const addPage = async (parentId: string | null) => {
     const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
@@ -215,42 +391,6 @@ function SpaceItem(props: { space: SpaceView }) {
         <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
           <button
             type="button"
-            title="Publishing settings"
-            onClick={() => setPublishingOpen(true)}
-            className="text-xs px-1"
-            style={{ color: 'var(--text-3)' }}
-          >
-            ⚙
-          </button>
-          <button
-            type="button"
-            title="Reorganize pages"
-            onClick={() => setReorgOpen(true)}
-            className="text-xs px-1"
-            style={{ color: 'var(--text-3)' }}
-          >
-            ⇅
-          </button>
-          <a
-            title="Export as Markdown (.zip)"
-            href={`/api/export/space/${props.space.id}`}
-            download
-            className="text-xs px-1"
-            style={{ color: 'var(--text-3)' }}
-          >
-            ⤓
-          </a>
-          <button
-            type="button"
-            title="Import pages from markdown or a GitHub repository"
-            onClick={() => setImportOpen(true)}
-            className="text-xs px-1"
-            style={{ color: 'var(--text-3)' }}
-          >
-            ⤒
-          </button>
-          <button
-            type="button"
             title="New page"
             onClick={() => addPage(null)}
             className="text-xs px-1"
@@ -258,8 +398,24 @@ function SpaceItem(props: { space: SpaceView }) {
           >
             ＋
           </button>
+          <SpaceMenu
+            space={props.space}
+            onPublishing={() => setPublishingOpen(true)}
+            onReorganize={() => setReorgOpen(true)}
+            onImport={() => setImportOpen(true)}
+            onRename={() => setRenameOpen(true)}
+            onDelete={() => setDeleteOpen(true)}
+          />
         </span>
       </div>
+      {renameOpen && <RenameSpaceModal space={props.space} onClose={() => setRenameOpen(false)} />}
+      {deleteOpen && (
+        <DeleteSpaceModal
+          space={props.space}
+          pageCount={tree.data?.length ?? 0}
+          onClose={() => setDeleteOpen(false)}
+        />
+      )}
       {publishingOpen && (
         <SpacePublishingModal space={props.space} onClose={() => setPublishingOpen(false)} />
       )}
@@ -301,6 +457,152 @@ function SpaceItem(props: { space: SpaceView }) {
         <SaveTemplateModal page={action.page} onClose={() => setAction(null)} />
       )}
     </div>
+  )
+}
+
+/**
+ * Everything you can do to a whole space. These used to be four icons crowding
+ * the row; a space also needs rename and delete, and six icons is a puzzle
+ * rather than a toolbar.
+ */
+function SpaceMenu(props: {
+  space: SpaceView
+  onPublishing: () => void
+  onReorganize: () => void
+  onImport: () => void
+  onRename: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuStyle = useMenuAnchor(open, btnRef, 220)
+
+  const item = (label: string, title: string, onClick: () => void, danger = false) => (
+    <button
+      type="button"
+      title={title}
+      className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+      style={{ color: danger ? 'var(--danger)' : 'var(--text)' }}
+      onClick={() => {
+        setOpen(false)
+        onClick()
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <span className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        className="text-xs px-1"
+        title="Space menu"
+        style={{ color: 'var(--text-3)' }}
+        onClick={() => setOpen(!open)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          className="z-50 rounded-lg border py-1 text-sm shadow-lg"
+          style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
+          onMouseLeave={() => setOpen(false)}
+        >
+          {item('Rename', 'Rename this space', props.onRename)}
+          {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
+          {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
+          {item('Import pages…', 'From markdown or a GitHub repository', props.onImport)}
+          <a
+            href={`/api/export/space/${props.space.id}`}
+            download
+            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: 'var(--text)' }}
+            title="Every page as Markdown, images included"
+            onClick={() => setOpen(false)}
+          >
+            Export as Markdown (.zip)
+          </a>
+          {item('Delete space…', 'Deletes the space and all of its pages', props.onDelete, true)}
+        </div>
+      )}
+    </span>
+  )
+}
+
+function RenameSpaceModal(props: { space: SpaceView; onClose: () => void }) {
+  const utils = trpc.useUtils()
+  const rename = trpc.spaces.rename.useMutation()
+  const [name, setName] = useState(props.space.name)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await rename.mutateAsync({ spaceId: props.space.id, name })
+    await utils.spaces.list.invalidate()
+    props.onClose()
+  })
+  return (
+    <Modal title="Rename space" onClose={props.onClose} dirty={name !== props.space.name}>
+      <form onSubmit={onSubmit}>
+        <Field label="Name" value={name} onChange={setName} autoFocus />
+        <ErrorNote message={error} />
+        <SubmitButton label="Rename" busy={busy || name.trim() === ''} />
+      </form>
+    </Modal>
+  )
+}
+
+/**
+ * Deleting a space takes every page in it, permanently — pages go with the
+ * space rather than to Trash, so this asks for the name typed out. The export
+ * link is right here because "I wanted a copy first" is the regret this
+ * dialog exists to prevent.
+ */
+function DeleteSpaceModal(props: { space: SpaceView; pageCount: number; onClose: () => void }) {
+  const utils = trpc.useUtils()
+  const navigate = useNavigate()
+  const remove = trpc.spaces.delete.useMutation()
+  const [typed, setTyped] = useState('')
+  const confirmed = typed.trim() === props.space.name
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    if (!confirmed) return
+    await remove.mutateAsync({ spaceId: props.space.id })
+    await utils.spaces.list.invalidate()
+    props.onClose()
+    navigate({ to: '/' })
+  })
+
+  return (
+    <Modal title={`Delete “${props.space.name}”?`} onClose={props.onClose} dirty={typed !== ''}>
+      <form onSubmit={onSubmit}>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+          This deletes the space and{' '}
+          <b>
+            {props.pageCount} page{props.pageCount === 1 ? '' : 's'}
+          </b>{' '}
+          inside it, with their history and any published versions. It does not go to Trash and
+          cannot be undone.
+          {props.space.publicEnabled ? ' The published site stops answering immediately.' : ''}
+        </p>
+        <p className="text-sm mb-3">
+          <a
+            href={`/api/export/space/${props.space.id}`}
+            download
+            className="underline"
+            style={{ color: 'var(--accent)' }}
+          >
+            Download a Markdown copy first
+          </a>
+        </p>
+        <Field
+          label={`Type “${props.space.name}” to confirm`}
+          value={typed}
+          onChange={setTyped}
+          autoFocus
+        />
+        <ErrorNote message={error} />
+        <SubmitButton label="Delete permanently" busy={busy || !confirmed} />
+      </form>
+    </Modal>
   )
 }
 
