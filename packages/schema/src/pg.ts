@@ -421,6 +421,9 @@ export const dbTables = pgTable('db_tables', {
   // JSON form config (the public intake projection); null = no form
   form: text('form'),
   position: integer('position').notNull().default(0),
+  // archive: soft-hide from the sidebar; restore from the Archive view
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
+  archivedBy: text('archived_by'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

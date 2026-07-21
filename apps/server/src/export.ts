@@ -43,7 +43,7 @@ const DATE_COLUMNS: Record<string, string[]> = {
   pageTags: [],
   previews: ['createdAt', 'revokedAt'],
   dbDatabases: ['createdAt', 'updatedAt'],
-  dbTables: ['createdAt', 'updatedAt'],
+  dbTables: ['createdAt', 'updatedAt', 'archivedAt'],
   dbRows: ['createdAt', 'updatedAt'],
 }
 

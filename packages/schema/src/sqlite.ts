@@ -360,6 +360,9 @@ export const dbTables = sqliteTable('db_tables', {
   // JSON form config (the public intake projection); null = no form
   form: text('form'),
   position: integer('position').notNull().default(0),
+  // archive: soft-hide from the sidebar; restore from the Archive view
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  archivedBy: text('archived_by'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

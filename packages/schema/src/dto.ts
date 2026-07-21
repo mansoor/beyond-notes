@@ -681,6 +681,15 @@ export const updateTableColumnsInput = z.object({
 export const deleteTableInput = z.object({ tableId: z.string() })
 export const duplicateTableInput = z.object({ tableId: z.string() })
 export const moveTableInput = z.object({ tableId: z.string(), databaseId: z.string() })
+export const archiveTableInput = z.object({ tableId: z.string() })
+export const restoreTableInput = z.object({ tableId: z.string() })
+
+export type ArchivedTableView = {
+  id: string
+  name: string
+  databaseName: string
+  archivedAt: string
+}
 
 export const insertRowInput = z.object({
   tableId: z.string(),
@@ -741,6 +750,7 @@ export type DbTableView = {
   description: string | null
   columns: DbColumn[]
   form: FormConfig | null
+  archived: boolean
   createdAt: string
   updatedAt: string
 }

@@ -2,6 +2,7 @@ import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   ArchivedPageView,
+  ArchivedTableView,
   AuthStatus,
   BacklinkView,
   DatabaseView,
@@ -33,6 +34,7 @@ import type {
 } from '@bn/schema'
 import {
   acceptInviteInput,
+  archiveTableInput,
   captureMemoInput,
   changePasswordInput,
   createDatabaseInput,
@@ -66,6 +68,7 @@ import {
   renameTableInput,
   requestPasswordResetInput,
   resetPasswordInput,
+  restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
   setPageTypeInput,
@@ -1454,6 +1457,7 @@ function toDbTableView(row: DbTableRow): DbTableView {
     description: row.description || null,
     columns: parseColumns(row.columns),
     form: parseForm(row.form),
+    archived: row.archivedAt !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -1560,6 +1564,31 @@ const tablesRouter = router({
     } catch (err) {
       rethrow(err)
     }
+  }),
+  archive: authedProcedure.input(archiveTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.archiveTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  restore: authedProcedure.input(restoreTableInput).mutation(async ({ ctx, input }) => {
+    try {
+      await ctx.tables.restoreTable(ctx.user, input.tableId)
+      return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+  archived: authedProcedure.query(async ({ ctx }): Promise<ArchivedTableView[]> => {
+    const rows = await ctx.tables.listArchivedTables(ctx.user)
+    return rows.map(({ table, database }) => ({
+      id: table.id,
+      name: table.name,
+      databaseName: database.name,
+      archivedAt: (table.archivedAt as Date).toISOString(),
+    }))
   }),
   delete: authedProcedure.input(deleteTableInput).mutation(async ({ ctx, input }) => {
     try {

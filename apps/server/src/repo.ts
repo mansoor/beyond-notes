@@ -221,6 +221,8 @@ export type DbTableRow = {
   columns: string // JSON array of column definitions
   form: string | null // JSON form config, or null
   position: number
+  archivedAt: Date | null
+  archivedBy: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -1071,7 +1073,15 @@ export function createRepo(appDb: AppDb) {
       patch: Partial<
         Pick<
           DbTableRow,
-          'databaseId' | 'name' | 'description' | 'columns' | 'form' | 'position' | 'updatedAt'
+          | 'databaseId'
+          | 'name'
+          | 'description'
+          | 'columns'
+          | 'form'
+          | 'position'
+          | 'archivedAt'
+          | 'archivedBy'
+          | 'updatedAt'
         >
       >,
     ): Promise<void> {

@@ -358,6 +358,22 @@ for (const dialect of dialects) {
       expect(JSON.parse(req(rows[0]).cells)[x]).toBe('a')
     })
 
+    it('archives a table out of the sidebar list and restores it', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+
+      await tables.archiveTable(admin, table.id)
+      expect((await tables.listTables(admin)).find((t) => t.id === table.id)).toBeUndefined()
+      const archived = await tables.listArchivedTables(admin)
+      expect(archived.map((a) => a.table.id)).toContain(table.id)
+      expect(archived[0]?.database.name).toBe('D')
+
+      await tables.restoreTable(admin, table.id)
+      expect((await tables.listTables(admin)).find((t) => t.id === table.id)?.id).toBe(table.id)
+      expect(await tables.listArchivedTables(admin)).toHaveLength(0)
+    })
+
     it('moves a table to another database', async () => {
       const { tables, admin } = await setup()
       const a = await tables.createDatabase(admin, { name: 'A', personal: false })

@@ -182,14 +182,41 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
 
     // ---- tables ----
 
-    /** Every table across the databases this user can see. */
+    /** Every non-archived table across the databases this user can see. */
     async listTables(user: UserRow): Promise<DbTableRow[]> {
       const dbs = await this.listDatabases(user)
       const ids = new Set(dbs.map((d) => d.id))
       const all = await repo.listDbTables()
       return all
-        .filter((tb) => ids.has(tb.databaseId))
+        .filter((tb) => ids.has(tb.databaseId) && tb.archivedAt === null)
         .sort((a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime())
+    },
+
+    /** Archived tables the user can see, newest first, with their database name. */
+    async listArchivedTables(
+      user: UserRow,
+    ): Promise<Array<{ table: DbTableRow; database: DbDatabaseRow }>> {
+      const dbs = await this.listDatabases(user)
+      const byId = new Map(dbs.map((d) => [d.id, d]))
+      const all = await repo.listDbTables()
+      return all
+        .filter((tb) => byId.has(tb.databaseId) && tb.archivedAt !== null)
+        .sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0))
+        .map((table) => ({ table, database: byId.get(table.databaseId) as DbDatabaseRow }))
+    },
+
+    async archiveTable(user: UserRow, tableId: string): Promise<void> {
+      await requireTable(tableId, user)
+      await repo.updateDbTable(tableId, {
+        archivedAt: now(),
+        archivedBy: user.id,
+        updatedAt: now(),
+      })
+    },
+
+    async restoreTable(user: UserRow, tableId: string): Promise<void> {
+      await requireTable(tableId, user)
+      await repo.updateDbTable(tableId, { archivedAt: null, archivedBy: null, updatedAt: now() })
     },
 
     async getTable(user: UserRow, tableId: string): Promise<DbTableRow> {
@@ -210,6 +237,8 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
         columns: JSON.stringify(defaultColumns()),
         form: null,
         position: existing.length,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -272,6 +301,8 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
         name: `${table.name} (copy)`,
         form: null,
         position: existing.length,
+        archivedAt: null,
+        archivedBy: null,
         createdAt: now(),
         updatedAt: now(),
       }

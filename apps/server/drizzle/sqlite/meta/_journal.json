@@ -162,6 +162,13 @@
       "when": 1784619758491,
       "tag": "0022_sparkling_shooting_star",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1784653660001,
+      "tag": "0023_flat_leper_queen",
+      "breakpoints": true
     }
   ]
 }
