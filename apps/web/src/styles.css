@@ -94,3 +94,71 @@ body {
   white-space: pre-wrap;
   font-family: ui-monospace, Consolas, monospace;
 }
+
+/* Midnight on the day view: yesterday folds into the calendar, today drops out
+   of it. Two keyframes and a floating emoji — the transform-only animation
+   keeps it off the layout path, so nothing reflows while it plays. */
+.day-roll-out {
+  animation: day-fold 420ms cubic-bezier(0.5, 0, 0.75, 0.5) forwards;
+  transform-origin: 50% 0;
+}
+.day-roll-in {
+  animation: day-unfold 500ms cubic-bezier(0.16, 0.9, 0.3, 1.15);
+  transform-origin: 50% 0;
+}
+.day-roll-calendar {
+  position: absolute;
+  left: 50%;
+  top: 46px;
+  font-size: 30px;
+  pointer-events: none;
+  /* the resting state has to match the keyframe ends, or the emoji snaps to
+     opaque-and-off-centre for the moment between the animation finishing and
+     the element unmounting */
+  opacity: 0;
+  transform: translateX(-50%) scale(0.4);
+  animation: day-calendar 900ms ease-out;
+}
+@keyframes day-fold {
+  0% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.06) translateY(30px);
+    opacity: 0;
+  }
+}
+@keyframes day-unfold {
+  0% {
+    transform: scale(0.06) translateY(30px);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes day-calendar {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(0.4);
+    opacity: 0;
+  }
+  40%,
+  60% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-roll-out,
+  .day-roll-in,
+  .day-roll-calendar {
+    animation: none;
+  }
+}

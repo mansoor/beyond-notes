@@ -5,7 +5,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
-import { THEME_LABEL, applyTheme, currentTheme, nextTheme } from '../theme'
+import {
+  type AppTheme,
+  THEMES,
+  THEME_ICON,
+  THEME_LABEL,
+  applyTheme,
+  currentTheme,
+  previewTheme,
+} from '../theme'
 import { trpc } from '../trpc'
 import { DatabasesNav } from './Data'
 
@@ -68,12 +76,6 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
     document.body.style.cursor = 'col-resize'
   }
 
-  const cycleTheme = () => {
-    const next = nextTheme(theme)
-    applyTheme(next)
-    setTheme(next)
-  }
-
   return (
     <div className="min-h-screen flex">
       <aside
@@ -88,15 +90,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
             B
           </span>
           <span className="font-semibold">Beyond Notes</span>
-          <button
-            type="button"
-            onClick={cycleTheme}
-            title={`Theme: ${THEME_LABEL[theme]} — click for ${THEME_LABEL[nextTheme(theme)]}`}
-            className="ml-auto w-6 h-6 rounded border text-xs"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
-          >
-            {theme === 'dark' ? '☾' : theme === 'paper' ? '❧' : '☀'}
-          </button>
+          <ThemePicker theme={theme} onPick={setTheme} />
         </div>
 
         <button
@@ -139,6 +133,69 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 
       <main className="flex-1 min-w-0">{props.children}</main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+    </div>
+  )
+}
+
+/**
+ * Theme swatches that unfold from the one button. Cycling meant clicking twice
+ * to reach Paper and never seeing where you were headed; here the strip widens,
+ * hovering wears the theme for real, and leaving puts your own back.
+ */
+function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) {
+  const [open, setOpen] = useState(false)
+
+  const close = () => {
+    setOpen(false)
+    previewTheme(props.theme) // undo whatever the last hover was showing
+  }
+
+  return (
+    <div
+      className="ml-auto flex items-center overflow-hidden rounded border"
+      style={{
+        borderColor: 'var(--border)',
+        width: open ? THEMES.length * 24 + 2 : 26,
+        transition: 'width 160ms ease',
+      }}
+      onMouseLeave={close}
+    >
+      {open ? (
+        THEMES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            title={`${THEME_LABEL[t]}${t === props.theme ? ' (current)' : ' — hover to preview'}`}
+            className="w-6 h-6 text-xs shrink-0"
+            style={{
+              color: t === props.theme ? 'var(--accent)' : 'var(--text-2)',
+              background:
+                t === props.theme
+                  ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
+                  : 'transparent',
+            }}
+            onMouseEnter={() => previewTheme(t)}
+            onFocus={() => previewTheme(t)}
+            onClick={() => {
+              applyTheme(t)
+              props.onPick(t)
+              setOpen(false)
+            }}
+          >
+            {THEME_ICON[t]}
+          </button>
+        ))
+      ) : (
+        <button
+          type="button"
+          title={`Theme: ${THEME_LABEL[props.theme]} — click to choose`}
+          className="w-6 h-6 text-xs shrink-0"
+          style={{ color: 'var(--text-2)' }}
+          onClick={() => setOpen(true)}
+        >
+          {THEME_ICON[props.theme]}
+        </button>
+      )}
     </div>
   )
 }

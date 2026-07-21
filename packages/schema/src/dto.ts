@@ -978,3 +978,18 @@ export function foldMergedNodes(nodes: ImportNodePlan[], merges: MergeMap): Impo
 
   return nodes.filter((n) => !merges[n.key]).map((n) => kept.get(n.key) as ImportNodePlan)
 }
+
+// ---- day rollover ----
+
+/**
+ * Milliseconds until the next local midnight. Used by the day view to notice
+ * that "today" has moved on while the tab sat open.
+ *
+ * Local, not UTC — the day a person is living in is the one their clock shows.
+ * Built by asking for tomorrow at 00:00:00 rather than adding 24h, so the two
+ * days a year that are 23 or 25 hours long land on midnight anyway.
+ */
+export function msUntilNextMidnight(now: Date): number {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0)
+  return Math.max(1, next.getTime() - now.getTime())
+}

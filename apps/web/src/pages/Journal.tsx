@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
-import { fmtTime12 } from '../components'
+import { fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
 import {
   DocumentEditor,
   SaveBadge,
@@ -17,6 +17,24 @@ import { DueReminderRow, TaskRowItem, freqLabel } from './Tasks'
 export function JournalPage() {
   const { date } = useParams({ from: '/app/day/$date' })
   const navigate = useNavigate()
+  // midnight, while you are looking at it: the day folds into the calendar and
+  // the new one drops out of it. Purely for the pleasure of it — the useful
+  // half is that the page stops showing yesterday.
+  const [roll, setRoll] = useState<'idle' | 'out' | 'in'>('idle')
+  useDayRollover((nextDay) => {
+    if (date === nextDay) return // not viewing the day that just ended
+    const go = () => navigate({ to: '/day/$date', params: { date: nextDay } })
+    if (prefersReducedMotion()) {
+      go()
+      return
+    }
+    setRoll('out')
+    window.setTimeout(() => {
+      go()
+      setRoll('in')
+      window.setTimeout(() => setRoll('idle'), 520)
+    }, 420)
+  })
   const notes = trpc.journal.notes.useQuery({ date })
   const agenda = trpc.tasks.agenda.useQuery()
   const memos = trpc.memos.list.useQuery()
@@ -100,8 +118,18 @@ export function JournalPage() {
     .slice(0, 12)
 
   return (
-    <div className="flex min-h-screen">
-      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8">
+    <div className="flex min-h-screen relative">
+      {/* outside the shrinking wrapper, or it would shrink along with it */}
+      {roll !== 'idle' ? (
+        <div className="day-roll-calendar" aria-hidden="true">
+          📅
+        </div>
+      ) : null}
+      <div
+        className={`flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8 ${
+          roll === 'out' ? 'day-roll-out' : roll === 'in' ? 'day-roll-in' : ''
+        }`}
+      >
         <div className="flex items-center gap-3 mb-1">
           <h1 className="text-3xl font-bold flex-1">{prettyDate(date)}</h1>
           <SaveBadge state={state} />
