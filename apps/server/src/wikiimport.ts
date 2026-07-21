@@ -121,6 +121,21 @@ export async function planFromGithub(
 
   if (nodes.length === 0) throw new ImportError('Nothing importable was found in that repository.')
 
+  // A README section and a root file often cover the same ground (a `## License`
+  // section next to LICENSE). Both are real content, so keep them — but say so,
+  // because two identically named pages in the nav is confusing, and the review
+  // step is exactly where that gets decided.
+  const seen = new Map<string, number>()
+  for (const node of nodes) {
+    const key = node.title.toLowerCase()
+    seen.set(key, (seen.get(key) ?? 0) + 1)
+  }
+  const dupes = [...seen.entries()].filter(([, n]) => n > 1)
+  for (const [title] of dupes) {
+    const label = nodes.find((n) => n.title.toLowerCase() === title)?.title ?? title
+    warnings.push(`Two pages are called "${label}" — rename or untick one below.`)
+  }
+
   return {
     sourceLabel: `github.com/${repo.owner}/${repo.repo} @ ${repo.ref}`,
     suggestedName: repo.repo.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
