@@ -1,6 +1,8 @@
 import type {
+  CaptchaMode,
   DatabaseView,
   DbCellValue,
+  DbColumnConstraints,
   DbColumnDraft,
   DbColumnType,
   DbRowView,
@@ -146,6 +148,15 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
                 >
                   Rename
                 </button>
+                <a
+                  href={`/api/export/database/${database.id}`}
+                  download
+                  className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+                  style={{ color: 'var(--text)' }}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Export CSV (zip)
+                </a>
                 <button
                   type="button"
                   className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
@@ -273,6 +284,8 @@ function TableView(props: { table: DbTableView }) {
     },
   })
 
+  const [cellError, setCellError] = useState<string | null>(null)
+
   const commitCell = (rowId: string, colId: string, value: DbCellValue) => {
     let nextCells: Record<string, DbCellValue> = {}
     setRows((prev) =>
@@ -282,7 +295,17 @@ function TableView(props: { table: DbTableView }) {
         return { ...r, cells: nextCells }
       }),
     )
-    updateRow.mutate({ rowId, cells: nextCells })
+    updateRow.mutate(
+      { rowId, cells: nextCells },
+      {
+        onError: (e) => {
+          // a constraint rejected the value — tell the user and revert to server truth
+          setCellError(e.message)
+          rowsQuery.refetch()
+        },
+        onSuccess: () => setCellError(null),
+      },
+    )
   }
 
   const removeRow = (rowId: string) => {
@@ -306,6 +329,15 @@ function TableView(props: { table: DbTableView }) {
             label={table.form?.enabled ? 'Form ●' : 'Form'}
             onClick={() => setEditingForm(true)}
           />
+          <a
+            href={`/api/export/table/${table.id}`}
+            download
+            className="text-xs rounded-lg border px-2.5 py-1"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+            title="Download this table as a CSV (opens in Excel)"
+          >
+            Export CSV
+          </a>
           <HeaderBtn label="Rename" onClick={() => setRenaming(true)} />
           <HeaderBtn
             label="Delete"
@@ -322,6 +354,17 @@ function TableView(props: { table: DbTableView }) {
         <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
           {table.description}
         </p>
+      )}
+      {cellError && (
+        <div
+          className="mt-2 mb-1 text-sm rounded-lg border px-3 py-2 flex items-start gap-2"
+          style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+        >
+          <span className="flex-1">{cellError}</span>
+          <button type="button" onClick={() => setCellError(null)} title="Dismiss">
+            ✕
+          </button>
+        </div>
       )}
 
       {table.columns.length === 0 ? (
@@ -555,12 +598,54 @@ function CellEditor(props: {
 
 // ---- column editor ----
 
-type ColDraft = DbColumnDraft & { choicesText: string }
+function ConstraintInput(props: {
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  wide?: boolean
+}) {
+  return (
+    <input
+      className={`rounded border px-2 py-1 text-xs ${props.wide ? 'flex-1 min-w-[10rem]' : 'w-24'}`}
+      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+      value={props.value}
+      placeholder={props.placeholder}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
+  )
+}
+
+type ColDraft = DbColumnDraft & {
+  choicesText: string
+  cMin: string
+  cMax: string
+  cMinLen: string
+  cMaxLen: string
+  cPattern: string
+  cMessage: string
+}
+
+const hasConstraints = (t: DbColumnType) =>
+  t === 'number' || t === 'text' || t === 'longtext' || t === 'email'
+
+const numOrUndef = (s: string): number | undefined => {
+  const n = Number(s.trim())
+  return s.trim() !== '' && Number.isFinite(n) ? n : undefined
+}
 
 function ColumnsModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
   const update = trpc.tables.updateColumns.useMutation()
   const [cols, setCols] = useState<ColDraft[]>(
-    props.table.columns.map((c) => ({ ...c, choicesText: c.choices.join(', ') })),
+    props.table.columns.map((c) => ({
+      ...c,
+      choicesText: c.choices.join(', '),
+      cMin: c.constraints?.min?.toString() ?? '',
+      cMax: c.constraints?.max?.toString() ?? '',
+      cMinLen: c.constraints?.minLength?.toString() ?? '',
+      cMaxLen: c.constraints?.maxLength?.toString() ?? '',
+      cPattern: c.constraints?.pattern ?? '',
+      cMessage: c.constraints?.message ?? '',
+    })),
   )
 
   const set = (i: number, patch: Partial<ColDraft>) =>
@@ -583,25 +668,49 @@ function ColumnsModal(props: { table: DbTableView; onClose: () => void; onSaved:
         required: false,
         choices: [],
         choicesText: '',
+        cMin: '',
+        cMax: '',
+        cMinLen: '',
+        cMaxLen: '',
+        cPattern: '',
+        cMessage: '',
       },
     ])
 
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
       tableId: props.table.id,
-      columns: cols.map((c) => ({
-        id: c.id,
-        name: c.name.trim() || 'Column',
-        type: c.type,
-        required: c.required,
-        choices:
-          c.type === 'select'
-            ? c.choicesText
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean)
-            : [],
-      })),
+      columns: cols.map((c) => {
+        const constraints: DbColumnConstraints = {}
+        if (c.type === 'number') {
+          const mn = numOrUndef(c.cMin)
+          const mx = numOrUndef(c.cMax)
+          if (mn !== undefined) constraints.min = mn
+          if (mx !== undefined) constraints.max = mx
+        } else if (c.type === 'text' || c.type === 'longtext' || c.type === 'email') {
+          const mnl = numOrUndef(c.cMinLen)
+          const mxl = numOrUndef(c.cMaxLen)
+          if (mnl !== undefined) constraints.minLength = mnl
+          if (mxl !== undefined) constraints.maxLength = mxl
+          if (c.cPattern.trim()) constraints.pattern = c.cPattern.trim()
+        }
+        if (c.cMessage.trim() && Object.keys(constraints).length > 0)
+          constraints.message = c.cMessage.trim()
+        return {
+          id: c.id,
+          name: c.name.trim() || 'Column',
+          type: c.type,
+          required: c.required,
+          choices:
+            c.type === 'select'
+              ? c.choicesText
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              : [],
+          ...(Object.keys(constraints).length > 0 ? { constraints } : {}),
+        }
+      }),
     })
     props.onSaved()
   })
@@ -663,6 +772,52 @@ function ColumnsModal(props: { table: DbTableView; onClose: () => void; onSaved:
                 />
                 <IconBtn label="✕" title="Delete column" danger onClick={() => remove(i)} />
               </div>
+              {hasConstraints(col.type) && (
+                <div className="w-full flex flex-wrap items-center gap-2 pl-1">
+                  <span className="text-[10px] uppercase" style={{ color: 'var(--text-3)' }}>
+                    rules
+                  </span>
+                  {col.type === 'number' ? (
+                    <>
+                      <ConstraintInput
+                        placeholder="min"
+                        value={col.cMin}
+                        onChange={(v) => set(i, { cMin: v })}
+                      />
+                      <ConstraintInput
+                        placeholder="max"
+                        value={col.cMax}
+                        onChange={(v) => set(i, { cMax: v })}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <ConstraintInput
+                        placeholder="min length"
+                        value={col.cMinLen}
+                        onChange={(v) => set(i, { cMinLen: v })}
+                      />
+                      <ConstraintInput
+                        placeholder="max length"
+                        value={col.cMaxLen}
+                        onChange={(v) => set(i, { cMaxLen: v })}
+                      />
+                      <ConstraintInput
+                        placeholder="pattern (regex)"
+                        value={col.cPattern}
+                        onChange={(v) => set(i, { cPattern: v })}
+                        wide
+                      />
+                    </>
+                  )}
+                  <ConstraintInput
+                    placeholder="custom error message"
+                    value={col.cMessage}
+                    onChange={(v) => set(i, { cMessage: v })}
+                    wide
+                  />
+                </div>
+              )}
             </div>
           ))}
           {cols.length === 0 && (
@@ -730,6 +885,7 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   const [submitLabel, setSubmitLabel] = useState(existing?.submitLabel ?? 'Submit')
   const [successMessage, setSuccessMessage] = useState(existing?.successMessage ?? DEFAULT_SUCCESS)
   const [notify, setNotify] = useState(existing?.notify ?? false)
+  const [captcha, setCaptcha] = useState<CaptchaMode>(existing?.captcha ?? 'none')
   const [copied, setCopied] = useState(false)
 
   const embed = `[[form:${props.table.id}]]`
@@ -747,6 +903,7 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
       submitLabel: submitLabel.trim() || 'Submit',
       successMessage: successMessage.trim() || DEFAULT_SUCCESS,
       notify,
+      captcha,
     }
     await update.mutateAsync({ tableId: props.table.id, form })
     props.onSaved()
@@ -807,6 +964,25 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
         <label className="flex items-center gap-2 my-3 text-sm">
           <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
           Notify me on each submission (via configured email / ntfy)
+        </label>
+
+        <label className="block mb-3">
+          <span className="block text-sm font-medium mb-1">Spam protection</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={captcha}
+            onChange={(e) => setCaptcha(e.target.value as CaptchaMode)}
+          >
+            <option value="none">None (honeypot + rate limit only)</option>
+            <option value="basic">Basic — a simple math question (self-hosted)</option>
+            <option value="recaptcha">Google reCAPTCHA (configure keys in Settings)</option>
+          </select>
+          {captcha === 'recaptcha' && (
+            <span className="block text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+              Falls back to the basic challenge until reCAPTCHA keys are set in Settings.
+            </span>
+          )}
         </label>
 
         <div

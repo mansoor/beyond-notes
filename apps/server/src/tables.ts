@@ -1,4 +1,12 @@
-import { type DbColumn, type DbColumnDraft, type FormConfig, validateRowCells } from '@bn/schema'
+import {
+  type DbCellValue,
+  type DbColumn,
+  type DbColumnConstraints,
+  type DbColumnDraft,
+  type FormConfig,
+  validateRowCells,
+} from '@bn/schema'
+import { zipSync } from 'fflate'
 import { nanoid } from 'nanoid'
 import type { DbDatabaseRow, DbRowRow, DbTableRow, Repo, UserRow } from './repo'
 
@@ -9,6 +17,54 @@ export class TablesError extends Error {
   ) {
     super(message)
   }
+}
+
+function fileSafe(name: string): string {
+  return (
+    name
+      .replace(/[\\/:*?"<>|]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim() || 'table'
+  )
+}
+
+function csvCell(v: DbCellValue): string {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function tableToCsv(columns: DbColumn[], rows: DbRowRow[]): string {
+  const header = columns.map((c) => csvCell(c.name)).join(',')
+  const body = rows.map((r) => {
+    let cells: Record<string, DbCellValue> = {}
+    try {
+      const parsed = JSON.parse(r.cells)
+      if (parsed && typeof parsed === 'object') cells = parsed
+    } catch {}
+    return columns.map((c) => csvCell(cells[c.id] ?? null)).join(',')
+  })
+  return [header, ...body].join('\r\n')
+}
+
+/** Keep only the constraint fields that apply to the column's type, dropping
+ * empty objects so unconstrained columns stay clean. */
+function pruneConstraints(
+  type: DbColumn['type'],
+  raw: DbColumnConstraints | undefined,
+): DbColumnConstraints | undefined {
+  if (!raw) return undefined
+  const out: DbColumnConstraints = {}
+  if (type === 'number') {
+    if (raw.min != null) out.min = raw.min
+    if (raw.max != null) out.max = raw.max
+  } else if (type === 'text' || type === 'longtext' || type === 'email') {
+    if (raw.minLength != null) out.minLength = raw.minLength
+    if (raw.maxLength != null) out.maxLength = raw.maxLength
+    if (raw.pattern) out.pattern = raw.pattern
+  }
+  if (raw.message && Object.keys(out).length > 0) out.message = raw.message
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 /** A fresh table opens with one text column so the grid has something to edit. */
@@ -71,12 +127,14 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
     return drafts.map((c) => {
       const id = c.id && !used.has(c.id) ? c.id : nanoid(8)
       used.add(id)
+      const constraints = pruneConstraints(c.type, c.constraints)
       return {
         id,
         name: c.name,
         type: c.type,
         required: c.required,
         choices: c.type === 'select' ? c.choices : [],
+        ...(constraints ? { constraints } : {}),
       }
     })
   }
@@ -272,6 +330,7 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
     async submitForm(
       tableId: string,
       values: Record<string, unknown>,
+      opts: { verifyCaptcha?: (form: FormConfig) => boolean | Promise<boolean> } = {},
     ): Promise<{ table: DbTableRow; database: DbDatabaseRow; row: DbRowRow; form: FormConfig }> {
       const table = await repo.getDbTable(tableId)
       if (!table) throw new TablesError('NOT_FOUND', 'Form not found.')
@@ -279,6 +338,12 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       if (!form || !form.enabled) throw new TablesError('NOT_FOUND', 'Form not found.')
       const database = await repo.getDbDatabase(table.databaseId)
       if (!database) throw new TablesError('NOT_FOUND', 'Form not found.')
+
+      // captcha before field validation, so a failed challenge reveals nothing
+      if ((form.captcha ?? 'none') !== 'none' && opts.verifyCaptcha) {
+        const ok = await opts.verifyCaptcha(form)
+        if (!ok) throw new TablesError('BAD_REQUEST', 'Please complete the verification challenge.')
+      }
 
       // only the columns the form actually exposes are accepted
       const exposed = new Set(form.fields)
@@ -298,6 +363,48 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       }
       await repo.insertDbRow(row)
       return { table, database, row, form }
+    },
+
+    // ---- export ----
+
+    async exportTableCsv(
+      user: UserRow,
+      tableId: string,
+    ): Promise<{ filename: string; csv: string }> {
+      const { table } = await requireTable(tableId, user)
+      const columns = parseColumns(table.columns)
+      const rows = (await repo.listDbRows(tableId)).sort(
+        (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+      )
+      return { filename: `${fileSafe(table.name)}.csv`, csv: tableToCsv(columns, rows) }
+    },
+
+    /** Every table in a database as a zip of CSVs. */
+    async exportDatabaseZip(
+      user: UserRow,
+      databaseId: string,
+    ): Promise<{ filename: string; data: Buffer }> {
+      const database = await requireDatabase(databaseId, user)
+      const tables = (await repo.listDbTablesInDatabase(databaseId)).sort(
+        (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+      )
+      const files: Record<string, Uint8Array> = {}
+      const taken = new Set<string>()
+      const enc = new TextEncoder()
+      for (const table of tables) {
+        let name = fileSafe(table.name)
+        let n = 2
+        while (taken.has(name.toLowerCase())) name = `${fileSafe(table.name)} ${n++}`
+        taken.add(name.toLowerCase())
+        const rows = (await repo.listDbRows(table.id)).sort(
+          (a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime(),
+        )
+        files[`${name}.csv`] = enc.encode(tableToCsv(parseColumns(table.columns), rows))
+      }
+      return {
+        filename: `${fileSafe(database.name)}.zip`,
+        data: Buffer.from(zipSync(files, { level: 6 })),
+      }
     },
   }
 }

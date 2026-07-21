@@ -58,6 +58,7 @@ import {
   promoteToNoteInput,
   promoteToTaskInput,
   quickAddTaskInput,
+  recaptchaSettings,
   renameDatabaseInput,
   renamePageInput,
   renameTableInput,
@@ -1119,6 +1120,11 @@ const settingsRouter = router({
 
   saveNtfy: adminProcedure.input(ntfySettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveNtfy(input)
+    return ctx.settings.view()
+  }),
+
+  saveRecaptcha: adminProcedure.input(recaptchaSettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveRecaptcha(input)
     return ctx.settings.view()
   }),
 

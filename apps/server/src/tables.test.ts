@@ -80,6 +80,34 @@ describe('validateRowCells (pure)', () => {
     const strict = validateRowCells(cols, { c_age: 1 }, { requireAll: true })
     expect(strict.ok).toBe(false) // form: missing required Name
   })
+
+  it('enforces column constraints and prefers a custom message', () => {
+    const cc: DbColumn[] = [
+      {
+        id: 'c_age',
+        name: 'Age',
+        type: 'number',
+        required: false,
+        choices: [],
+        constraints: { min: 18, max: 99, message: 'Age must be 18–99.' },
+      },
+      {
+        id: 'c_code',
+        name: 'Code',
+        type: 'text',
+        required: false,
+        choices: [],
+        constraints: { minLength: 3, pattern: '^[A-Z]+$' },
+      },
+    ]
+    const low = validateRowCells(cc, { c_age: 10 })
+    expect(low.ok).toBe(false)
+    if (!low.ok) expect(low.error).toBe('Age must be 18–99.') // custom message wins
+    expect(validateRowCells(cc, { c_age: 50 }).ok).toBe(true)
+    expect(validateRowCells(cc, { c_code: 'ab' }).ok).toBe(false) // too short
+    expect(validateRowCells(cc, { c_code: 'abc' }).ok).toBe(false) // fails the pattern
+    expect(validateRowCells(cc, { c_code: 'ABC' }).ok).toBe(true)
+  })
 })
 
 for (const dialect of dialects) {
@@ -229,6 +257,7 @@ for (const dialect of dialects) {
           submitLabel: 'Send',
           successMessage: 'Got it.',
           notify: false,
+          captcha: 'none',
         },
       })
 
@@ -267,6 +296,7 @@ for (const dialect of dialects) {
           submitLabel: 'Submit',
           successMessage: 'ok',
           notify: false,
+          captcha: 'none',
         },
       })
       await expect(tables.submitForm(table.id, {})).rejects.toBeInstanceOf(TablesError)
@@ -291,9 +321,47 @@ for (const dialect of dialects) {
           submitLabel: 'Submit',
           successMessage: 'ok',
           notify: false,
+          captcha: 'none',
         },
       })
       expect(form?.fields).toEqual([realId])
+    })
+
+    it('exports a table as CSV with headers and quoting', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'Contacts' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [
+          { name: 'Name', type: 'text', required: false, choices: [] },
+          { name: 'Note', type: 'text', required: false, choices: [] },
+        ],
+      })
+      const nameId = req(cols[0]).id
+      const noteId = req(cols[1]).id
+      await tables.insertRow(admin, {
+        tableId: table.id,
+        cells: { [nameId]: 'Ann', [noteId]: 'a, "b"' },
+      })
+      const { filename, csv } = await tables.exportTableCsv(admin, table.id)
+      expect(filename).toBe('Contacts.csv')
+      const lines = csv.split('\r\n')
+      expect(lines[0]).toBe('Name,Note')
+      // commas and quotes are escaped per RFC 4180
+      expect(lines[1]).toBe('Ann,"a, ""b"""')
+    })
+
+    it('exports a whole database as a non-empty zip', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      await tables.createTable(admin, { databaseId: database.id, name: 'One' })
+      await tables.createTable(admin, { databaseId: database.id, name: 'Two' })
+      const { filename, data } = await tables.exportDatabaseZip(admin, database.id)
+      expect(filename).toBe('D.zip')
+      expect(data.length).toBeGreaterThan(0)
+      // PK zip magic
+      expect(data.subarray(0, 2).toString('latin1')).toBe('PK')
     })
 
     it('cascades tables and rows when a database is deleted', async () => {

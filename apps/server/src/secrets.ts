@@ -67,6 +67,7 @@ export function decryptSecret(key: Buffer, stored: string): string {
 export const SECRET_FIELDS: Record<string, string[]> = {
   smtp: ['pass'],
   storage: ['s3SecretKey'],
+  recaptcha: ['secretKey'],
 }
 
 type Group = Record<string, unknown>

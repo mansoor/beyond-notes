@@ -9,6 +9,7 @@ import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
 import { createDynamicBlobStore } from './blobstore-dynamic'
+import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
@@ -66,7 +67,11 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
-  const publicSrv = createPublicServer(repo, publishing)
+  const publicSrv = createPublicServer(repo, publishing, {
+    captchaSecret: secretsKey,
+    recaptchaSiteKey: () => settings.effectiveRecaptcha()?.siteKey ?? null,
+    now: () => Date.now(),
+  })
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
@@ -252,10 +257,30 @@ export async function buildServer(config: Config, appDb: AppDb) {
     if (!allowForm(req.ip)) {
       return respond(false, { code: 429, message: 'Too many submissions. Please try again later.' })
     }
+    const rc = settings.effectiveRecaptcha()
     try {
       const { form, database, table, row } = await tables.submitForm(
         String(req.params.tableId ?? ''),
         body,
+        {
+          verifyCaptcha: async (f) => {
+            const mode = effectiveCaptchaMode(f.captcha ?? 'none', rc != null)
+            if (mode === 'recaptcha') {
+              return rc
+                ? verifyRecaptcha(rc.secretKey, String(body['g-recaptcha-response'] ?? ''), req.ip)
+                : false
+            }
+            if (mode === 'basic') {
+              return verifyMathChallenge(
+                secretsKey,
+                String(body._captcha ?? ''),
+                String(body._captcha_answer ?? ''),
+                Date.now(),
+              )
+            }
+            return true
+          },
+        },
       )
       if (form.notify) {
         const owner = database.ownerId ? await repo.getUserById(database.ownerId) : null
@@ -305,6 +330,37 @@ export async function buildServer(config: Config, appDb: AppDb) {
     reply.header('content-disposition', `attachment; filename="${filename}"`)
     reply.type('application/zip')
     return reply.send(data)
+  })
+
+  // one data table as CSV (opens directly in Excel)
+  server.get('/api/export/table/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    try {
+      const { filename, csv } = await tables.exportTableCsv(user, String(req.params.id ?? ''))
+      reply.header('content-disposition', `attachment; filename="${filename}"`)
+      reply.type('text/csv; charset=utf-8')
+      // a UTF-8 BOM so Excel reads non-ASCII correctly
+      return reply.send(`﻿${csv}`)
+    } catch (err) {
+      if (err instanceof TablesError) return reply.code(404).send({ error: 'not found' })
+      throw err
+    }
+  })
+
+  // a whole database as a zip of CSVs (one per table)
+  server.get('/api/export/database/:id', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in first' })
+    try {
+      const { filename, data } = await tables.exportDatabaseZip(user, String(req.params.id ?? ''))
+      reply.header('content-disposition', `attachment; filename="${filename}"`)
+      reply.type('application/zip')
+      return reply.send(data)
+    } catch (err) {
+      if (err instanceof TablesError) return reply.code(404).send({ error: 'not found' })
+      throw err
+    }
   })
 
   // Host-header routing for published sites. Any GET whose Host matches a

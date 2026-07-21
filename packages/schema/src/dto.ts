@@ -466,6 +466,15 @@ export const ntfySettings = z.object({
 })
 export type NtfySettings = z.infer<typeof ntfySettings>
 
+// Google reCAPTCHA v2 keys, instance-wide (reCAPTCHA is registered per domain).
+// siteKey is public (embedded in the form); secretKey is server-only.
+export const recaptchaSettings = z.object({
+  siteKey: z.string().trim().max(200).default(''),
+  // empty string on save = keep the stored secret
+  secretKey: z.string().max(200).default(''),
+})
+export type RecaptchaSettings = z.infer<typeof recaptchaSettings>
+
 export const storageDriver = z.enum(['fs', 'db', 's3'])
 export type StorageDriver = z.infer<typeof storageDriver>
 
@@ -485,6 +494,7 @@ export type ServerSettingsView = {
   smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
   ntfy: NtfySettings
   storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
+  recaptcha: { siteKey: string; hasSecret: boolean }
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
   ntfySource: 'db' | 'env' | 'off'
@@ -581,13 +591,37 @@ export type DbColumnType = z.infer<typeof dbColumnType>
  * is a stable slug assigned by the server — row cells key by it, so a rename or
  * reorder never rewrites a single row. `choices` is only meaningful for select.
  */
+/** Optional per-column data-integrity rules, enforced on grid edits and form
+ * submissions alike. Which fields apply depends on the column type. */
+export type DbColumnConstraints = {
+  // text / longtext / email
+  minLength?: number
+  maxLength?: number
+  pattern?: string
+  // number
+  min?: number
+  max?: number
+  // shown instead of the default when a rule fails
+  message?: string
+}
+
 export type DbColumn = {
   id: string
   name: string
   type: DbColumnType
   required: boolean
   choices: string[]
+  constraints?: DbColumnConstraints
 }
+
+export const dbColumnConstraints = z.object({
+  minLength: z.number().int().min(0).max(100000).optional(),
+  maxLength: z.number().int().min(0).max(100000).optional(),
+  pattern: z.string().max(300).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  message: z.string().trim().max(200).optional(),
+})
 
 /** A single cell value. Stored as-is inside db_rows.cells. */
 export type DbCellValue = string | number | boolean | null
@@ -635,6 +669,7 @@ export const dbColumnDraft = z.object({
   type: dbColumnType,
   required: z.boolean().default(false),
   choices: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
+  constraints: dbColumnConstraints.optional(),
 })
 export type DbColumnDraft = z.infer<typeof dbColumnDraft>
 
@@ -663,6 +698,9 @@ export const deleteRowInput = z.object({ rowId: z.string() })
  * shown around them. Stored as JSON on the table; null = no form. The embed
  * token `[[form:<tableId>]]` expands to this at serve time.
  */
+export const captchaMode = z.enum(['none', 'basic', 'recaptcha'])
+export type CaptchaMode = z.infer<typeof captchaMode>
+
 export type FormConfig = {
   enabled: boolean
   // ordered column ids exposed as fields (a subset of the table's columns)
@@ -673,11 +711,14 @@ export type FormConfig = {
   successMessage: string
   // notify the owner on each submission (via configured ntfy/email channels)
   notify: boolean
+  // spam protection: a self-hosted math challenge, or Google reCAPTCHA
+  captcha: CaptchaMode
 }
 
 export const formConfigInput = z.object({
   enabled: z.boolean().default(false),
   fields: z.array(z.string()).max(50).default([]),
+  captcha: captchaMode.default('none'),
   title: z.string().trim().max(120).default(''),
   description: z.string().trim().max(500).default(''),
   submitLabel: z.string().trim().min(1).max(40).default('Submit'),
@@ -727,6 +768,11 @@ export function validateRowCells(
   opts: { requireAll?: boolean } = {},
 ): CellCheck {
   const out: Record<string, DbCellValue> = {}
+  // a constraint failure prefers the column's custom message
+  const fail = (col: DbColumn, fallback: string): CellCheck => ({
+    ok: false,
+    error: col.constraints?.message || fallback,
+  })
   for (const col of columns) {
     const raw = input[col.id]
     const empty = raw === undefined || raw === null || raw === ''
@@ -738,7 +784,7 @@ export function validateRowCells(
     switch (col.type) {
       case 'number': {
         const n = typeof raw === 'number' ? raw : Number(String(raw).trim())
-        if (!Number.isFinite(n)) return { ok: false, error: `"${col.name}" must be a number.` }
+        if (!Number.isFinite(n)) return fail(col, `"${col.name}" must be a number.`)
         out[col.id] = n
         break
       }
@@ -748,27 +794,56 @@ export function validateRowCells(
       case 'date': {
         const s = String(raw).trim()
         if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
-          return { ok: false, error: `"${col.name}" must be a date (YYYY-MM-DD).` }
+          return fail(col, `"${col.name}" must be a date (YYYY-MM-DD).`)
         out[col.id] = s
         break
       }
       case 'select': {
         const s = String(raw)
         if (col.choices.length > 0 && !col.choices.includes(s))
-          return { ok: false, error: `"${col.name}" must be one of its choices.` }
+          return fail(col, `"${col.name}" must be one of its choices.`)
         out[col.id] = s
         break
       }
       case 'email': {
         const s = String(raw).trim()
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) || s.length > 254)
-          return { ok: false, error: `"${col.name}" must be a valid email.` }
+          return fail(col, `"${col.name}" must be a valid email.`)
         out[col.id] = s
         break
       }
       default: {
         // text / longtext
         out[col.id] = String(raw).slice(0, col.type === 'longtext' ? 10000 : 2000)
+      }
+    }
+
+    // per-column constraints, applied to the coerced value
+    const c = col.constraints
+    const value = out[col.id]
+    if (c && col.type === 'number' && typeof value === 'number') {
+      if (c.min != null && value < c.min)
+        return fail(col, `"${col.name}" must be at least ${c.min}.`)
+      if (c.max != null && value > c.max)
+        return fail(col, `"${col.name}" must be at most ${c.max}.`)
+    }
+    if (
+      c &&
+      typeof value === 'string' &&
+      (col.type === 'text' || col.type === 'longtext' || col.type === 'email')
+    ) {
+      if (c.minLength != null && value.length < c.minLength)
+        return fail(col, `"${col.name}" must be at least ${c.minLength} characters.`)
+      if (c.maxLength != null && value.length > c.maxLength)
+        return fail(col, `"${col.name}" must be at most ${c.maxLength} characters.`)
+      if (c.pattern) {
+        let re: RegExp | null = null
+        try {
+          re = new RegExp(c.pattern)
+        } catch {
+          re = null
+        }
+        if (re && !re.test(value)) return fail(col, `"${col.name}" is not in the expected format.`)
       }
     }
   }

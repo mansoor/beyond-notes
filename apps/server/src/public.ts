@@ -1,6 +1,7 @@
 import {
   FORM_CSS,
   FORM_JS,
+  RECAPTCHA_SCRIPT,
   albumCardsHtml,
   buildRss,
   buildSitemap,
@@ -19,18 +20,37 @@ import {
   siteSearchResults,
   siteTagPage,
 } from '@bn/renderer'
-import type { AlbumCard, Crumb, SiteMeta, SiteNavItem, SocialLink } from '@bn/renderer'
+import type {
+  AlbumCard,
+  Crumb,
+  FormCaptchaInput,
+  SiteMeta,
+  SiteNavItem,
+  SocialLink,
+} from '@bn/renderer'
 import type { DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
+import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
+
+/** What the serve path needs to render captchas into embedded forms. */
+export type PublicSecurity = {
+  captchaSecret: Buffer
+  recaptchaSiteKey: () => string | null
+  now: () => number
+}
 
 /**
  * The unauthenticated read path. It can only reach spaces flagged
  * publicEnabled and content stored in page_versions — the working-copy
  * tables are never touched here.
  */
-export function createPublicServer(repo: Repo, publishing: PublishingService) {
+export function createPublicServer(
+  repo: Repo,
+  publishing: PublishingService,
+  security: PublicSecurity,
+) {
   async function resolveSpace(host: string) {
     const space = await repo.getSpaceByPublicHost(host.toLowerCase())
     if (!space || !space.publicEnabled) return null
@@ -228,6 +248,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         contentHtml: await expandForms(
           repo,
           rewriteInternalLinks(hit.entry.version.html, site, basePath),
+          security,
         ),
         nav: site.nav,
         basePath,
@@ -500,6 +521,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
           introHtml: await expandForms(
             repo,
             rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+            security,
           ),
           posts: posts.map((p) => ({
             title: p.title,
@@ -547,6 +569,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
                 postChildren.map((c) => ({ title: c.title, path: c.path })),
                 basePath,
               ),
+            security,
           ),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
@@ -603,6 +626,7 @@ export function createPublicServer(repo: Repo, publishing: PublishingService) {
         contentHtml: await expandForms(
           repo,
           rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit) + extras,
+          security,
         ),
         crumbs: crumbsFor(hit),
         rssPath,
@@ -687,7 +711,11 @@ function rewriteInternalLinks(
 
 const FORM_TOKEN = /\[\[form:([A-Za-z0-9_-]+)\]\]/g
 
-async function renderFormById(repo: Repo, id: string): Promise<string | null> {
+async function renderFormById(
+  repo: Repo,
+  id: string,
+  security: PublicSecurity,
+): Promise<{ html: string; recaptcha: boolean } | null> {
   const table = await repo.getDbTable(id)
   if (!table || !table.form) return null
   let form: FormConfig
@@ -714,14 +742,31 @@ async function renderFormById(repo: Repo, id: string): Promise<string | null> {
       required: c.required,
       choices: c.choices,
     }))
-  return formHtml({
-    actionPath: `/api/forms/${id}`,
-    title: form.title,
-    description: form.description,
-    submitLabel: form.submitLabel,
-    successMessage: form.successMessage,
-    fields,
-  })
+
+  const siteKey = security.recaptchaSiteKey()
+  const mode = effectiveCaptchaMode(form.captcha ?? 'none', Boolean(siteKey))
+  let captcha: FormCaptchaInput = null
+  let recaptcha = false
+  if (mode === 'basic') {
+    const ch = makeMathChallenge(security.captchaSecret, security.now())
+    captcha = { mode: 'basic', question: ch.question, token: ch.token }
+  } else if (mode === 'recaptcha' && siteKey) {
+    captcha = { mode: 'recaptcha', siteKey }
+    recaptcha = true
+  }
+
+  return {
+    html: formHtml({
+      actionPath: `/api/forms/${id}`,
+      title: form.title,
+      description: form.description,
+      submitLabel: form.submitLabel,
+      successMessage: form.successMessage,
+      fields,
+      captcha,
+    }),
+    recaptcha,
+  }
 }
 
 /**
@@ -730,14 +775,18 @@ async function renderFormById(repo: Repo, id: string): Promise<string | null> {
  * form updates every page that embeds it without republishing. A token alone in
  * its own paragraph replaces the whole `<p>` so a block form isn't nested in it.
  */
-async function expandForms(repo: Repo, html: string): Promise<string> {
+async function expandForms(repo: Repo, html: string, security: PublicSecurity): Promise<string> {
   if (!html.includes('[[form:')) return html
   const ids = new Set<string>()
   for (const m of html.matchAll(FORM_TOKEN)) ids.add(m[1] as string)
   const rendered = new Map<string, string>()
+  let anyRecaptcha = false
   for (const id of ids) {
-    const rendered1 = await renderFormById(repo, id)
-    if (rendered1) rendered.set(id, rendered1)
+    const r = await renderFormById(repo, id, security)
+    if (r) {
+      rendered.set(id, r.html)
+      if (r.recaptcha) anyRecaptcha = true
+    }
   }
   if (rendered.size === 0) return html
   let out = html.replace(
@@ -745,7 +794,9 @@ async function expandForms(repo: Repo, html: string): Promise<string> {
     (m, id: string) => rendered.get(id) ?? m,
   )
   out = out.replace(FORM_TOKEN, (m, id: string) => rendered.get(id) ?? m)
-  return `${out}<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
+  out += `<style>${FORM_CSS}</style><script>${FORM_JS}</script>`
+  if (anyRecaptcha) out += RECAPTCHA_SCRIPT
+  return out
 }
 
 function parseSocialLinks(raw: string): SocialLink[] {

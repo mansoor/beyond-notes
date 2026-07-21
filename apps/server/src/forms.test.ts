@@ -6,8 +6,9 @@ import { type AppDb, createDb } from './db'
 import { createPagesService } from './pages'
 import { createPublishingService } from './publishing'
 import { createRepo } from './repo'
+import type { UserRow } from './repo'
 import { buildServer } from './server'
-import { createTablesService } from './tables'
+import { type TablesService, createTablesService } from './tables'
 
 const dialects: Array<{ name: string; make: () => Promise<AppDb> }> = [
   {
@@ -51,6 +52,8 @@ for (const dialect of dialects) {
     let appDb: AppDb
     let server: Awaited<ReturnType<typeof buildServer>>
     let repo: ReturnType<typeof createRepo>
+    let tables: TablesService
+    let user: UserRow
     const HOST = 'forms.example.test'
     let tableId: string
     let nameId: string
@@ -81,8 +84,8 @@ for (const dialect of dialects) {
       const auth = createAuthService(repo)
       const pages = createPagesService(repo)
       const publishing = createPublishingService(repo)
-      const tables = createTablesService(repo)
-      const { user } = await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
+      tables = createTablesService(repo)
+      user = (await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })).user
 
       // a database + a table with a form exposing Name (required) and Email
       const database = await tables.createDatabase(user, { name: 'CRM', personal: false })
@@ -107,6 +110,7 @@ for (const dialect of dialects) {
           submitLabel: 'Send',
           successMessage: 'Got it, thanks.',
           notify: false,
+          captcha: 'none',
         },
       })
 
@@ -193,6 +197,44 @@ for (const dialect of dialects) {
         }
       }
       expect(sawLimit).toBe(true)
+    })
+
+    // runs last: it switches the form to the basic captcha
+    it('renders and enforces the basic captcha challenge', async () => {
+      await tables.updateForm(user, {
+        tableId,
+        form: {
+          enabled: true,
+          fields: [nameId, emailId],
+          title: 'Contact me',
+          description: '',
+          submitLabel: 'Send',
+          successMessage: 'Got it.',
+          notify: false,
+          captcha: 'basic',
+        },
+      })
+      const page = await server.inject({ method: 'GET', url: '/contact', headers: { host: HOST } })
+      expect(page.body).toContain('name="_captcha"')
+      const q = page.body.match(/What is (\d+) \+ (\d+)/)
+      const token = page.body.match(/name="_captcha" value="([^"]+)"/)?.[1]
+      expect(q).toBeTruthy()
+      expect(token).toBeTruthy()
+      const answer = String(Number(q?.[1]) + Number(q?.[2]))
+
+      const wrong = await post(
+        tableId,
+        { [nameId]: 'Ann', [emailId]: 'a@b.com', _captcha: token ?? '', _captcha_answer: '0' },
+        '11.11.11.11',
+      )
+      expect(wrong.statusCode).toBe(400)
+
+      const right = await post(
+        tableId,
+        { [nameId]: 'Ann', [emailId]: 'a@b.com', _captcha: token ?? '', _captcha_answer: answer },
+        '12.12.12.12',
+      )
+      expect(right.statusCode).toBe(200)
     })
   })
 }

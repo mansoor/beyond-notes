@@ -12,6 +12,11 @@ export type FormFieldInput = {
   choices: string[]
 }
 
+export type FormCaptchaInput =
+  | { mode: 'basic'; question: string; token: string }
+  | { mode: 'recaptcha'; siteKey: string }
+  | null
+
 export type FormRenderInput = {
   /** Where the form POSTs, e.g. /api/forms/<tableId>. */
   actionPath: string
@@ -20,6 +25,24 @@ export type FormRenderInput = {
   submitLabel: string
   successMessage: string
   fields: FormFieldInput[]
+  captcha?: FormCaptchaInput
+}
+
+/** Google's widget loader — appended once by the serve-time expander when any
+ *  form on the page uses reCAPTCHA. The single sanctioned CDN load, opt-in. */
+export const RECAPTCHA_SCRIPT =
+  '<script src="https://www.google.com/recaptcha/api.js" async defer></script>'
+
+function captchaHtml(captcha: FormCaptchaInput): string {
+  if (!captcha) return ''
+  if (captcha.mode === 'recaptcha') {
+    return `<div class="g-recaptcha" data-sitekey="${escapeHtml(captcha.siteKey)}"></div>`
+  }
+  return `<label class="bn-form-field"><span class="bn-form-label">${escapeHtml(
+    captcha.question,
+  )} <span class="bn-form-req">*</span></span><input type="text" name="_captcha_answer" inputmode="numeric" autocomplete="off" required></label><input type="hidden" name="_captcha" value="${escapeHtml(
+    captcha.token,
+  )}">`
 }
 
 function fieldHtml(field: FormFieldInput): string {
@@ -72,7 +95,8 @@ export function formHtml(input: FormRenderInput): string {
   const action = escapeHtml(input.actionPath)
   const success = escapeHtml(input.successMessage)
   const submit = escapeHtml(input.submitLabel || 'Submit')
-  return `<div class="bn-form-wrap"><form class="bn-form" method="post" action="${action}" data-bn-form data-success="${success}">${honeypot}${title}${desc}${fields}<button type="submit" class="bn-form-submit">${submit}</button><p class="bn-form-msg" role="status" hidden></p></form></div>`
+  const captcha = captchaHtml(input.captcha ?? null)
+  return `<div class="bn-form-wrap"><form class="bn-form" method="post" action="${action}" data-bn-form data-success="${success}">${honeypot}${title}${desc}${fields}${captcha}<button type="submit" class="bn-form-submit">${submit}</button><p class="bn-form-msg" role="status" hidden></p></form></div>`
 }
 
 /** Styling that leans on the published theme's CSS variables. */
