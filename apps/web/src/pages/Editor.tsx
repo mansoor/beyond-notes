@@ -2,7 +2,7 @@ import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { IconPicker, Modal } from '../components'
+import { IconPicker, Modal, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { trpc } from '../trpc'
 
@@ -494,6 +494,8 @@ function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
   const pinned = pins.data?.some((p) => p.pageId === props.page.id) ?? false
   const [history, setHistory] = useState(false)
   const [scheduling, setScheduling] = useState(false)
+  const [schedDate, setSchedDate] = useState('')
+  const [schedTime, setSchedTime] = useState<string | null>('09:00')
   const invalidatePage = () => utils.pages.get.invalidate({ pageId: props.page.id })
   const schedule = trpc.publish.schedule.useMutation({ onSuccess: invalidatePage })
   const cancelSchedule = trpc.publish.cancelSchedule.useMutation({ onSuccess: invalidatePage })
@@ -560,27 +562,41 @@ function StatusSection(props: { page: PageMeta; publishing: PublishingView }) {
         {p.live ? `Publish v${p.live.version + 1}` : 'Publish'}
       </button>
       {scheduling ? (
-        <div className="flex items-center gap-2">
-          <input
-            type="datetime-local"
-            className="flex-1 rounded-lg border px-2 py-1 text-xs"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            onChange={(e) => {
-              const value = e.target.value
-              if (!value) return
-              // datetime-local is local wall time; Date() reads it as local too
-              schedule.mutate({ pageId: props.page.id, at: new Date(value).toISOString() })
-              setScheduling(false)
-            }}
-          />
-          <button
-            type="button"
-            className="text-xs underline"
-            style={{ color: 'var(--text-3)' }}
-            onClick={() => setScheduling(false)}
-          >
-            cancel
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="date"
+              className="rounded-lg border px-2 py-1 text-xs"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={schedDate}
+              onChange={(e) => setSchedDate(e.target.value)}
+            />
+            <TimeField value={schedTime} onChange={setSchedTime} defaultOnOpen="09:00" />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!schedDate || schedule.isPending}
+              onClick={() => {
+                // both are local wall time; Date() reads the combined string as local
+                const at = new Date(`${schedDate}T${schedTime ?? '09:00'}`)
+                schedule.mutate({ pageId: props.page.id, at: at.toISOString() })
+                setScheduling(false)
+              }}
+              className="rounded-md px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              Schedule
+            </button>
+            <button
+              type="button"
+              className="text-xs underline"
+              style={{ color: 'var(--text-3)' }}
+              onClick={() => setScheduling(false)}
+            >
+              cancel
+            </button>
+          </div>
         </div>
       ) : (
         <button

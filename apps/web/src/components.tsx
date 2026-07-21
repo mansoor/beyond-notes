@@ -147,7 +147,7 @@ export function Modal(props: {
 // the value. Scrolling settles onto a row and reports it up. The value stays a
 // 24h 'HH:MM' string — only the display is 12-hour.
 
-const ROW = 30
+const ROW = 25
 const VISIBLE = 5 // odd, so exactly one row is centred
 const PAD = ((VISIBLE - 1) / 2) * ROW
 const HOURS12 = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
@@ -211,7 +211,7 @@ function WheelColumn(props: {
       className="relative overflow-y-auto [&::-webkit-scrollbar]:hidden"
       style={{
         height: VISIBLE * ROW,
-        minWidth: 42,
+        minWidth: 38,
         scrollSnapType: 'y mandatory',
         scrollbarWidth: 'none',
       }}
@@ -229,7 +229,7 @@ function WheelColumn(props: {
             fontVariantNumeric: 'tabular-nums',
             color: i === props.index ? 'var(--text)' : 'var(--text-3)',
             fontWeight: i === props.index ? 600 : 400,
-            fontSize: i === props.index ? 15 : 13,
+            fontSize: i === props.index ? 12 : 11,
             opacity: Math.abs(i - props.index) >= 2 ? 0.4 : 1,
             transition: 'color .1s, font-size .1s, opacity .1s',
           }}
@@ -258,8 +258,8 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
         onIndex={(i) => props.onChange(to24(i, minIdx, periodIdx))}
       />
       <span
-        className="flex items-center font-semibold text-sm"
-        style={{ height: VISIBLE * ROW, color: 'var(--text-2)' }}
+        className="flex items-center font-semibold"
+        style={{ height: VISIBLE * ROW, fontSize: 12, color: 'var(--text-2)' }}
       >
         :
       </span>
@@ -276,6 +276,78 @@ export function TimeWheel(props: { value: string; onChange: (v: string) => void 
         onIndex={(i) => props.onChange(to24(hourIdx, minIdx, i))}
       />
     </div>
+  )
+}
+
+/**
+ * A compact time control that behaves like a native date field: it shows the
+ * chosen time as text, and clicking opens the wheel as an overlay popover that
+ * closes on click-away. `null` means "no time"; `clearable` shows an ✕ to unset.
+ */
+export function TimeField(props: {
+  value: string | null
+  onChange: (v: string | null) => void
+  clearable?: boolean
+  placeholder?: string
+  /** the time a fresh field lands on when first opened */
+  defaultOnOpen?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <span ref={rootRef} className="relative inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => {
+          if (props.value == null) props.onChange(props.defaultOnOpen ?? '09:00')
+          setOpen((o) => !o)
+        }}
+        className="rounded-lg border px-2 py-1 text-xs"
+        style={{
+          background: 'var(--bg)',
+          borderColor: 'var(--border)',
+          color: props.value != null ? 'var(--accent)' : 'var(--text-3)',
+        }}
+      >
+        🕑 {props.value != null ? fmtTime12(props.value) : (props.placeholder ?? 'add time')}
+      </button>
+      {props.clearable && props.value != null && (
+        <button
+          type="button"
+          title="Clear time"
+          className="text-xs"
+          style={{ color: 'var(--text-3)' }}
+          onClick={() => {
+            props.onChange(null)
+            setOpen(false)
+          }}
+        >
+          ✕
+        </button>
+      )}
+      {open && props.value != null && (
+        <div
+          className="absolute left-0 top-full z-40 mt-1 rounded-lg border px-2 py-1 shadow-lg"
+          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+        >
+          <TimeWheel value={props.value} onChange={(v) => props.onChange(v)} />
+        </div>
+      )}
+    </span>
   )
 }
 

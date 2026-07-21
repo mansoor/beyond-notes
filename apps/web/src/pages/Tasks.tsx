@@ -1,7 +1,7 @@
 import type { ReminderFreq, ReminderView, TaskView } from '@bn/schema'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { ErrorNote, Modal, SubmitButton, TimeWheel, fmtTime12, useSubmit } from '../components'
+import { ErrorNote, Modal, SubmitButton, TimeField, fmtTime12, useSubmit } from '../components'
 import { todayKey } from '../editor'
 import { trpc } from '../trpc'
 
@@ -317,16 +317,15 @@ function ReminderModal(props: { reminder?: ReminderView; onClose: () => void }) 
               onChange={(e) => setDueDate(e.target.value)}
             />
           </label>
-          <label className="block mb-4">
+          <div className="block mb-4">
             <span className="block text-sm font-medium mb-1">Time (optional)</span>
-            <input
-              type="time"
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-              style={selectStyle}
-              value={dueTime}
-              onChange={(e) => setDueTime(e.target.value)}
+            <TimeField
+              value={dueTime || null}
+              onChange={(v) => setDueTime(v ?? '')}
+              clearable
+              defaultOnOpen="09:00"
             />
-          </label>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block mb-4">
@@ -486,18 +485,12 @@ export function TaskRowItem(props: { task: TaskView }) {
           />
           {draftDue && (
             <>
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs"
-                style={{
-                  borderColor: 'var(--border)',
-                  color: draftTime ? 'var(--accent)' : 'var(--text-3)',
-                }}
-                // default a fresh time to the end of the day; toggle off clears it
-                onClick={() => setDraftTime(draftTime ? '' : '23:59')}
-              >
-                {draftTime ? `🕑 ${fmtTime12(draftTime)}` : '＋ add time'}
-              </button>
+              <TimeField
+                value={draftTime || null}
+                onChange={(v) => setDraftTime(v ?? '')}
+                clearable
+                defaultOnOpen="23:59"
+              />
               <button
                 type="button"
                 title="Clear due date"
@@ -513,14 +506,6 @@ export function TaskRowItem(props: { task: TaskView }) {
             </>
           )}
         </div>
-        {draftDue && draftTime && (
-          <div
-            className="self-start rounded-lg border px-3 py-1"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
-          >
-            <TimeWheel value={draftTime} onChange={setDraftTime} />
-          </div>
-        )}
         <div className="flex gap-2">
           <button
             type="button"
