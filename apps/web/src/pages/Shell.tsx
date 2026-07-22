@@ -138,6 +138,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 }
 
 const THEME_CELL = 26 // px per swatch
+const THEME_OPEN_MS = 160
 
 /**
  * Theme swatches that grow out from the one you're on. The current theme keeps
@@ -148,10 +149,32 @@ const THEME_CELL = 26 // px per swatch
  */
 function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) {
   const [open, setOpen] = useState(false)
+  // Hover previews stay off until the strip has finished unfolding. While it
+  // slides, swatches travel *under* a stationary cursor — each one it passes
+  // would repaint the whole app, which reads as a flicker rather than a preview.
+  const [settled, setSettled] = useState(false)
+  const shown = useRef<AppTheme | null>(null)
   const selected = Math.max(0, THEMES.indexOf(props.theme))
+
+  useEffect(() => {
+    if (!open) {
+      setSettled(false)
+      return
+    }
+    const t = setTimeout(() => setSettled(true), THEME_OPEN_MS + 20)
+    return () => clearTimeout(t)
+  }, [open])
+
+  /** Preview, but only once the strip is still — and never twice for the same theme. */
+  const preview = (t: AppTheme) => {
+    if (!settled || shown.current === t) return
+    shown.current = t
+    previewTheme(t)
+  }
 
   const close = () => {
     setOpen(false)
+    shown.current = null
     previewTheme(props.theme) // undo whatever the last hover was showing
   }
 
@@ -190,14 +213,18 @@ function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) 
                   ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
                   : 'transparent',
             }}
-            onMouseEnter={() => open && previewTheme(t)}
-            onFocus={() => open && previewTheme(t)}
+            onMouseEnter={() => preview(t)}
+            // the cursor is often already sitting on a swatch when the strip
+            // settles, so the first movement after that is what starts a preview
+            onMouseMove={() => preview(t)}
+            onFocus={() => preview(t)}
             onClick={() => {
               if (!open) {
                 setOpen(true)
                 return
               }
               applyTheme(t)
+              shown.current = null
               props.onPick(t)
               setOpen(false)
             }}
