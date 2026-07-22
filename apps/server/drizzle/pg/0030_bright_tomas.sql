@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "confirm_delete" boolean DEFAULT true NOT NULL;

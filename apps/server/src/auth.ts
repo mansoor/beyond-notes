@@ -110,6 +110,7 @@ export function createAuthService(
         sidebarHidden: '[]',
         taskDays: 7,
         reminderDays: 7,
+        confirmDelete: true,
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -335,6 +336,7 @@ export function createAuthService(
         sidebarHidden: '[]',
         taskDays: 7,
         reminderDays: 7,
+        confirmDelete: true,
         createdAt: now(),
       }
       await repo.insertUser(user)

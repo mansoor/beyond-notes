@@ -31,6 +31,9 @@ export const users = sqliteTable('users', {
   // was not renamed, because renaming a column costs a rebuild on SQLite.)
   taskDays: integer('coming_up_days').notNull().default(7),
   reminderDays: integer('reminder_days').notNull().default(7),
+  // Ask before a page goes to the Trash. On by default: deleting is reversible
+  // for 30 days, but losing the page you were looking at is still a surprise.
+  confirmDelete: integer('confirm_delete', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

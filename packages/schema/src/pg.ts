@@ -43,6 +43,9 @@ export const users = pgTable('users', {
   // kept its name so both dialects stay on one migration path.)
   taskDays: integer('coming_up_days').notNull().default(7),
   reminderDays: integer('reminder_days').notNull().default(7),
+  // Ask before a page goes to the Trash. On by default: deleting is reversible
+  // for 30 days, but losing the page you were looking at is still a surprise.
+  confirmDelete: boolean('confirm_delete').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 

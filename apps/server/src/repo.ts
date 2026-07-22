@@ -16,6 +16,8 @@ export type UserRow = {
   /** how many days ahead "Coming up" reaches for tasks, and for reminders */
   taskDays: number
   reminderDays: number
+  /** ask before a page goes to the Trash */
+  confirmDelete: boolean
   createdAt: Date
 }
 
@@ -305,6 +307,7 @@ export function createRepo(appDb: AppDb) {
           | 'emailNotifications'
           | 'taskDays'
           | 'reminderDays'
+          | 'confirmDelete'
         >
       >,
     ): Promise<void> {

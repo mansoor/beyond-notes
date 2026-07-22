@@ -115,7 +115,7 @@ for (const dialect of dialects) {
         category: 'notebook',
         personal: false,
       })
-      return { pages, admin, space }
+      return { pages, admin, space, repo }
     }
 
     it('refuses the autosave a still-open editor would send', async () => {
@@ -174,6 +174,20 @@ for (const dialect of dialects) {
           baseUpdatedAt: before.doc.updatedAt.toISOString(),
         }),
       ).rejects.toThrow(/Trash/)
+    })
+
+    it('asks before deleting until you turn that off', async () => {
+      const { repo, admin } = await setup()
+
+      // everyone starts guarded, including accounts that predate the column —
+      // the migration adds it with DEFAULT true, so existing rows come back on
+      expect(admin.confirmDelete).toBe(true)
+
+      await repo.updateUser(admin.id, { confirmDelete: false })
+      expect((await repo.getUserById(admin.id))?.confirmDelete).toBe(false)
+
+      await repo.updateUser(admin.id, { confirmDelete: true })
+      expect((await repo.getUserById(admin.id))?.confirmDelete).toBe(true)
     })
 
     it('an archived page is only hidden, so it still saves', async () => {

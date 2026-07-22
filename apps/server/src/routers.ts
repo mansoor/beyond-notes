@@ -137,6 +137,7 @@ function toUserView(u: UserRow): UserView {
     sidebarHidden,
     taskDays: u.taskDays,
     reminderDays: u.reminderDays,
+    confirmDelete: u.confirmDelete,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -354,6 +355,14 @@ const authRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
+      return { ok: true }
+    }),
+
+  /** Whether deleting a page asks first. Per user, not per instance. */
+  setConfirmDelete: authedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { confirmDelete: input.enabled })
       return { ok: true }
     }),
 

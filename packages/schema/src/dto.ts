@@ -77,6 +77,8 @@ export type UserView = {
   taskDays: number
   /** …and for reminders, which are usually set much further out */
   reminderDays: number
+  /** ask "are you sure?" before a page goes to the Trash */
+  confirmDelete: boolean
   createdAt: string
 }
 

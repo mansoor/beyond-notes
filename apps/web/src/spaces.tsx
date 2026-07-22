@@ -1700,6 +1700,10 @@ function PageMenu(props: {
   const navigate = useNavigate()
   const showing = useParams({ strict: false }) as { pageId?: string }
 
+  const prefs = useSidebarPrefs()
+  /** the Delete row has turned into "Are you sure? Yes/No" */
+  const [asking, setAsking] = useState(false)
+
   /**
    * Archive and trash both take the whole subtree, so the page on screen goes
    * away when it *or any ancestor* is the one acted on. Read the tree now,
@@ -1716,6 +1720,18 @@ function PageMenu(props: {
         ? navigate({ to: '/p/$pageId', params: { pageId: next } })
         : navigate({ to: '/space/$spaceId', params: { spaceId: props.page.spaceId } })
   }
+
+  const runDelete = () => {
+    setOpen(false)
+    const leave = exitIfShowing()
+    trash.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
+  }
+
+  /** Never leave a half-answered question behind for the next time it opens. */
+  const closeMenu = () => {
+    setOpen(false)
+    setAsking(false)
+  }
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 160)
   const duplicate = trpc.pages.duplicate.useMutation({
@@ -1731,7 +1747,7 @@ function PageMenu(props: {
         type="button"
         className="text-xs px-0.5"
         title="Page menu"
-        onClick={() => setOpen(!open)}
+        onClick={() => (open ? closeMenu() : setOpen(true))}
       >
         ⋯
       </button>
@@ -1739,7 +1755,7 @@ function PageMenu(props: {
         <div
           className="z-50 rounded-lg border py-1 text-sm shadow-lg"
           style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
-          onMouseLeave={() => setOpen(false)}
+          onMouseLeave={closeMenu}
         >
           {(['rename', 'move'] as const).map((kind) => (
             <button
@@ -1791,19 +1807,52 @@ function PageMenu(props: {
           >
             Archive
           </button>
-          <button
-            type="button"
-            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
-            style={{ color: 'var(--danger)' }}
-            title="Moves to Trash; restore within 30 days, then it purges"
-            onClick={() => {
-              setOpen(false)
-              const leave = exitIfShowing()
-              trash.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
-            }}
-          >
-            Delete
-          </button>
+          {asking ? (
+            // The confirm replaces the Delete row in place rather than opening a
+            // dialog over it — the menu is already a popover, and a second layer
+            // for a three-word question is more ceremony than this deserves.
+            // text-xs and free to wrap: the menu is a fixed 160px, which this
+            // row overflows at the menu's usual size.
+            <div className="flex items-center gap-2 px-3 py-1 text-xs">
+              <span style={{ color: 'var(--text-2)' }}>Are you sure?</span>
+              <button
+                type="button"
+                className="underline font-medium"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => {
+                  setAsking(false)
+                  runDelete()
+                }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--text-2)' }}
+                onClick={() => setAsking(false)}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--danger)' }}
+              title="Moves to Trash; restore within 30 days, then it purges"
+              onClick={() => {
+                if (prefs.confirmDelete) {
+                  setAsking(true)
+                  return
+                }
+                setOpen(false)
+                runDelete()
+              }}
+            >
+              Delete
+            </button>
+          )}
           {pageTypesByCategory[props.category]
             .filter((t) => t !== props.page.pageType)
             .map((t) => (

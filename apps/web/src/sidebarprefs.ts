@@ -32,6 +32,9 @@ export function useSidebarPrefs() {
   const saveDays = trpc.auth.setHorizons.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
+  const saveConfirm = trpc.auth.setConfirmDelete.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
 
   const hidden = new Set(status.data?.me?.sidebarHidden ?? [])
 
@@ -55,6 +58,13 @@ export function useSidebarPrefs() {
     reminderDays: status.data?.me?.reminderDays ?? 7,
     setHorizons: (horizons: { taskDays?: number; reminderDays?: number }) =>
       saveDays.mutateAsync(horizons),
-    saving: save.isPending || saveDays.isPending,
+    /**
+     * Whether Delete asks first. Defaults to true while the query is still in
+     * flight, so a slow load never turns the guard off — the safe answer is the
+     * one to guess with.
+     */
+    confirmDelete: status.data?.me?.confirmDelete ?? true,
+    setConfirmDelete: (enabled: boolean) => saveConfirm.mutateAsync({ enabled }),
+    saving: save.isPending || saveDays.isPending || saveConfirm.isPending,
   }
 }

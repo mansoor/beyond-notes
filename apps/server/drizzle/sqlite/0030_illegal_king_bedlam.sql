@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `confirm_delete` integer DEFAULT true NOT NULL;

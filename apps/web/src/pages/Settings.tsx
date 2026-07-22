@@ -95,6 +95,7 @@ function AppearanceTab() {
   return (
     <>
       <ComingUpCard />
+      <DeleteConfirmCard />
       <Card title="Sidebar">
         <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
           Hide sections you do not use, or single items inside them. Nothing is deleted or turned
@@ -182,6 +183,32 @@ function ComingUpCard() {
         Anything further out than its own horizon stays off the Today page. A reminder with a
         heads-up window is the exception — it appears when its own window opens, however far away
         the date is, which is what that setting is for.
+      </p>
+    </Card>
+  )
+}
+
+/**
+ * Whether Delete asks first. Deleting is already reversible for 30 days, so
+ * this is about the surprise rather than the loss — the guard is worth keeping
+ * if you ever delete the page you are reading.
+ */
+function DeleteConfirmCard() {
+  const prefs = useSidebarPrefs()
+  return (
+    <Card title="Deleting">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={prefs.confirmDelete}
+          disabled={prefs.saving}
+          onChange={(e) => prefs.setConfirmDelete(e.target.checked)}
+        />
+        <span>Ask “Are you sure?” before deleting a page</span>
+      </label>
+      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+        Deleted pages go to the Trash and can be restored for 30 days either way. Deleting a whole
+        notebook, site, or wiki always asks — that one is not covered by this setting.
       </p>
     </Card>
   )
