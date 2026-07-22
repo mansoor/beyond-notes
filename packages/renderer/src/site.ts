@@ -79,18 +79,28 @@ const SITE_CSS = `
 :root{--site-w:960px}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
-header{padding:18px 40px;max-width:var(--site-w);margin:0 auto}
+/* The header is a band, closed by a hairline the way the footer is opened by
+   one. Before this the rhythm ran 18 / 14 / 44: the nav sat closer to the
+   tagline than to anything else, and then a large unexplained gap separated it
+   from the page. Air above the brand, room under the nav, and a rule to say
+   where the chrome stops. */
+header{padding:26px 40px 15px;max-width:var(--site-w);margin:0 auto;
+border-bottom:1px solid var(--border)}
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
-.brand img{height:44px;width:auto;border-radius:8px;display:block}
+/* the two branding sizes are variables so one <style> line per site sets them,
+   and everything around them (tagline, gap) stays in proportion */
+.brand img{height:var(--logo-h,44px);width:auto;border-radius:8px;display:block}
 .brand .bt{display:flex;flex-direction:column}
-.brand .title{font-weight:700;font-size:17px;line-height:1.25}
+.brand .title{font-weight:700;font-size:var(--title-size,17px);line-height:1.25}
 .brand .tagline{font-size:12.5px;color:var(--text3)}
 header nav{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
 .hl-classic{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .hl-classic .brand{margin-right:auto}
 .hl-split{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .hl-split nav{margin-left:auto;margin-right:auto}
-.hl-centered .brand{justify-content:center;text-align:center;margin-bottom:14px}
+/* the nav is its own row here, so it needs to sit clear of the tagline rather
+   than tucked under it */
+.hl-centered .brand{justify-content:center;text-align:center;margin-bottom:20px}
 .hl-centered .navrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .hl-centered .navrow .tail{margin-left:auto;display:flex;align-items:center;gap:14px}
 .hl-minimal{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
@@ -108,15 +118,6 @@ box-shadow:0 8px 24px rgba(0,0,0,.12)}
 overflow:hidden;text-overflow:ellipsis;max-width:280px}
 .dropdown a:hover{background:var(--code);color:var(--text)}
 .dropdown a.lvl2{padding-left:26px;font-size:13px}
-@media(max-width:640px){
-header{padding:16px 20px}
-header nav{flex-direction:column;gap:4px;width:100%;padding-top:6px}
-.navitem{position:static}
-.navitem>a .caret{display:none}
-.dropdown{display:block;position:static;border:0;box-shadow:none;padding:0 0 2px 16px;min-width:0}
-main{padding:20px 20px 50px}
-footer{padding:16px 20px}
-}
 .crumbs{font-size:13px;color:var(--text3);margin-bottom:14px}
 .crumbs a{color:var(--text3);text-decoration:none}
 .crumbs a:hover{color:var(--accent)}
@@ -133,7 +134,7 @@ background:var(--code);border:1px solid var(--border)}
 .albums .name{font-weight:600;font-size:15px;margin-top:7px}
 .albums .n{color:var(--text3);font-size:12px}
 .albums .cat{margin-top:7px}
-main{max-width:var(--site-w);margin:0 auto;padding:26px 40px 60px}
+main{max-width:var(--site-w);margin:0 auto;padding:32px 40px 60px}
 main h1{font-size:30px;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
 main h2{font-size:21px;margin:26px 0 8px}
 main h3{font-size:18px;margin:20px 0 6px}
@@ -196,6 +197,18 @@ main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
 display:flex;justify-content:space-between;max-width:var(--site-w);margin:0 auto}
+/* Last, so it actually overrides. This block used to sit above the main rule
+   and lost to it on equal specificity: phones kept main's 40px side padding
+   while the header dropped to 20px, so the content hung past the chrome. */
+@media(max-width:640px){
+header{padding:20px 20px 12px}
+header nav{flex-direction:column;gap:4px;width:100%;padding-top:6px}
+.navitem{position:static}
+.navitem>a .caret{display:none}
+.dropdown{display:block;position:static;border:0;box-shadow:none;padding:0 0 2px 16px;min-width:0}
+main{padding:24px 20px 50px}
+footer{padding:16px 20px}
+}
 `
 
 /** Dropdown panel body: the subtree as one indented list — no nested flyouts.
@@ -303,6 +316,19 @@ function metaHtml(title: string, siteTitle: string, meta?: SiteMeta): string {
   return lines.join('\n')
 }
 
+/**
+ * One line of CSS for the site's own branding sizes. Emitted only when a site
+ * asked for something other than the defaults, so an untouched site keeps the
+ * exact stylesheet it had. Both are clamped: a "logo" 400px tall is a banner,
+ * and the header has no answer for it.
+ */
+function brandingCss(titlePx?: number, logoPx?: number): string {
+  const parts: string[] = []
+  if (titlePx) parts.push(`--title-size:${Math.min(Math.max(Math.round(titlePx), 12), 40)}px`)
+  if (logoPx) parts.push(`--logo-h:${Math.min(Math.max(Math.round(logoPx), 16), 96)}px`)
+  return parts.length ? `\n:root{${parts.join(';')}}` : ''
+}
+
 function shell(input: {
   siteTitle: string
   footer: string
@@ -316,6 +342,9 @@ function shell(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
@@ -351,7 +380,7 @@ ${metaHtml(input.title, input.siteTitle, input.meta)}${
   input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
 }
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_CSS : ''}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${brandingCss(input.titlePx, input.logoPx)}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_CSS : ''}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
 ${(input.appearance ?? 'auto') === 'toggle' ? `<script>${APPEARANCE_RESTORE_JS}</script>` : ''}
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
@@ -370,6 +399,9 @@ export function sitePage(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -394,6 +426,9 @@ export function siteBlogIndex(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -484,6 +519,9 @@ export function sitePost(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -523,6 +561,9 @@ export function siteTagPage(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -562,6 +603,9 @@ export function siteSearchResults(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   query: string
   results: Array<{ title: string; path: string; snippet: string }>
 }): string {

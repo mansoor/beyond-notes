@@ -16,6 +16,8 @@ export type UserRow = {
   /** how many days ahead "Coming up" reaches for tasks, and for reminders */
   taskDays: number
   reminderDays: number
+  /** ask before a page goes to the Trash */
+  confirmDelete: boolean
   createdAt: Date
 }
 
@@ -50,6 +52,9 @@ export type SpaceRow = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
+  publicTitleSize: 'sm' | 'md' | 'lg' | 'xl'
+  publicLogoSize: 'sm' | 'md' | 'lg'
+  publicFaviconAttachmentId: string | null
   /** opt-in analytics for the published site; 'none' emits no tag at all */
   analyticsProvider: 'none' | 'plausible' | 'umami' | 'ga4'
   analyticsSiteId: string | null
@@ -302,6 +307,7 @@ export function createRepo(appDb: AppDb) {
           | 'emailNotifications'
           | 'taskDays'
           | 'reminderDays'
+          | 'confirmDelete'
         >
       >,
     ): Promise<void> {
@@ -725,6 +731,9 @@ export function createRepo(appDb: AppDb) {
           | 'publicLogoAttachmentId'
           | 'publicTagline'
           | 'publicHeaderLayout'
+          | 'publicTitleSize'
+          | 'publicLogoSize'
+          | 'publicFaviconAttachmentId'
         >
       >,
     ): Promise<void> {

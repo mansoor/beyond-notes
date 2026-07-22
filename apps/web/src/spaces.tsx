@@ -1,9 +1,24 @@
-import type { AnalyticsProviderName, PageMeta, SpaceCategory, SpaceView } from '@bn/schema'
-import { pageTypesByCategory, socialPlatform } from '@bn/schema'
+import type {
+  AnalyticsProviderName,
+  LockPolicyView,
+  PageMeta,
+  SiteLogoSize,
+  SiteTitleSize,
+  SpaceCategory,
+  SpaceView,
+} from '@bn/schema'
+import {
+  SITE_LOGO_PX,
+  SITE_TITLE_PX,
+  pageAfterRemoval,
+  pageSubtreeIds,
+  pageTypesByCategory,
+  socialPlatform,
+} from '@bn/schema'
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ErrorNote,
   Field,
@@ -14,7 +29,7 @@ import {
   useSubmit,
 } from './components'
 import { ImportModal } from './import'
-import { LockModal, useLockState } from './locks'
+import { LockModal, UnlockModal, useLockState } from './locks'
 import { KIND_LABEL, catToken, spaceToken, useSidebarPrefs } from './sidebarprefs'
 import { trpc } from './trpc'
 
@@ -70,7 +85,7 @@ export function SpacesNav() {
       <button
         type="button"
         onClick={() => setCreating('notebook')}
-        className="text-left text-sm px-2 py-1 rounded"
+        className="text-left text-sm px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5"
         style={{ color: 'var(--text-3)' }}
       >
         ＋ New space
@@ -351,9 +366,51 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
   )
 }
 
+/**
+ * Which spaces the sidebar is showing collapsed, remembered in this browser
+ * only. We store the *collapsed* set, not the expanded one, so a brand-new
+ * space defaults to open without needing an entry — and a wiped/absent key
+ * simply means "everything expanded", the old behaviour.
+ */
+const COLLAPSED_KEY = 'bn-collapsed-spaces'
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? (arr as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Per-space expand state, persisted to localStorage. Returns [expanded, toggle]. */
+function useSpaceExpanded(spaceId: string): [boolean, () => void] {
+  const [expanded, setExpanded] = useState(() => !readCollapsed().has(spaceId))
+  // reconcile once on mount in case another SpaceItem wrote the key first
+  useEffect(() => {
+    setExpanded(!readCollapsed().has(spaceId))
+  }, [spaceId])
+  const toggle = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev
+      const set = readCollapsed()
+      if (next) set.delete(spaceId)
+      else set.add(spaceId)
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
+      } catch {
+        // private mode or a full quota: the toggle still works this session
+      }
+      return next
+    })
+  }, [spaceId])
+  return [expanded, toggle]
+}
+
 function SpaceItem(props: { space: SpaceView }) {
   const utils = trpc.useUtils()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, toggleExpanded] = useSpaceExpanded(props.space.id)
   const tree = trpc.pages.tree.useQuery({ spaceId: props.space.id }, { enabled: expanded })
   const createPage = trpc.pages.create.useMutation()
   const navigate = useNavigate()
@@ -365,8 +422,18 @@ function SpaceItem(props: { space: SpaceView }) {
   const [lockOpen, setLockOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  const addPage = async (parentId: string | null) => {
-    const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
+  /**
+   * `afterPageId` places the new page directly below that sibling — what the
+   * per-page ＋ means by "Add sibling". The space-level ＋ passes nothing and
+   * lands at the bottom of the notebook.
+   */
+  const addPage = async (parentId: string | null, afterPageId: string | null = null) => {
+    const page = await createPage.mutateAsync({
+      spaceId: props.space.id,
+      parentId,
+      title: '',
+      afterPageId,
+    })
     await utils.pages.tree.invalidate({ spaceId: props.space.id })
     navigate({ to: '/p/$pageId', params: { pageId: page.id } })
   }
@@ -410,6 +477,9 @@ function SpaceItem(props: { space: SpaceView }) {
 
   const roots = (tree.data ?? []).filter((p) => p.parentId === null)
   const spaceLock = useLockState('space', props.space.id)
+  /** locked and not opened this session: every write inside will be refused */
+  const shut = Boolean(spaceLock && !spaceLock.open)
+  const [unlockOpen, setUnlockOpen] = useState(false)
 
   return (
     <div className="mb-1">
@@ -417,10 +487,16 @@ function SpaceItem(props: { space: SpaceView }) {
         className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
         style={{ color: 'var(--text-2)' }}
       >
-        <button type="button" onClick={() => setExpanded(!expanded)} className="w-4 text-xs">
+        <button type="button" onClick={toggleExpanded} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
-        <span className="truncate">{props.space.name}</span>
+        <span
+          className="truncate select-none cursor-default"
+          onDoubleClick={toggleExpanded}
+          title="Double-click to expand or collapse"
+        >
+          {props.space.name}
+        </span>
         {props.space.personal && (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal space">
             ⛭
@@ -438,43 +514,71 @@ function SpaceItem(props: { space: SpaceView }) {
             public
           </span>
         )}
-        <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
-          {props.space.publicEnabled && props.space.publicHost ? (
-            <a
-              href={publicUrlFor(props.space.publicHost).href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs px-1"
-              style={{ color: 'var(--text-3)' }}
-              title={
-                publicUrlFor(props.space.publicHost).live
-                  ? `Open ${props.space.publicHost}`
-                  : `Open the preview at /s/${props.space.publicHost}/ — set that domain up in DNS to serve it directly`
-              }
-            >
-              ↗
-            </a>
-          ) : null}
+        {shut && (
           <button
             type="button"
-            title="New page"
-            onClick={() => addPage(null)}
-            className="text-xs px-1"
+            title="Locked — enter your password to open it"
+            className="text-[11px]"
             style={{ color: 'var(--text-3)' }}
+            onClick={() => setUnlockOpen(true)}
           >
-            ＋
+            🔒
           </button>
-          <SpaceMenu
-            space={props.space}
-            onLock={() => setLockOpen(true)}
-            onPublishing={() => setPublishingOpen(true)}
-            onReorganize={() => setReorgOpen(true)}
-            onImport={() => setImportOpen(true)}
-            onRename={() => setRenameOpen(true)}
-            onDelete={() => setDeleteOpen(true)}
-          />
-        </span>
+        )}
+        {/* a shut lock offers one thing: the key. The server refuses these
+            writes anyway, but offering a menu that can only fail is a worse
+            way to find that out. */}
+        {shut ? (
+          <span className="ml-auto" />
+        ) : (
+          <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
+            {props.space.publicEnabled && props.space.publicHost ? (
+              <a
+                href={publicUrlFor(props.space.publicHost).href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs px-1"
+                style={{ color: 'var(--text-3)' }}
+                title={
+                  publicUrlFor(props.space.publicHost).live
+                    ? `Open ${props.space.publicHost}`
+                    : `Open the preview at /s/${props.space.publicHost}/ — set that domain up in DNS to serve it directly`
+                }
+              >
+                ↗
+              </a>
+            ) : null}
+            <button
+              type="button"
+              title="New page"
+              onClick={() => addPage(null)}
+              className="text-xs px-1"
+              style={{ color: 'var(--text-3)' }}
+            >
+              ＋
+            </button>
+            <SpaceMenu
+              space={props.space}
+              onLock={() => setLockOpen(true)}
+              onPublishing={() => setPublishingOpen(true)}
+              onReorganize={() => setReorgOpen(true)}
+              onImport={() => setImportOpen(true)}
+              onRename={() => setRenameOpen(true)}
+              onDelete={() => setDeleteOpen(true)}
+            />
+          </span>
+        )}
       </div>
+      {unlockOpen && spaceLock && (
+        <UnlockModal
+          target="space"
+          id={props.space.id}
+          name={props.space.name}
+          policy={spaceLock.policy}
+          onClose={() => setUnlockOpen(false)}
+          onOpened={() => setUnlockOpen(false)}
+        />
+      )}
       {renameOpen && <RenameSpaceModal space={props.space} onClose={() => setRenameOpen(false)} />}
       {lockOpen && (
         <LockModal
@@ -510,6 +614,7 @@ function SpaceItem(props: { space: SpaceView }) {
           parentId={null}
           depth={0}
           category={props.space.category}
+          spaceShut={shut}
           dnd={dnd}
           onAddChild={addPage}
           onAction={(a) => setAction(a)}
@@ -705,23 +810,34 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const [logoId, setLogoId] = useState(s.publicLogoAttachmentId)
   const [tagline, setTagline] = useState(s.publicTagline ?? '')
   const [headerLayout, setHeaderLayout] = useState(s.publicHeaderLayout)
+  const [titleSize, setTitleSize] = useState(s.publicTitleSize)
+  const [logoSize, setLogoSize] = useState(s.publicLogoSize)
+  const [faviconId, setFaviconId] = useState(s.publicFaviconAttachmentId)
   const [logoBusy, setLogoBusy] = useState(false)
+  const [faviconBusy, setFaviconBusy] = useState(false)
 
-  const uploadLogo = async (files: FileList | null) => {
+  /** Uploads land in the same store as any other image; we only keep the id. */
+  const uploadTo = async (
+    files: FileList | null,
+    setId: (id: string) => void,
+    setBusy: (b: boolean) => void,
+  ) => {
     const file = files?.[0]
     if (!file) return
-    setLogoBusy(true)
+    setBusy(true)
     try {
       const form = new FormData()
       form.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: form })
       if (!res.ok) return
       const json = (await res.json()) as { id: string }
-      setLogoId(json.id)
+      setId(json.id)
     } finally {
-      setLogoBusy(false)
+      setBusy(false)
     }
   }
+  const uploadLogo = (files: FileList | null) => uploadTo(files, setLogoId, setLogoBusy)
+  const uploadFavicon = (files: FileList | null) => uploadTo(files, setFaviconId, setFaviconBusy)
 
   const { busy, error, onSubmit } = useSubmit(async () => {
     await update.mutateAsync({
@@ -734,8 +850,11 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
       appearance,
       social: social.filter((l) => l.url.trim() !== ''),
       logoAttachmentId: logoId,
+      faviconAttachmentId: faviconId,
       tagline: tagline.trim() || null,
       headerLayout,
+      titleSize,
+      logoSize,
     })
     await utils.spaces.list.invalidate()
     props.onClose()
@@ -750,7 +869,10 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     JSON.stringify(social) !== JSON.stringify(s.publicSocial) ||
     logoId !== s.publicLogoAttachmentId ||
     tagline !== (s.publicTagline ?? '') ||
-    headerLayout !== s.publicHeaderLayout
+    headerLayout !== s.publicHeaderLayout ||
+    titleSize !== s.publicTitleSize ||
+    logoSize !== s.publicLogoSize ||
+    faviconId !== s.publicFaviconAttachmentId
 
   const isSite = s.category === 'site'
   const isWiki = s.category === 'wiki'
@@ -872,12 +994,21 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             {tab === 'branding' && (
               <BrandingTab
                 socialOnly={!isSite}
+                siteTitle={title.trim() || s.name}
                 tagline={tagline}
                 setTagline={setTagline}
                 logoId={logoId}
                 setLogoId={setLogoId}
                 logoBusy={logoBusy}
                 uploadLogo={uploadLogo}
+                faviconId={faviconId}
+                setFaviconId={setFaviconId}
+                faviconBusy={faviconBusy}
+                uploadFavicon={uploadFavicon}
+                titleSize={titleSize}
+                setTitleSize={setTitleSize}
+                logoSize={logoSize}
+                setLogoSize={setLogoSize}
                 social={social}
                 setSocial={setSocial}
               />
@@ -983,12 +1114,21 @@ function AnalyticsTab(props: { space: SpaceView }) {
 function BrandingTab(props: {
   /** wikis only render social links in their header, not a logo/tagline */
   socialOnly?: boolean
+  siteTitle: string
   tagline: string
   setTagline: (v: string) => void
   logoId: string | null
   setLogoId: (v: string | null) => void
   logoBusy: boolean
   uploadLogo: (files: FileList | null) => void
+  faviconId: string | null
+  setFaviconId: (v: string | null) => void
+  faviconBusy: boolean
+  uploadFavicon: (files: FileList | null) => void
+  titleSize: SiteTitleSize
+  setTitleSize: (v: SiteTitleSize) => void
+  logoSize: SiteLogoSize
+  setLogoSize: (v: SiteLogoSize) => void
   social: SpaceView['publicSocial']
   setSocial: (v: SpaceView['publicSocial']) => void
 }) {
@@ -1041,6 +1181,106 @@ function BrandingTab(props: {
                 />
               </label>
             )}
+          </div>
+
+          {/* sizes, then what they produce — a header is proportions, and a
+              number in a dropdown does not show you those */}
+          <div className="mb-2 flex flex-wrap gap-4">
+            <label className="block">
+              <span className="block text-sm font-medium mb-1">Site title size</span>
+              <select
+                className="rounded-lg border px-3 py-2 text-sm"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                value={props.titleSize}
+                onChange={(e) => props.setTitleSize(e.target.value as SiteTitleSize)}
+              >
+                <option value="sm">Small</option>
+                <option value="md">Medium</option>
+                <option value="lg">Large</option>
+                <option value="xl">Extra large</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-sm font-medium mb-1">Logo height</span>
+              <select
+                className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40"
+                style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                disabled={!logoId}
+                value={props.logoSize}
+                onChange={(e) => props.setLogoSize(e.target.value as SiteLogoSize)}
+              >
+                <option value="sm">Small ({SITE_LOGO_PX.sm}px)</option>
+                <option value="md">Medium ({SITE_LOGO_PX.md}px)</option>
+                <option value="lg">Large ({SITE_LOGO_PX.lg}px)</option>
+              </select>
+            </label>
+          </div>
+          <div
+            className="mb-4 rounded-lg border p-3 flex items-center gap-3"
+            style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+          >
+            {logoId && (
+              <img
+                src={`/api/files/${logoId}`}
+                alt=""
+                className="w-auto rounded-lg"
+                style={{ height: SITE_LOGO_PX[props.logoSize] }}
+              />
+            )}
+            <span className="flex flex-col leading-tight">
+              <span
+                className="font-bold"
+                style={{ fontSize: SITE_TITLE_PX[props.titleSize], lineHeight: 1.25 }}
+              >
+                {props.siteTitle}
+              </span>
+              {tagline.trim() && (
+                <span className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
+                  {tagline}
+                </span>
+              )}
+            </span>
+          </div>
+
+          <div className="mb-4 flex items-center gap-3">
+            <span className="text-sm font-medium">Favicon</span>
+            {props.faviconId ? (
+              <>
+                <img
+                  src={`/api/files/${props.faviconId}/thumb`}
+                  alt="favicon"
+                  className="h-6 w-6 object-contain rounded"
+                  style={{ background: 'var(--bg)' }}
+                />
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => props.setFaviconId(null)}
+                >
+                  remove
+                </button>
+              </>
+            ) : (
+              <label
+                className="text-xs underline cursor-pointer"
+                style={{ color: 'var(--text-2)' }}
+              >
+                {props.faviconBusy ? 'uploading…' : '+ upload favicon'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={props.faviconBusy}
+                  onChange={(e) => props.uploadFavicon(e.target.files)}
+                />
+              </label>
+            )}
+            <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+              {props.faviconId
+                ? 'Shown in the browser tab.'
+                : 'Optional — the logo is used when this is empty. A square image works best.'}
+            </span>
           </div>
         </>
       )}
@@ -1304,12 +1544,18 @@ function PageTreeLevel(props: {
   parentId: string | null
   depth: number
   category: SpaceCategory
+  /** the whole notebook is locked shut: nothing inside it takes a write */
+  spaceShut: boolean
   dnd: TreeDnd
-  onAddChild: (parentId: string | null) => void
+  onAddChild: (parentId: string | null, afterPageId?: string | null) => void
   onAction: (a: PageAction) => void
 }) {
   const params = useParams({ strict: false }) as { pageId?: string }
   const { dnd } = props
+  // one query for the whole tree, deduped by react-query across the recursion
+  const locks = trpc.locks.list.useQuery(undefined, { staleTime: 10_000 })
+  const pageLock = (id: string) =>
+    (locks.data ?? []).find((l) => l.target === 'page' && l.id === id) ?? null
   const level = props.pages
     .filter((p) => p.parentId === props.parentId)
     .sort((a, b) => a.position - b.position)
@@ -1320,11 +1566,13 @@ function PageTreeLevel(props: {
       {level.map((page) => {
         const isOver = dnd.over?.id === page.id && dnd.dragId !== page.id
         const zone = isOver ? dnd.over?.zone : undefined
+        const own = pageLock(page.id)
+        const shut = props.spaceShut || Boolean(own && !own.open)
         return (
           <div key={page.id}>
             <div
               className="group flex items-center gap-1 pr-2 py-0.5 rounded text-sm hover:bg-black/5 dark:hover:bg-white/5"
-              draggable
+              draggable={!shut}
               onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = 'move'
                 dnd.setDragId(page.id)
@@ -1372,16 +1620,21 @@ function PageTreeLevel(props: {
                 <PagePrefix page={page} />
                 {page.title}
               </Link>
-              <span className="hidden group-hover:flex items-center gap-0.5">
-                <AddButton page={page} onAdd={props.onAddChild} />
-                <PageMenu page={page} category={props.category} onAction={props.onAction} />
-              </span>
+              {shut ? (
+                own && <PageUnlockButton page={page} policy={own.policy} />
+              ) : (
+                <span className="hidden group-hover:flex items-center gap-0.5">
+                  <AddButton page={page} onAdd={props.onAddChild} />
+                  <PageMenu page={page} category={props.category} onAction={props.onAction} />
+                </span>
+              )}
             </div>
             <PageTreeLevel
               pages={props.pages}
               parentId={page.id}
               depth={props.depth + 1}
               category={props.category}
+              spaceShut={props.spaceShut}
               dnd={dnd}
               onAddChild={props.onAddChild}
               onAction={props.onAction}
@@ -1393,8 +1646,39 @@ function PageTreeLevel(props: {
   )
 }
 
+/** A shut page shows the key instead of the ＋ and ⋯ it cannot use. */
+function PageUnlockButton(props: { page: PageMeta; policy: LockPolicyView }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        title="Locked — enter your password to open it"
+        className="text-[11px] px-1"
+        style={{ color: 'var(--text-3)' }}
+        onClick={() => setOpen(true)}
+      >
+        🔒
+      </button>
+      {open && (
+        <UnlockModal
+          target="page"
+          id={props.page.id}
+          name={props.page.title}
+          policy={props.policy}
+          onClose={() => setOpen(false)}
+          onOpened={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
 /** The per-page ＋: choose whether the new page is a sibling or a child. */
-function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => void }) {
+function AddButton(props: {
+  page: PageMeta
+  onAdd: (parentId: string | null, afterPageId?: string | null) => void
+}) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 128)
@@ -1422,7 +1706,8 @@ function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => 
             style={{ color: 'var(--text)' }}
             onClick={() => {
               setOpen(false)
-              props.onAdd(props.page.parentId)
+              // directly below this page, not at the end of its group
+              props.onAdd(props.page.parentId, props.page.id)
             }}
           >
             Add sibling
@@ -1475,6 +1760,40 @@ function PageMenu(props: {
       ]),
   })
   const navigate = useNavigate()
+  const showing = useParams({ strict: false }) as { pageId?: string }
+
+  const prefs = useSidebarPrefs()
+  /** the Delete row has turned into "Are you sure? Yes/No" */
+  const [asking, setAsking] = useState(false)
+
+  /**
+   * Archive and trash both take the whole subtree, so the page on screen goes
+   * away when it *or any ancestor* is the one acted on. Read the tree now,
+   * before the mutation invalidates it — finding the neighbour needs the
+   * departing page still in the list to measure from.
+   */
+  const exitIfShowing = (): (() => void) | null => {
+    const all = utils.pages.tree.getData({ spaceId: props.page.spaceId }) ?? []
+    const going = new Set(pageSubtreeIds(all, props.page.id))
+    if (!showing.pageId || !going.has(showing.pageId)) return null
+    const next = pageAfterRemoval(all, props.page.id)
+    return () =>
+      next
+        ? navigate({ to: '/p/$pageId', params: { pageId: next } })
+        : navigate({ to: '/space/$spaceId', params: { spaceId: props.page.spaceId } })
+  }
+
+  const runDelete = () => {
+    setOpen(false)
+    const leave = exitIfShowing()
+    trash.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
+  }
+
+  /** Never leave a half-answered question behind for the next time it opens. */
+  const closeMenu = () => {
+    setOpen(false)
+    setAsking(false)
+  }
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 160)
   const duplicate = trpc.pages.duplicate.useMutation({
@@ -1490,7 +1809,7 @@ function PageMenu(props: {
         type="button"
         className="text-xs px-0.5"
         title="Page menu"
-        onClick={() => setOpen(!open)}
+        onClick={() => (open ? closeMenu() : setOpen(true))}
       >
         ⋯
       </button>
@@ -1498,7 +1817,7 @@ function PageMenu(props: {
         <div
           className="z-50 rounded-lg border py-1 text-sm shadow-lg"
           style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
-          onMouseLeave={() => setOpen(false)}
+          onMouseLeave={closeMenu}
         >
           {(['rename', 'move'] as const).map((kind) => (
             <button
@@ -1544,23 +1863,58 @@ function PageMenu(props: {
             title="Hide from the sidebar, search, and tasks; restore any time from Archive"
             onClick={() => {
               setOpen(false)
-              archive.mutate({ pageId: props.page.id })
+              const leave = exitIfShowing()
+              archive.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
             }}
           >
             Archive
           </button>
-          <button
-            type="button"
-            className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
-            style={{ color: 'var(--danger)' }}
-            title="Moves to Trash; restore within 30 days, then it purges"
-            onClick={() => {
-              setOpen(false)
-              trash.mutate({ pageId: props.page.id })
-            }}
-          >
-            Delete
-          </button>
+          {asking ? (
+            // The confirm replaces the Delete row in place rather than opening a
+            // dialog over it — the menu is already a popover, and a second layer
+            // for a three-word question is more ceremony than this deserves.
+            // text-xs and free to wrap: the menu is a fixed 160px, which this
+            // row overflows at the menu's usual size.
+            <div className="flex items-center gap-2 px-3 py-1 text-xs">
+              <span style={{ color: 'var(--text-2)' }}>Are you sure?</span>
+              <button
+                type="button"
+                className="underline font-medium"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => {
+                  setAsking(false)
+                  runDelete()
+                }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--text-2)' }}
+                onClick={() => setAsking(false)}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--danger)' }}
+              title="Moves to Trash; restore within 30 days, then it purges"
+              onClick={() => {
+                if (prefs.confirmDelete) {
+                  setAsking(true)
+                  return
+                }
+                setOpen(false)
+                runDelete()
+              }}
+            >
+              Delete
+            </button>
+          )}
           {pageTypesByCategory[props.category]
             .filter((t) => t !== props.page.pageType)
             .map((t) => (

@@ -1,3 +1,5 @@
+<img src="apps/web/public/logo.svg" alt="" width="80" />
+
 # Beyond Notes
 
 **Your notes, your wiki, and your website — one self-hosted app you actually own.**
@@ -377,12 +379,20 @@ deliberately paranoid:
 - **Scheduled publishing** (publish at a future date/time) and **draft preview
   links** (a secret URL for one unpublished page) are both built in.
 - SEO comes free: per-page description, Open Graph/Twitter meta, `robots.txt`,
-  a favicon derived from your logo, and an RSS feed for blogs.
+  a favicon, and an RSS feed for blogs.
 
 Each publishable space gets its own **theme** (paper, ink, mist, sand, bloom) ×
-**appearance** (auto / light / dark), a logo, a tagline, one of four header
-layouts, social links, and a footer. Themes are design tokens only — they never
-change structure, so every theme works with every space forever.
+**appearance** (auto / light / dark / visitor's choice), social links and a
+footer. Themes are design tokens only — they never change structure, so every
+theme works with every space forever.
+
+**Branding** (Publishing settings → Branding) is where the header is set:
+a **logo**, a **tagline**, one of four **header layouts**, the **site title
+size** (small → extra large) and the **logo height** (30 / 44 / 60px), with a
+live preview of the three together. Upload a **favicon** for the browser tab,
+or leave it empty and your logo is used. Uploads are recompressed and stripped
+of metadata like every other image, and the header scales the logo by height so
+any shape fits the theme.
 
 > **Is Publish useful before you have a domain?** Yes, for two reasons. It
 > creates the version history — every publish is a restorable snapshot with a
@@ -450,8 +460,10 @@ week (reading it slides the window forward). Signing out
 re-locks everything, and so does a server restart.
 
 > **What a lock is:** a lock screen for the laptop left open on the kitchen
-> table. The server refuses to send a locked document, and locked pages never
-> appear in search results.
+> table. The server refuses to send a locked document, locked pages never appear
+> in search results, and while it is shut *nothing inside it can be changed* —
+> renaming, deleting, publishing, moving and adding pages are all refused until
+> the password lands. The sidebar shows a 🔒 in place of the ＋ and ⋯ to say so.
 >
 > **What it is not:** encryption. The content is still plain text in the
 > database, so a backup, the database file or a full-instance export can be read

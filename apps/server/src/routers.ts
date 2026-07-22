@@ -137,6 +137,7 @@ function toUserView(u: UserRow): UserView {
     sidebarHidden,
     taskDays: u.taskDays,
     reminderDays: u.reminderDays,
+    confirmDelete: u.confirmDelete,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -229,6 +230,9 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicLogoAttachmentId: s.publicLogoAttachmentId,
     publicTagline: s.publicTagline,
     publicHeaderLayout: s.publicHeaderLayout,
+    publicTitleSize: s.publicTitleSize,
+    publicLogoSize: s.publicLogoSize,
+    publicFaviconAttachmentId: s.publicFaviconAttachmentId,
     analyticsProvider: s.analyticsProvider,
     analyticsSiteId: s.analyticsSiteId,
     analyticsHost: s.analyticsHost,
@@ -351,6 +355,14 @@ const authRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
+      return { ok: true }
+    }),
+
+  /** Whether deleting a page asks first. Per user, not per instance. */
+  setConfirmDelete: authedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { confirmDelete: input.enabled })
       return { ok: true }
     }),
 
@@ -1331,7 +1343,7 @@ const memosRouter = router({
     .input(promoteToJournalInput)
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.daily.promoteToJournal(ctx.user, input.memoId, input.date)
+        await ctx.daily.promoteToJournal(ctx.user, input.memoId)
         return { ok: true }
       } catch (err) {
         rethrow(err)

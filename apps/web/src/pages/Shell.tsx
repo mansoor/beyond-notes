@@ -2,7 +2,7 @@ import type { UserView } from '@bn/schema'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Modal } from '../components'
+import { BrandMark, Modal } from '../components'
 import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
 import {
@@ -83,12 +83,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
         style={{ width: sidebarW, background: 'var(--sidebar)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 px-1">
-          <span
-            className="w-7 h-7 rounded-lg text-white flex items-center justify-center font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            B
-          </span>
+          <BrandMark />
           <span className="font-semibold">Beyond Notes</span>
           <ThemePicker theme={theme} onPick={setTheme} />
         </div>

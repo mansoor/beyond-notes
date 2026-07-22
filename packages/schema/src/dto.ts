@@ -77,6 +77,8 @@ export type UserView = {
   taskDays: number
   /** …and for reminders, which are usually set much further out */
   reminderDays: number
+  /** ask "are you sure?" before a page goes to the Trash */
+  confirmDelete: boolean
   createdAt: string
 }
 
@@ -123,6 +125,9 @@ export type SpaceView = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: SiteHeaderLayoutName
+  publicTitleSize: SiteTitleSize
+  publicLogoSize: SiteLogoSize
+  publicFaviconAttachmentId: string | null
   analyticsProvider: AnalyticsProviderName
   analyticsSiteId: string | null
   analyticsHost: string | null
@@ -133,6 +138,12 @@ export const createPageInput = z.object({
   spaceId: z.string(),
   parentId: z.string().nullable().default(null),
   title: z.string().trim().max(300).default(''),
+  /**
+   * Drop the new page directly after this sibling instead of at the end of the
+   * group — what "Add sibling" on a page's ＋ means. Omit to append, which is
+   * what the notebook/site/wiki-level ＋ wants.
+   */
+  afterPageId: z.string().nullable().default(null),
 })
 export type CreatePageInput = z.infer<typeof createPageInput>
 
@@ -174,6 +185,60 @@ export type PageMeta = {
   coverAttachmentId: string | null
   metaDescription: string | null
   icon: string | null
+}
+
+/** The minimum shape the tree walkers below need: an id and its parent. */
+type TreeNode = { id: string; parentId: string | null }
+
+/**
+ * A page id plus every descendant's, walked over one space's page list.
+ *
+ * Archive, trash, and restore all act on a whole subtree, so both sides need
+ * the same answer to "what goes with it": the server to write the rows, the
+ * browser to know whether the page it is showing was one of them.
+ */
+export function pageSubtreeIds<T extends TreeNode>(all: T[], rootId: string): string[] {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parentId = queue.shift()
+    for (const child of all.filter((p) => p.parentId === parentId)) {
+      ids.push(child.id)
+      queue.push(child.id)
+    }
+  }
+  return ids
+}
+
+/**
+ * Where the editor should go when `removedId` and its subtree are taken away:
+ * the next sibling, else the previous one, else the parent. Null means the
+ * space has no pages left and the caller should show its empty state.
+ *
+ * Callers must pass the list as it was *before* the removal — the point is to
+ * find the neighbour, which needs the departing page still in place to measure
+ * from.
+ */
+export function pageAfterRemoval<T extends TreeNode & { position: number }>(
+  all: T[],
+  removedId: string,
+): string | null {
+  const removed = all.find((p) => p.id === removedId)
+  if (!removed) return null
+  const gone = new Set(pageSubtreeIds(all, removedId))
+  const siblings = all
+    .filter((p) => p.parentId === removed.parentId)
+    .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
+  const self = siblings.findIndex((p) => p.id === removedId)
+  for (let i = self + 1; i < siblings.length; i++) {
+    const next = siblings[i]
+    if (next && !gone.has(next.id)) return next.id
+  }
+  for (let i = self - 1; i >= 0; i--) {
+    const prev = siblings[i]
+    if (prev && !gone.has(prev.id)) return prev.id
+  }
+  return removed.parentId && !gone.has(removed.parentId) ? removed.parentId : null
 }
 
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
@@ -296,9 +361,10 @@ export const promoteToNoteInput = z.object({
   spaceId: z.string(),
 })
 
+// no date: the journal day is derived from the memo's own capture time, so the
+// caller cannot file it under a day that disagrees with its timestamp
 export const promoteToJournalInput = z.object({
   memoId: z.string(),
-  date: dateKey,
 })
 
 export const promoteToTaskInput = z.object({
@@ -339,6 +405,21 @@ export type SiteAppearance = z.infer<typeof siteAppearance>
 
 export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])
 export type SiteHeaderLayoutName = z.infer<typeof siteHeaderLayout>
+
+/**
+ * How loud the wordmark is, and how much room the logo takes. Sizes rather
+ * than pixels: a site picks a weight for its own name, and the header keeps
+ * its proportions at every one of them. 'md' is what sites rendered before
+ * these settings existed.
+ */
+export const siteTitleSize = z.enum(['sm', 'md', 'lg', 'xl'])
+export type SiteTitleSize = z.infer<typeof siteTitleSize>
+export const siteLogoSize = z.enum(['sm', 'md', 'lg'])
+export type SiteLogoSize = z.infer<typeof siteLogoSize>
+
+/** Both in one place, so the renderer and the settings preview cannot drift. */
+export const SITE_TITLE_PX: Record<SiteTitleSize, number> = { sm: 15, md: 17, lg: 21, xl: 26 }
+export const SITE_LOGO_PX: Record<SiteLogoSize, number> = { sm: 30, md: 44, lg: 60 }
 
 export const socialPlatform = z.enum([
   'github',
@@ -382,8 +463,11 @@ export const updatePublishingInput = z.object({
   appearance: siteAppearance.default('auto'),
   social: z.array(socialLinkInput).max(10).default([]),
   logoAttachmentId: z.string().nullable().default(null),
+  faviconAttachmentId: z.string().nullable().default(null),
   tagline: z.string().trim().max(160).nullable().default(null),
   headerLayout: siteHeaderLayout.default('classic'),
+  titleSize: siteTitleSize.default('md'),
+  logoSize: siteLogoSize.default('md'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

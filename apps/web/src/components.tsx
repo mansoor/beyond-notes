@@ -29,6 +29,51 @@ export function useMenuAnchor(
   return style
 }
 
+/**
+ * The app mark: notes at the centre, reaching the four places they can end up —
+ * the web, a wiki, a table, and somewhere private.
+ *
+ * This is the *reduced* drawing, where each destination is a dot. The full one
+ * (`/logo.svg`, `/icon.svg`) draws a globe, a book, a table and a padlock, and
+ * turns to mush below roughly 40px — measured, not guessed. Since every use in
+ * the app is 28px, the reduction is the right artwork here; the detailed one is
+ * for the 192/512 app icons and the README.
+ *
+ * Drawn inline rather than loaded from `/favicon.svg` so the plate follows
+ * `--accent` and changes with the theme.
+ */
+export function BrandMark({ size = 28 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      className="shrink-0"
+      role="img"
+      aria-label="Beyond Notes"
+    >
+      <rect width="64" height="64" rx="15" fill="var(--accent)" />
+      <g transform="translate(2.56,2.56) scale(0.92)">
+        <g fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity=".5">
+          <path d="M26 26 L20.5 20.5" />
+          <path d="M38 26 L43.5 20.5" />
+          <path d="M38 38 L43.5 43.5" />
+          <path d="M26 38 L20.5 43.5" />
+        </g>
+        <rect x="23" y="21" width="18" height="22" rx="4" fill="#fff" />
+        <g stroke="var(--accent)" strokeWidth="3.4" strokeLinecap="round">
+          <path d="M27.5 28.5 H36.5" />
+          <path d="M27.5 35.5 H33" />
+        </g>
+        <circle cx="15" cy="15" r="5.5" fill="#fff" />
+        <circle cx="49" cy="15" r="5.5" fill="#fff" />
+        <circle cx="49" cy="49" r="5.5" fill="#fff" opacity=".82" />
+        <circle cx="15" cy="49" r="5.5" fill="#fff" opacity=".62" />
+      </g>
+    </svg>
+  )
+}
+
 export function CenterCard(props: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
@@ -37,12 +82,7 @@ export function CenterCard(props: { title: string; subtitle?: string; children: 
         style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-2 mb-1">
-          <span
-            className="w-7 h-7 rounded-lg text-white flex items-center justify-center font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            B
-          </span>
+          <BrandMark />
           <h1 className="text-xl font-semibold">{props.title}</h1>
         </div>
         {props.subtitle && (

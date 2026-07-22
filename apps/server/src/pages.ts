@@ -1,4 +1,4 @@
-import { pageTypesByCategory } from '@bn/schema'
+import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
@@ -18,18 +18,7 @@ export class PagesError extends Error {
 }
 
 /** A page id plus every descendant's, walked over one space's page list. */
-function subtreeIds(all: PageRow[], rootId: string): string[] {
-  const ids = [rootId]
-  const queue = [rootId]
-  while (queue.length > 0) {
-    const parentId = queue.shift()
-    for (const child of all.filter((p) => p.parentId === parentId)) {
-      ids.push(child.id)
-      queue.push(child.id)
-    }
-  }
-  return ids
-}
+const subtreeIds = (all: PageRow[], rootId: string): string[] => pageSubtreeIds(all, rootId)
 
 function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space is SpaceRow {
   if (!space) throw new PagesError('NOT_FOUND', 'Space not found.')
@@ -82,6 +71,9 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicLogoAttachmentId: null,
         publicTagline: null,
         publicHeaderLayout: 'classic',
+        publicTitleSize: 'md',
+        publicLogoSize: 'md',
+        publicFaviconAttachmentId: null,
         analyticsProvider: 'none',
         analyticsSiteId: null,
         analyticsHost: null,
@@ -283,7 +275,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
 
     async createPage(
       user: UserRow,
-      input: { spaceId: string; parentId: string | null; title: string },
+      input: {
+        spaceId: string
+        parentId: string | null
+        title: string
+        afterPageId?: string | null
+      },
     ): Promise<PageRow> {
       assertSpaceAccess(await repo.getSpace(input.spaceId), user)
       if (input.parentId) {
@@ -292,15 +289,26 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
           throw new PagesError('BAD_MOVE', 'Parent page is not in this space.')
         }
       }
-      const siblings = (await repo.listPagesInSpace(input.spaceId)).filter(
-        (p) => p.parentId === input.parentId,
-      )
+      // Sorted over every sibling, archived and trashed included: their
+      // positions are real and renumbering around them would shuffle the group
+      // when they come back.
+      const siblings = (await repo.listPagesInSpace(input.spaceId))
+        .filter((p) => p.parentId === input.parentId)
+        .sort((a, b) => a.position - b.position)
+      // "Add sibling" wants the new page next to the one you clicked, not at
+      // the bottom of the group. An afterPageId that is not in this group (a
+      // stale sidebar, say) falls back to appending rather than failing —
+      // landing in the wrong place beats refusing to create the page.
+      const after = input.afterPageId
+        ? siblings.findIndex((p) => p.id === input.afterPageId)
+        : -1
+      const at = after >= 0 ? after + 1 : siblings.length
       const page: PageRow = {
         id: nanoid(),
         spaceId: input.spaceId,
         parentId: input.parentId,
         title: input.title || 'Untitled',
-        position: siblings.length,
+        position: at,
         dateKey: null,
         pageType: 'doc',
         slug: null,
@@ -323,6 +331,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         updatedAt: now(),
       }
       await repo.insertPage(page)
+      // push everything at or below the insertion point down one, so the group
+      // stays 0..n with no duplicate positions. Nothing to do when appending.
+      for (let i = at; i < siblings.length; i++) {
+        const sibling = siblings[i]
+        if (sibling) await repo.updatePage(sibling.id, { position: i + 1 })
+      }
       await repo.insertDocument({
         pageId: page.id,
         content: EMPTY_DOC,
@@ -512,7 +526,13 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       user: UserRow,
       input: { pageId: string; content: string; baseUpdatedAt: string },
     ): Promise<{ updatedAt: string }> {
-      await requirePage(input.pageId, user)
+      const { page } = await requirePage(input.pageId, user)
+      // A deleted page must stop accepting writes. Without this the editor left
+      // open on a page someone trashed keeps autosaving into it, and the edits
+      // reappear if the page is ever restored.
+      if (page.trashedAt) {
+        throw new PagesError('NOT_FOUND', 'This page is in the Trash. Restore it to keep editing.')
+      }
       const doc = await repo.getDocument(input.pageId)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       if (doc.updatedAt.getTime() !== new Date(input.baseUpdatedAt).getTime()) {

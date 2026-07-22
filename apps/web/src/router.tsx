@@ -9,6 +9,7 @@ import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
 import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
+import { SpaceEmptyPage } from './pages/SpaceEmpty'
 import { StalePage } from './pages/Stale'
 import { TagsPage } from './pages/Tags'
 import { TasksPage } from './pages/Tasks'
@@ -101,6 +102,18 @@ const dataRoute = createRoute({
   component: DataPage,
 })
 
+/**
+ * A space with nothing open — where deleting the last page lands you.
+ *
+ * Not `/s/…`: the server owns that prefix for serving published sites
+ * (`/s/:host`), so it answers those itself and they never reach the SPA.
+ */
+export const spaceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/space/$spaceId',
+  component: SpaceEmptyPage,
+})
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     inviteRoute,
@@ -117,6 +130,7 @@ export const router = createRouter({
       staleRoute,
       tagsRoute,
       dataRoute,
+      spaceRoute,
     ]),
   ]),
 })

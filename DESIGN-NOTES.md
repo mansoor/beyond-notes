@@ -124,6 +124,17 @@ that is the right first version:
 The UI says all of this at the moment of locking, rather than letting the word
 "password" imply more than it delivers.
 
+**A lock covers writes, not just reads (fixed in v0.9).** The check lived in
+exactly one place — reading a page's document — so a locked notebook hid its
+content while the sidebar's ⋯ and ＋ still renamed it, deleted it, published
+from it and added pages to it. The fix is a tRPC middleware on *every* authed
+mutation rather than a check per procedure: if the input names a `pageId`,
+`parentId` or `spaceId` this session has not unlocked, it never reaches the
+resolver. Queries stay unguarded on purpose — you have to see a locked notebook
+to unlock it — and the two paths that expose content check for themselves.
+A new mutation is covered the day it is written, which is the whole point of
+putting it there.
+
 Two upgrades are open if the promise ever needs to be bigger: encryption with a
 **separate passphrase** per notebook (strongest, needs an explicit "if you lose
 this, the notes are gone" ceremony), or a key derived from the account password
@@ -196,6 +207,21 @@ and anchors are *rebuilt from the parts*, with the href checked against
 `https?:` / `mailto:` / a site-relative path. A `javascript:` href or a pasted
 `<script>` is not stripped — it is simply never a shape this function produces,
 and it renders as the visible text the author typed.
+
+## The site chrome is a band (v0.9)
+
+The published header ran 18 / 14 / 44: 18px above the brand, 14px between the
+tagline and the nav, then 44px of nothing before the page. The nav read as part
+of the brand block, and the gap below it looked like an accident. It is now
+26 / 20 / 16 + a hairline + 32, with the rule under the header mirroring the one
+above the footer — same width, same colour, so the chrome is closed the way it
+is opened.
+
+**One stylesheet, one order.** `SITE_CSS` is emitted verbatim, so source order
+*is* the cascade: the `@media(max-width:640px)` block sat above the `main` rule
+and lost to it on equal specificity, and phones kept 40px of side padding on the
+content while the header dropped to 20px. It now goes last. Anything added
+below it will silently fail to apply on a phone — put new rules above.
 
 ## Milestone history
 

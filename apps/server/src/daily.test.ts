@@ -119,6 +119,43 @@ for (const dialect of dialects) {
       return { appDb, repo, pages, daily, tasks, admin, member }
     }
 
+    it('files a promoted memo under its capture day, not the day it is promoted', async () => {
+      const appDb = await dialect.make()
+      const repo = createRepo(appDb)
+      const auth = createAuthService(repo)
+      // a clock we can jump: capture at `clock`, then move it a full day forward
+      // before promoting. 25h guarantees a different local calendar day in every
+      // timezone, so the assertion does not depend on where the test runs.
+      let clock = new Date('2026-07-18T23:47:00')
+      const daily = createDailyService(repo, { now: () => clock })
+      const { user: admin } = await auth.setup({
+        name: 'M',
+        email: 'm@x.dev',
+        password: 'longpassword1',
+      })
+      const key = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+          d.getDate(),
+        ).padStart(2, '0')}`
+
+      const memo = await daily.capture(admin, 'A thought jotted last thing at night')
+      const captureDay = key(memo.createdAt)
+
+      clock = new Date(clock.getTime() + 25 * 60 * 60 * 1000)
+      const promoteDay = key(clock)
+      expect(promoteDay).not.toBe(captureDay) // the two days really are different
+
+      await daily.promoteToJournal(admin, memo.id)
+
+      const capture = await daily.day(admin, captureDay)
+      expect(capture.doc.content).toContain('A thought jotted last thing at night')
+      // it stamps the capture time, and does not open an entry on the promote day
+      expect(capture.doc.content).toContain('23:47')
+      const promote = await daily.day(admin, promoteDay)
+      expect(promote.doc.content).not.toContain('A thought jotted last thing at night')
+      await appDb.close()
+    })
+
     it('journal day pages are get-or-create and per-user', async () => {
       const { appDb, daily, pages, admin, member } = await setup()
 
@@ -167,9 +204,13 @@ for (const dialect of dialects) {
       expect(inboxTasks).toHaveLength(1)
       expect(inboxTasks[0]?.due).toBe('2026-08-01')
 
-      // → journal (appended with a time stamp)
-      await daily.promoteToJournal(admin, m3.id, '2026-07-18')
-      const day = await daily.day(admin, '2026-07-18')
+      // → journal (appended with a time stamp, filed under the memo's own day)
+      await daily.promoteToJournal(admin, m3.id)
+      const key = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+          d.getDate(),
+        ).padStart(2, '0')}`
+      const day = await daily.day(admin, key(m3.createdAt))
       expect(day.doc.content).toContain('Reflection about the day')
 
       const memos = await daily.listMemos(admin)

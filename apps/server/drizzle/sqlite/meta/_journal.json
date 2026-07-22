@@ -204,6 +204,20 @@
       "when": 1784732271857,
       "tag": "0028_nappy_trish_tilby",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1784740638054,
+      "tag": "0029_fuzzy_vector",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1784752485555,
+      "tag": "0030_illegal_king_bedlam",
+      "breakpoints": true
     }
   ]
 }
