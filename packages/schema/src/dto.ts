@@ -361,9 +361,10 @@ export const promoteToNoteInput = z.object({
   spaceId: z.string(),
 })
 
+// no date: the journal day is derived from the memo's own capture time, so the
+// caller cannot file it under a day that disagrees with its timestamp
 export const promoteToJournalInput = z.object({
   memoId: z.string(),
-  date: dateKey,
 })
 
 export const promoteToTaskInput = z.object({

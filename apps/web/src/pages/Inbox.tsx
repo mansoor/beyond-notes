@@ -1,7 +1,6 @@
 import type { MemoView } from '@bn/schema'
 import { useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
-import { todayKey } from '../editor'
 import { trpc } from '../trpc'
 
 export function InboxPage() {
@@ -148,7 +147,7 @@ function MemoItem(props: { memo: MemoView }) {
           <ActionButton
             label="→ Journal"
             disabled={busy}
-            onClick={() => toJournal.mutate({ memoId: m.id, date: todayKey() })}
+            onClick={() => toJournal.mutate({ memoId: m.id })}
           />
           <ActionButton
             label="✓ Make task"

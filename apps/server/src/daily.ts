@@ -303,10 +303,20 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       return page
     },
 
-    /** Memo → appended to a journal day, stamped with capture time. */
-    async promoteToJournal(user: UserRow, memoId: string, date: string): Promise<void> {
+    /**
+     * Memo → appended to a journal day, stamped with capture time.
+     *
+     * Both the day and the time come from when the memo was *captured*, not
+     * when it is promoted: a thought jotted at 11pm and filed the next morning
+     * belongs in last night's entry, under its `23:47 —` stamp. Deriving both
+     * from `createdAt` keeps the day and the time telling the same story.
+     */
+    async promoteToJournal(user: UserRow, memoId: string): Promise<void> {
       const memo = await this.requireMemo(user, memoId)
-      const { page } = await this.day(user, date)
+      const y = memo.createdAt.getFullYear()
+      const mo = String(memo.createdAt.getMonth() + 1).padStart(2, '0')
+      const d = String(memo.createdAt.getDate()).padStart(2, '0')
+      const { page } = await this.day(user, `${y}-${mo}-${d}`)
       const hh = String(memo.createdAt.getHours()).padStart(2, '0')
       const mm = String(memo.createdAt.getMinutes()).padStart(2, '0')
       await appendToPage(page.id, [makeParagraphBlock(`${hh}:${mm} — ${memo.content}`)])

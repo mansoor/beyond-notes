@@ -1343,7 +1343,7 @@ const memosRouter = router({
     .input(promoteToJournalInput)
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.daily.promoteToJournal(ctx.user, input.memoId, input.date)
+        await ctx.daily.promoteToJournal(ctx.user, input.memoId)
         return { ok: true }
       } catch (err) {
         rethrow(err)
