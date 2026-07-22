@@ -5,7 +5,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../components'
 import { todayKey } from '../editor'
 import { SpacesNav } from '../spaces'
-import { THEME_LABEL, applyTheme, currentTheme, nextTheme } from '../theme'
+import {
+  type AppTheme,
+  THEMES,
+  THEME_ICON,
+  THEME_LABEL,
+  applyTheme,
+  currentTheme,
+  previewTheme,
+} from '../theme'
 import { trpc } from '../trpc'
 import { DatabasesNav } from './Data'
 
@@ -68,12 +76,6 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
     document.body.style.cursor = 'col-resize'
   }
 
-  const cycleTheme = () => {
-    const next = nextTheme(theme)
-    applyTheme(next)
-    setTheme(next)
-  }
-
   return (
     <div className="min-h-screen flex">
       <aside
@@ -88,15 +90,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
             B
           </span>
           <span className="font-semibold">Beyond Notes</span>
-          <button
-            type="button"
-            onClick={cycleTheme}
-            title={`Theme: ${THEME_LABEL[theme]} — click for ${THEME_LABEL[nextTheme(theme)]}`}
-            className="ml-auto w-6 h-6 rounded border text-xs"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
-          >
-            {theme === 'dark' ? '☾' : theme === 'paper' ? '❧' : '☀'}
-          </button>
+          <ThemePicker theme={theme} onPick={setTheme} />
         </div>
 
         <button
@@ -139,6 +133,106 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 
       <main className="flex-1 min-w-0">{props.children}</main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+    </div>
+  )
+}
+
+const THEME_CELL = 26 // px per swatch
+const THEME_OPEN_MS = 160
+
+/**
+ * Theme swatches that grow out from the one you're on. The current theme keeps
+ * its spot and the others unfold to either side of it — lighter to the left,
+ * darker to the right, matching the THEMES order — so the row reads like a
+ * dimmer with your setting in the middle. Hovering wears a theme for real;
+ * leaving puts yours back.
+ */
+function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) {
+  const [open, setOpen] = useState(false)
+  // Hover previews stay off until the strip has finished unfolding. While it
+  // slides, swatches travel *under* a stationary cursor — each one it passes
+  // would repaint the whole app, which reads as a flicker rather than a preview.
+  const [settled, setSettled] = useState(false)
+  const shown = useRef<AppTheme | null>(null)
+  const selected = Math.max(0, THEMES.indexOf(props.theme))
+
+  useEffect(() => {
+    if (!open) {
+      setSettled(false)
+      return
+    }
+    const t = setTimeout(() => setSettled(true), THEME_OPEN_MS + 20)
+    return () => clearTimeout(t)
+  }, [open])
+
+  /** Preview, but only once the strip is still — and never twice for the same theme. */
+  const preview = (t: AppTheme) => {
+    if (!settled || shown.current === t) return
+    shown.current = t
+    previewTheme(t)
+  }
+
+  const close = () => {
+    setOpen(false)
+    shown.current = null
+    previewTheme(props.theme) // undo whatever the last hover was showing
+  }
+
+  return (
+    // fixed-size anchor so the header never reflows; the strip overlays it
+    <div className="ml-auto relative" style={{ width: THEME_CELL, height: THEME_CELL }}>
+      <div
+        className="absolute top-0 flex items-center rounded border overflow-hidden"
+        style={{
+          borderColor: open ? 'var(--border)' : 'transparent',
+          background: open ? 'var(--panel)' : 'transparent',
+          // keep the selected cell pinned to the anchor: shift the strip left by
+          // the cells that unfold before it
+          left: open ? -selected * THEME_CELL : 0,
+          width: open ? THEMES.length * THEME_CELL : THEME_CELL,
+          transition: 'width 160ms ease, left 160ms ease',
+          zIndex: 40,
+        }}
+        onMouseLeave={close}
+      >
+        {(open ? THEMES : [props.theme]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            title={
+              open
+                ? `${THEME_LABEL[t]}${t === props.theme ? ' (current)' : ' — hover to preview'}`
+                : `Theme: ${THEME_LABEL[props.theme]} — click to choose`
+            }
+            className="h-6 text-xs shrink-0"
+            style={{
+              width: THEME_CELL,
+              color: open && t === props.theme ? 'var(--accent)' : 'var(--text-2)',
+              background:
+                open && t === props.theme
+                  ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
+                  : 'transparent',
+            }}
+            onMouseEnter={() => preview(t)}
+            // the cursor is often already sitting on a swatch when the strip
+            // settles, so the first movement after that is what starts a preview
+            onMouseMove={() => preview(t)}
+            onFocus={() => preview(t)}
+            onClick={() => {
+              if (!open) {
+                setOpen(true)
+                return
+              }
+              applyTheme(t)
+              shown.current = null
+              props.onPick(t)
+              setOpen(false)
+            }}
+          >
+            {THEME_ICON[t]}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

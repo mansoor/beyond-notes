@@ -11,6 +11,10 @@ export type UserRow = {
   totpEnabled: boolean
   recoveryCodes: string | null
   emailNotifications: boolean
+  /** JSON array of hidden sidebar tokens, e.g. ["cat:site","space:abc"] */
+  sidebarHidden: string
+  /** how many days ahead "Coming up" reaches on the Today page */
+  comingUpDays: number
   createdAt: Date
 }
 
@@ -40,11 +44,20 @@ export type SpaceRow = {
   publicTitle: string | null
   publicFooter: string | null
   publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
-  publicAppearance: 'auto' | 'light' | 'dark'
+  publicAppearance: 'auto' | 'light' | 'dark' | 'toggle'
   publicSocial: string
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
+  /** opt-in analytics for the published site; 'none' emits no tag at all */
+  analyticsProvider: 'none' | 'plausible' | 'umami' | 'ga4'
+  analyticsSiteId: string | null
+  /** self-hosted Plausible/Umami origin; null uses the vendor's */
+  analyticsHost: string | null
+  /** null = open; otherwise how often the account password is re-asked */
+  lockPolicy: 'session' | 'idle' | null
+  /** for an 'idle' lock: minutes of disuse before it re-asks (null = 30) */
+  lockIdleMinutes: number | null
   createdAt: Date
 }
 
@@ -68,6 +81,10 @@ export type PageRow = {
   archivedBy: string | null
   trashedAt: Date | null
   trashedBy: string | null
+  /** null = open; otherwise how often the account password is re-asked */
+  lockPolicy: 'session' | 'idle' | null
+  /** for an 'idle' lock: minutes of disuse before it re-asks (null = 30) */
+  lockIdleMinutes: number | null
   createdAt: Date
   updatedAt: Date
 }
@@ -280,6 +297,7 @@ export function createRepo(appDb: AppDb) {
           | 'name'
           | 'email'
           | 'emailNotifications'
+          | 'comingUpDays'
         >
       >,
     ): Promise<void> {
@@ -440,6 +458,54 @@ export function createRepo(appDb: AppDb) {
 
     async listArchivedPages(): Promise<PageRow[]> {
       return db.select().from(t.pages).where(sqlOp`${t.pages.archivedAt} is not null`)
+    },
+
+    async listLockedPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages).where(sqlOp`${t.pages.lockPolicy} is not null`)
+    },
+
+    async setPageLock(
+      id: string,
+      policy: 'session' | 'idle' | null,
+      idleMinutes: number | null = null,
+    ): Promise<void> {
+      await db
+        .update(t.pages)
+        .set({ lockPolicy: policy, lockIdleMinutes: policy === 'idle' ? idleMinutes : null })
+        .where(eq(t.pages.id, id))
+    },
+
+    async setSpaceLock(
+      id: string,
+      policy: 'session' | 'idle' | null,
+      idleMinutes: number | null = null,
+    ): Promise<void> {
+      await db
+        .update(t.spaces)
+        .set({ lockPolicy: policy, lockIdleMinutes: policy === 'idle' ? idleMinutes : null })
+        .where(eq(t.spaces.id, id))
+    },
+
+    async setSpaceAnalytics(
+      id: string,
+      a: {
+        provider: 'none' | 'plausible' | 'umami' | 'ga4'
+        siteId: string | null
+        host: string | null
+      },
+    ): Promise<void> {
+      await db
+        .update(t.spaces)
+        .set({
+          analyticsProvider: a.provider,
+          analyticsSiteId: a.siteId,
+          analyticsHost: a.host,
+        })
+        .where(eq(t.spaces.id, id))
+    },
+
+    async setSidebarHidden(userId: string, hidden: string): Promise<void> {
+      await db.update(t.users).set({ sidebarHidden: hidden }).where(eq(t.users.id, userId))
     },
 
     // ---- trash ----

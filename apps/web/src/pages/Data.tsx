@@ -12,6 +12,8 @@ import type {
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
+import { catToken, dbToken, useSidebarPrefs } from '../sidebarprefs'
+import { NewSpaceModal } from '../spaces'
 import { trpc } from '../trpc'
 
 const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
@@ -31,14 +33,15 @@ const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : Str
 /** Top-level "Databases" section: each database holds tables, a peer to the
  * Notebooks/Sites/Wikis spaces above it. */
 export function DatabasesNav() {
-  const utils = trpc.useUtils()
   const databases = trpc.databases.list.useQuery()
   const tables = trpc.tables.list.useQuery()
-  const create = trpc.databases.create.useMutation({
-    onSuccess: () => utils.databases.list.invalidate(),
-  })
+  const prefs = useSidebarPrefs()
+  // the same dialog the other sections use, so a database is named (and can get
+  // its first table) at creation instead of arriving as "Untitled database"
+  const [creating, setCreating] = useState(false)
 
-  const newDatabase = () => create.mutate({ name: 'Untitled database', personal: false })
+  // hidden from Settings › Appearance — the section leaves the sidebar whole
+  if (prefs.isHidden(catToken('database'))) return null
 
   return (
     <div>
@@ -51,23 +54,25 @@ export function DatabasesNav() {
           type="button"
           title="New database"
           className="ml-auto text-xs px-1"
-          disabled={create.isPending}
-          onClick={newDatabase}
+          onClick={() => setCreating(true)}
         >
           ＋
         </button>
       </div>
-      {databases.data?.map((database) => (
-        <DatabaseItem
-          key={database.id}
-          database={database}
-          tables={(tables.data ?? []).filter((t) => t.databaseId === database.id)}
-        />
-      ))}
+      {creating && <NewSpaceModal preset="database" onClose={() => setCreating(false)} />}
+      {(databases.data ?? [])
+        .filter((database) => !prefs.isHidden(dbToken(database.id)))
+        .map((database) => (
+          <DatabaseItem
+            key={database.id}
+            database={database}
+            tables={(tables.data ?? []).filter((t) => t.databaseId === database.id)}
+          />
+        ))}
       {databases.data?.length === 0 && (
         <div className="text-xs px-2 py-1" style={{ color: 'var(--text-3)' }}>
           none yet —{' '}
-          <button type="button" className="underline" onClick={newDatabase}>
+          <button type="button" className="underline" onClick={() => setCreating(true)}>
             new database
           </button>
         </div>

@@ -32,3 +32,21 @@ describe('site header nav icons', () => {
     expect(noIcon).not.toContain('material-symbols.woff2')
   })
 })
+
+describe('site layout width', () => {
+  it('gives header, main and footer the same content column so their edges align', () => {
+    const html = sitePage({
+      ...base,
+      nav: [{ title: 'Home', path: '/', active: true }],
+      contentHtml: '<h1>Hi</h1>',
+    })
+    // one shared variable, referenced by all three — a regression to separate
+    // pixel widths (the header once ran 1140 vs main's 880) would break this
+    expect(html).toContain('--site-w:960px')
+    expect(html).toContain('header{padding:18px 40px;max-width:var(--site-w)')
+    expect(html).toContain('main{max-width:var(--site-w)')
+    expect(html).toMatch(/footer\{[^}]*max-width:var\(--site-w\)/)
+    // no stray fixed max-widths left on the chrome
+    expect(html).not.toContain('max-width:1140px')
+  })
+})

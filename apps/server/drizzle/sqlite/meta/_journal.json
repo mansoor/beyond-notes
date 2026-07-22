@@ -169,6 +169,27 @@
       "when": 1784653660001,
       "tag": "0023_flat_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784680577294,
+      "tag": "0024_glossy_purifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1784688457418,
+      "tag": "0025_sparkling_runaways",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1784697850794,
+      "tag": "0026_broken_onslaught",
+      "breakpoints": true
     }
   ]
 }

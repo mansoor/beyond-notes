@@ -10,7 +10,10 @@ import type {
   DbTableView,
   DocumentView,
   GalleryItemView,
+  ImportPlanView,
+  ImportResultView,
   InviteView,
+  LockStateView,
   MemoView,
   PageMeta,
   PageTagView,
@@ -50,6 +53,9 @@ import {
   deleteRowInput,
   deleteTableInput,
   duplicateTableInput,
+  importApplyInput,
+  importGithubInput,
+  importMarkdownInput,
   insertRowInput,
   journalDayInput,
   journalMonthInput,
@@ -71,12 +77,17 @@ import {
   restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
+  setComingUpDaysInput,
+  setLockInput,
   setPageTypeInput,
+  setSidebarHiddenInput,
   setupInput,
   smtpSettings,
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
+  unlockInput,
+  updateAnalyticsInput,
   updateFormInput,
   updateMemoInput,
   updatePageOptionsInput,
@@ -92,6 +103,8 @@ import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
+import { GithubError } from './github'
+import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
 import type {
@@ -108,11 +121,21 @@ import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
 import type { Context } from './trpc'
+import { ImportError, applyImportPlan, planFromGithub, planFromMarkdown } from './wikiimport'
 
 function toUserView(u: UserRow): UserView {
+  let sidebarHidden: string[] = []
+  try {
+    const parsed = JSON.parse(u.sidebarHidden)
+    if (Array.isArray(parsed)) sidebarHidden = parsed.filter((v) => typeof v === 'string')
+  } catch {
+    sidebarHidden = []
+  }
   return {
     id: u.id,
     email: u.email,
+    sidebarHidden,
+    comingUpDays: u.comingUpDays,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -176,6 +199,16 @@ function rethrow(err: unknown): never {
       message: err.message,
     })
   }
+  // "locked" is a state the UI acts on (show the password prompt), so it gets
+  // its own code rather than a generic FORBIDDEN
+  if (err instanceof LockedError) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'LOCKED' })
+  }
+  // an import failure is nearly always the source's fault (bad URL, private
+  // repo, empty document) — the message is the useful part, so keep it
+  if (err instanceof ImportError || err instanceof GithubError) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+  }
   throw err
 }
 
@@ -195,6 +228,9 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicLogoAttachmentId: s.publicLogoAttachmentId,
     publicTagline: s.publicTagline,
     publicHeaderLayout: s.publicHeaderLayout,
+    analyticsProvider: s.analyticsProvider,
+    analyticsSiteId: s.analyticsSiteId,
+    analyticsHost: s.analyticsHost,
     createdAt: s.createdAt.toISOString(),
   }
 }
@@ -255,7 +291,11 @@ const authRouter = router({
   }),
 
   logout: publicProcedure.mutation(async ({ ctx }) => {
-    if (ctx.sessionToken) await ctx.auth.logout(ctx.sessionToken)
+    if (ctx.sessionToken) {
+      // signing out re-locks everything this session had opened
+      ctx.locks.revokeSession(ctx.sessionToken)
+      await ctx.auth.logout(ctx.sessionToken)
+    }
     clearSessionCookie(ctx)
     return { ok: true }
   }),
@@ -308,6 +348,20 @@ const authRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
+      return { ok: true }
+    }),
+
+  /** How far ahead the Today page looks for things that have not happened yet. */
+  setComingUpDays: authedProcedure.input(setComingUpDaysInput).mutation(async ({ ctx, input }) => {
+    await ctx.repo.updateUser(ctx.user.id, { comingUpDays: input.days })
+    return { ok: true }
+  }),
+
+  /** Which sidebar sections and spaces this user keeps out of the way. */
+  setSidebarHidden: authedProcedure
+    .input(setSidebarHiddenInput)
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.setSidebarHidden(ctx.user.id, JSON.stringify([...new Set(input.hidden)]))
       return { ok: true }
     }),
 
@@ -378,10 +432,11 @@ const searchRouter = router({
   all: authedProcedure
     .input(z.object({ q: z.string().trim().min(2).max(100) }))
     .query(async ({ ctx, input }): Promise<SearchResult[]> => {
-      const [pages, memos, spaces] = await Promise.all([
+      const [pages, memos, spaces, hidden] = await Promise.all([
         ctx.repo.searchPages(input.q),
         ctx.repo.searchMemos(ctx.user.id, input.q),
         ctx.repo.listSpaces(),
+        ctx.locks.hiddenPageIds(ctx.sessionToken, ctx.user),
       ])
       const accessible = new Map(
         spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
@@ -391,6 +446,8 @@ const searchRouter = router({
       for (const { page, content } of pages) {
         const space = accessible.get(page.spaceId)
         if (!space) continue
+        // a locked page must not leak its title or a snippet of its content
+        if (hidden.has(page.id)) continue
         const text = plainTextOf(content)
         const idx = text.toLowerCase().indexOf(needle)
         results.push({
@@ -514,6 +571,10 @@ const pagesRouter = router({
         input,
       }): Promise<{ page: PageMeta; doc: DocumentView; publishing: PublishingView }> => {
         try {
+          // the lock is checked before the document is read, so a locked page
+          // never leaves the server even as a rejected response body
+          const locked = await ctx.repo.getPage(input.pageId)
+          if (locked) await ctx.locks.assertPageOpen(ctx.sessionToken, locked)
           const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
           const space = await ctx.repo.getSpace(page.spaceId)
           if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
@@ -876,6 +937,22 @@ const publishRouter = router({
         rethrow(err)
       }
     }),
+
+  /** Analytics for one published site. Off ('none') clears the id and host too. */
+  updateAnalytics: authedProcedure.input(updateAnalyticsInput).mutation(async ({ ctx, input }) => {
+    const space = await ctx.repo.getSpace(input.spaceId)
+    if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
+    if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
+      throw new TRPCError({ code: 'FORBIDDEN' })
+    }
+    const off = input.provider === 'none'
+    await ctx.repo.setSpaceAnalytics(space.id, {
+      provider: input.provider,
+      siteId: off ? null : input.siteId?.trim() || null,
+      host: off ? null : input.host?.trim() || null,
+    })
+    return { ok: true }
+  }),
 
   updateSpace: authedProcedure.input(updatePublishingInput).mutation(async ({ ctx, input }) => {
     try {
@@ -1632,6 +1709,160 @@ const tablesRouter = router({
   }),
 })
 
+/**
+ * Import is two calls on purpose: `preview*` reads the source and proposes a
+ * structure without writing anything, `apply` creates the pages from the plan
+ * the user approved. The plan round-trips through the browser, so the server
+ * keeps no import session and a reviewed plan can be edited freely.
+ */
+const importsRouter = router({
+  previewMarkdown: authedProcedure
+    .input(importMarkdownInput)
+    .mutation(async ({ input }): Promise<ImportPlanView> => {
+      try {
+        return planFromMarkdown(input.markdown, input.filename)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  previewGithub: authedProcedure
+    .input(importGithubInput)
+    .mutation(async ({ input }): Promise<ImportPlanView> => {
+      try {
+        return await planFromGithub(input)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  // not `apply` — tRPC reserves the Function.prototype method names
+  create: authedProcedure
+    .input(importApplyInput)
+    .mutation(async ({ ctx, input }): Promise<ImportResultView> => {
+      try {
+        return await applyImportPlan(
+          {
+            repo: ctx.repo,
+            pages: ctx.pages,
+            publishing: ctx.publishing,
+            attachments: ctx.attachments,
+          },
+          ctx.user,
+          input,
+        )
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+})
+
+/**
+ * Password locks. Every state change re-checks the account password, so a
+ * borrowed session cannot quietly unlock a notebook and leave it open, and
+ * "unlock" only ever grants this one session — the grant lives in memory and
+ * dies with sign-out or a restart.
+ */
+const locksRouter = router({
+  /** Locked things this session may currently open — drives the 🔒 in the UI. */
+  list: authedProcedure.query(async ({ ctx }): Promise<LockStateView[]> => {
+    const [spaces, pages] = await Promise.all([ctx.repo.listSpaces(), ctx.repo.listLockedPages()])
+    const out: LockStateView[] = []
+    for (const space of spaces) {
+      if (!space.lockPolicy) continue
+      if (space.ownerId !== null && space.ownerId !== ctx.user.id) continue
+      out.push({
+        target: 'space',
+        id: space.id,
+        policy: space.lockPolicy,
+        idleMinutes: space.lockIdleMinutes,
+        open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'space', id: space.id }),
+      })
+    }
+    for (const page of pages) {
+      if (!page.lockPolicy) continue
+      out.push({
+        target: 'page',
+        id: page.id,
+        policy: page.lockPolicy,
+        idleMinutes: page.lockIdleMinutes,
+        open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'page', id: page.id }),
+      })
+    }
+    return out
+  }),
+
+  /** Set or clear a lock. Both directions need the password. */
+  set: authedProcedure.input(setLockInput).mutation(async ({ ctx, input }) => {
+    if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
+    }
+    if (input.target === 'space') {
+      const space = await ctx.repo.getSpace(input.id)
+      if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
+      if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+      await ctx.repo.setSpaceLock(space.id, input.policy, input.idleMinutes)
+    } else {
+      const page = await ctx.repo.getPage(input.id)
+      if (!page) throw new TRPCError({ code: 'NOT_FOUND' })
+      const space = await ctx.repo.getSpace(page.spaceId)
+      if (!space || (space.ownerId !== null && space.ownerId !== ctx.user.id)) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+      // a page that is live on a public site cannot also be private
+      if (input.policy && page.liveVersionId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Retire this page from the public site before locking it.',
+        })
+      }
+      await ctx.repo.setPageLock(page.id, input.policy, input.idleMinutes)
+    }
+    const target = { kind: input.target, id: input.id } as const
+    // locking now takes effect immediately; unlocking for good needs no grant
+    if (ctx.sessionToken) ctx.locks.revoke(ctx.sessionToken, target)
+    // having just proved the password, the person who locked it can keep working
+    if (input.policy && ctx.sessionToken) {
+      ctx.locks.grant(ctx.sessionToken, target, input.policy, input.idleMinutes)
+    }
+    return { ok: true }
+  }),
+
+  /** Open a locked target for this session. */
+  unlock: authedProcedure.input(unlockInput).mutation(async ({ ctx, input }) => {
+    if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
+    }
+    const row =
+      input.target === 'space'
+        ? await ctx.repo.getSpace(input.id)
+        : await ctx.repo.getPage(input.id)
+    if (!row?.lockPolicy)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'That is not locked.' })
+    if (ctx.sessionToken) {
+      ctx.locks.grant(
+        ctx.sessionToken,
+        { kind: input.target, id: input.id },
+        row.lockPolicy,
+        row.lockIdleMinutes,
+      )
+    }
+    return { ok: true }
+  }),
+
+  /** Close it again without waiting for the timer or signing out. */
+  lockNow: authedProcedure
+    .input(z.object({ target: z.enum(['space', 'page']), id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.sessionToken) {
+        ctx.locks.revoke(ctx.sessionToken, { kind: input.target, id: input.id })
+      }
+      return { ok: true }
+    }),
+})
+
 export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
@@ -1651,6 +1882,8 @@ export const appRouter = router({
   templates: templatesRouter,
   databases: databasesRouter,
   tables: tablesRouter,
+  imports: importsRouter,
+  locks: locksRouter,
   me: authedProcedure.query(({ ctx }) => toUserView(ctx.user)),
 })
 

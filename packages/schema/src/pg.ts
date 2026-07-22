@@ -33,6 +33,13 @@ export const users = pgTable('users', {
   recoveryCodes: text('recovery_codes'),
   // per-user opt-in for the email notification channel (channel itself is env config)
   emailNotifications: boolean('email_notifications').notNull().default(false),
+  // sidebar sections/spaces this user has hidden, JSON array of tokens like
+  // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
+  // working, it just stops taking up room in the sidebar.
+  sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
+  // how far ahead the Today page looks for "Coming up". Without a horizon a
+  // reminder set for next spring sits on today's page all year.
+  comingUpDays: integer('coming_up_days').notNull().default(7),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -79,7 +86,7 @@ export const spaces = pgTable('spaces', {
     .notNull()
     .default('paper'),
   // 'auto' follows the visitor's OS; 'light'/'dark' pin one palette
-  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark', 'toggle'] })
     .notNull()
     .default('auto'),
   // JSON array of {platform, url} shown in the published site header
@@ -92,6 +99,22 @@ export const spaces = pgTable('spaces', {
   })
     .notNull()
     .default('classic'),
+  // opt-in analytics for the published site only — never the app. Provider is
+  // 'none' unless chosen; host lets Plausible/Umami point at a self-hosted
+  // instance instead of the vendor's.
+  analyticsProvider: text('analytics_provider', {
+    enum: ['none', 'plausible', 'umami', 'ga4'],
+  })
+    .notNull()
+    .default('none'),
+  analyticsSiteId: text('analytics_site_id'),
+  analyticsHost: text('analytics_host'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
+  // minutes of disuse before an 'idle' lock re-asks; null = the 30-minute default
+  lockIdleMinutes: integer('lock_idle_minutes'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -138,6 +161,12 @@ export const pages = pgTable('pages', {
   // Trashed pages vanish from the tree, search, tags, AND the public site.
   trashedAt: timestamp('trashed_at', { withTimezone: true, mode: 'date' }),
   trashedBy: text('trashed_by'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
+  // minutes of disuse before an 'idle' lock re-asks; null = the 30-minute default
+  lockIdleMinutes: integer('lock_idle_minutes'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

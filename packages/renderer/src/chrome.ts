@@ -232,3 +232,58 @@ export function shareBarHtml(input: { url: string; title: string }): string {
     .join('')
   return `<div class="sharebar"><span class="lbl">Share</span>${anchors}<button type="button" class="copylink" data-url="${escapeHtml(input.url)}">${icon('website')}<span>Copy link</span></button></div>`
 }
+
+/** The footer credit, linking home. Same markup on every published page. */
+export const BEYOND_LINK =
+  '<a href="https://github.com/mansoor/beyond-notes" target="_blank" rel="noopener">Beyond Notes</a>'
+
+// ---- visitor-controlled light/dark ----
+//
+// Only rendered when a space's appearance is 'toggle'. The button flips an
+// attribute on <html> that themeCss already has rules for, and remembers the
+// choice in the visitor's own browser. Nothing is sent anywhere, and a site
+// that does not offer the toggle ships none of this.
+
+/** Runs in <head>, before first paint, so a remembered dark choice never flashes white. */
+export const APPEARANCE_RESTORE_JS =
+  "try{var a=localStorage.getItem('bn-appear');if(a==='light'||a==='dark')document.documentElement.setAttribute('data-appear',a)}catch(e){}"
+
+export const APPEARANCE_CSS = `
+.appear{background:none;border:1px solid var(--border);color:var(--text2);cursor:pointer;
+border-radius:6px;width:30px;height:30px;line-height:1;font-size:14px;flex:0 0 auto;
+display:inline-flex;align-items:center;justify-content:center}
+.appear:hover{color:var(--text)}
+`.trim()
+
+/** The button itself. Label and icon are set by the script once it knows the state. */
+export const appearanceToggleHtml = (): string =>
+  '<button type="button" class="appear" aria-label="Switch between light and dark">◐</button>'
+
+export const APPEARANCE_JS = `(function(){
+var b=document.querySelector('.appear');if(!b)return;
+var root=document.documentElement;
+function current(){
+  var set=root.getAttribute('data-appear');
+  if(set==='light'||set==='dark')return set;
+  // nothing chosen yet: report what the OS is giving them
+  return window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+}
+function paint(){
+  var now=current();
+  b.textContent=now==='dark'?'\u2600':'\u263E';
+  b.title=now==='dark'?'Switch to light':'Switch to dark';
+}
+paint();
+b.addEventListener('click',function(){
+  var next=current()==='dark'?'light':'dark';
+  root.setAttribute('data-appear',next);
+  try{localStorage.setItem('bn-appear',next)}catch(e){}
+  paint();
+});
+// following the OS only matters while the visitor has not chosen for themselves
+if(window.matchMedia){
+  var mq=window.matchMedia('(prefers-color-scheme:dark)');
+  var onChange=function(){if(!root.getAttribute('data-appear'))paint()};
+  if(mq.addEventListener)mq.addEventListener('change',onChange);
+}
+})();`

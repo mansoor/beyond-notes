@@ -310,3 +310,85 @@ describe('syntax highlighting', () => {
     expect(stripped).toBe(src)
   })
 })
+
+describe('docs search box', () => {
+  const html = docsShell({
+    siteTitle: 'My Wiki',
+    footer: '',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>hi</p>',
+  })
+
+  it('is twice the old width and holds a recents dropdown', () => {
+    expect(html).toContain('width:360px') // was 180px
+    expect(html).toContain('<div class="recents" hidden>')
+    // the browser's own history popup would sit on top of ours
+    expect(html).toContain('autocomplete="off"')
+  })
+
+  it("keeps the history in the visitor's browser, keyed per site", () => {
+    // never posted anywhere: the only storage is localStorage, namespaced by the
+    // form action so two wikis on one origin cannot see each other's searches
+    expect(html).toContain("'bn-recent:'+(form.getAttribute('action')||'/')")
+    expect(html).toContain('localStorage')
+  })
+
+  it('builds suggestions with textContent, never innerHTML', () => {
+    const script = html.slice(html.indexOf('bn-recent'), html.indexOf('bn-recent') + 2500)
+    expect(script).toContain('textContent')
+    expect(script).not.toContain('innerHTML')
+  })
+})
+
+describe('visitor-controlled appearance', () => {
+  const withToggle = docsShell({
+    siteTitle: 'W',
+    footer: 'f',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>x</p>',
+    appearance: 'toggle',
+  })
+  const withAuto = docsShell({
+    siteTitle: 'W',
+    footer: 'f',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>x</p>',
+    appearance: 'auto',
+  })
+
+  it('offers the switch, last in the header so it sits rightmost', () => {
+    expect(withToggle).toContain('class="appear"')
+    expect(withToggle.indexOf('class="appear"')).toBeGreaterThan(withToggle.indexOf('<form'))
+  })
+
+  it('starts from the OS but lets an explicit choice win', () => {
+    expect(withToggle).toContain('@media(prefers-color-scheme:dark)')
+    expect(withToggle).toContain(':root[data-appear=light]')
+    expect(withToggle).toContain(':root[data-appear=dark]')
+  })
+
+  it('applies a remembered choice in <head>, before the first paint', () => {
+    const head = withToggle.slice(0, withToggle.indexOf('</head>'))
+    expect(head).toContain("localStorage.getItem('bn-appear')")
+  })
+
+  it('ships none of it when the site did not ask for it', () => {
+    // note: the body has always carried data-appearance="…", which is a
+    // different thing — check for the toggle's own artefacts specifically
+    expect(withAuto).not.toContain('class="appear"')
+    expect(withAuto).not.toContain('bn-appear')
+    expect(withAuto).not.toContain('[data-appear=')
+  })
+
+  it('credits Beyond Notes with a link home', () => {
+    expect(withAuto).toContain(
+      '<a href="https://github.com/mansoor/beyond-notes" target="_blank" rel="noopener">Beyond Notes</a>',
+    )
+  })
+})

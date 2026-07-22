@@ -11,12 +11,37 @@ type InlineItem = {
   styles?: Record<string, boolean>
 }
 
+type TableCell = { type: 'tableCell'; props: Record<string, unknown>; content: InlineItem[] }
+type TableContent = {
+  type: 'tableContent'
+  columnWidths: (number | undefined)[]
+  headerRows?: number
+  rows: { cells: TableCell[] }[]
+}
+
 type Block = {
   id: string
   type: string
   props: Record<string, unknown>
-  content: InlineItem[]
+  content: InlineItem[] | TableContent
   children: Block[]
+}
+
+/** A table block's content is an object, not an inline array. */
+export function tableContentOf(content: unknown): TableContent | null {
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return null
+  const c = content as TableContent
+  return c.type === 'tableContent' && Array.isArray(c.rows) ? c : null
+}
+
+function cellsOf(row: { cells: unknown }): TableCell[] {
+  if (!Array.isArray(row?.cells)) return []
+  // BlockNote accepts both shapes: a cell object, or bare inline content
+  return row.cells.map((cell) =>
+    Array.isArray(cell)
+      ? { type: 'tableCell' as const, props: {}, content: cell as InlineItem[] }
+      : (cell as TableCell),
+  )
 }
 
 // ---- serialize: blocks -> markdown ----
@@ -75,6 +100,20 @@ function blockToMd(block: Block, indent: string, ordinal: number): string[] {
       const url = typeof block.props?.url === 'string' ? block.props.url : ''
       const caption = typeof block.props?.caption === 'string' ? block.props.caption : ''
       if (url) lines.push(`![${caption}](${url})`)
+      break
+    }
+    case 'table': {
+      const table = tableContentOf(block.content)
+      if (!table || table.rows.length === 0) break
+      const rows = table.rows.map((row) =>
+        cellsOf(row).map((cell) => inlineToMd(cell.content).replace(/\|/g, '\\|').trim()),
+      )
+      const width = Math.max(...rows.map((r) => r.length))
+      const pad = (r: string[]) => Array.from({ length: width }, (_, i) => r[i] ?? '')
+      const [head, ...body] = rows
+      lines.push(`| ${pad(head ?? []).join(' | ')} |`)
+      lines.push(`|${' --- |'.repeat(width)}`)
+      for (const row of body) lines.push(`| ${pad(row).join(' | ')} |`)
       break
     }
     default:
@@ -155,6 +194,18 @@ function parseMarks(text: string): InlineItem[] {
   return items
 }
 
+const TABLE_ROW = /^\s*\|.*\|\s*$/
+const TABLE_DIVIDER = /^\s*\|[\s:|-]*-[\s:|-]*\|\s*$/
+
+/** `| a | b |` -> ['a','b'], honouring \| escapes. */
+function splitRow(line: string): string[] {
+  const inner = line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|\s*$/, '')
+  return inner.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, '|').trim())
+}
+
 export function markdownToBlocks(markdown: string): unknown[] {
   const blocks: Block[] = []
   let nextId = 0
@@ -209,6 +260,42 @@ export function markdownToBlocks(markdown: string): unknown[] {
       continue
     }
 
+    // a pipe table: a header row, an |---|---| separator, then body rows
+    if (line.match(TABLE_ROW) && (lines[i + 1] ?? '').match(TABLE_DIVIDER)) {
+      const rows: string[][] = [splitRow(line)]
+      i += 2 // header + divider
+      while (i < lines.length && (lines[i] ?? '').match(TABLE_ROW)) {
+        rows.push(splitRow(lines[i] ?? ''))
+        i++
+      }
+      const width = Math.max(...rows.map((r) => r.length))
+      blocks.push({
+        id: id(),
+        type: 'table',
+        props: { textColor: 'default', backgroundColor: 'default' },
+        content: {
+          type: 'tableContent',
+          columnWidths: Array.from({ length: width }, () => undefined),
+          headerRows: 1,
+          rows: rows.map((cells) => ({
+            cells: Array.from({ length: width }, (_, c) => ({
+              type: 'tableCell' as const,
+              props: {
+                backgroundColor: 'default',
+                textColor: 'default',
+                textAlignment: 'left',
+                colspan: 1,
+                rowspan: 1,
+              },
+              content: parseInline(cells[c] ?? ''),
+            })),
+          })),
+        },
+        children: [],
+      })
+      continue
+    }
+
     const quote = line.match(/^>\s?(.*)$/)
     if (quote) {
       blocks.push(make('quote', {}, parseInline(quote[1] ?? '')))
@@ -248,7 +335,7 @@ export function markdownToBlocks(markdown: string): unknown[] {
     i++
     while (i < lines.length) {
       const next = lines[i] ?? ''
-      if (next.trim() === '' || next.match(/^(#{1,6}\s|```|>\s?|\s*[-*]\s|\s*\d+\.\s|!\[)/)) {
+      if (next.trim() === '' || next.match(/^(#{1,6}\s|```|>\s?|\s*[-*]\s|\s*\d+\.\s|!\[|\s*\|)/)) {
         break
       }
       para.push(next)

@@ -169,6 +169,27 @@
       "when": 1784653653584,
       "tag": "0023_strange_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784680567029,
+      "tag": "0024_tan_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784688453938,
+      "tag": "0025_shallow_unicorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784697847083,
+      "tag": "0026_tough_mandarin",
+      "breakpoints": true
     }
   ]
 }

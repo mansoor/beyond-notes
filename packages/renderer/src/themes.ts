@@ -5,7 +5,7 @@
 // and existing ink sites must not change under their owners.
 
 export type ThemeName = 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
-export type ThemeAppearance = 'auto' | 'light' | 'dark'
+export type ThemeAppearance = 'auto' | 'light' | 'dark' | 'toggle'
 
 type Tokens = {
   bg: string
@@ -142,6 +142,17 @@ function vars(t: Tokens): string {
 export function themeCss(name: ThemeName, appearance: ThemeAppearance = 'auto'): string {
   if (appearance === 'light') return `:root{${vars(LIGHT[name])}}`
   if (appearance === 'dark') return `:root{${vars(DARK[name])}}`
+  // 'toggle': start from the visitor's OS, then let their own choice win. The
+  // attribute is set from localStorage in <head>, before the first paint, so
+  // choosing dark does not mean a white flash on every page load.
+  if (appearance === 'toggle') {
+    return [
+      `:root{${vars(LIGHT[name])}}`,
+      `@media(prefers-color-scheme:dark){:root{${vars(DARK[name])}}}`,
+      `:root[data-appear=light]{${vars(LIGHT[name])}}`,
+      `:root[data-appear=dark]{${vars(DARK[name])}}`,
+    ].join('\n')
+  }
   if (name === 'ink') return `:root{${vars(DARK.ink)}}` // auto ink = always dark
   return `:root{${vars(LIGHT[name])}}\n@media(prefers-color-scheme:dark){:root{${vars(DARK[name])}}}`
 }

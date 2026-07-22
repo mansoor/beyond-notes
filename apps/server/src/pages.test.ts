@@ -225,5 +225,46 @@ for (const dialect of dialects) {
       ).rejects.toThrow(PagesError)
       await appDb.close()
     })
+
+    it('deleting a space takes its pages and documents with it', async () => {
+      const { appDb, repo, pages, admin } = await setup()
+      const { space, a } = await makeTree(pages, admin)
+      const other = await pages.createSpace(admin, {
+        name: 'Keep me',
+        category: 'notebook',
+        personal: false,
+      })
+      const keeper = await pages.createPage(admin, {
+        spaceId: other.id,
+        parentId: null,
+        title: 'Untouched',
+      })
+      expect(await repo.getDocument(a.id)).not.toBeNull()
+
+      await pages.deleteSpace(admin, space.id)
+
+      // the space, its whole tree, and the documents underneath are gone —
+      // no orphan rows left behind by a missing cascade
+      expect(await repo.getSpace(space.id)).toBeNull()
+      expect(await repo.listPagesInSpace(space.id)).toHaveLength(0)
+      expect(await repo.getPage(a.id)).toBeNull()
+      expect(await repo.getDocument(a.id)).toBeNull()
+
+      // and nothing else moved
+      expect(await repo.getPage(keeper.id)).not.toBeNull()
+      expect((await repo.listSpaces()).map((s) => s.id)).toContain(other.id)
+      await appDb.close()
+    })
+
+    it("refuses to delete someone else's personal space", async () => {
+      const { appDb, pages, admin, member } = await setup()
+      const mine = await pages.createSpace(admin, {
+        name: 'Private',
+        category: 'notebook',
+        personal: true,
+      })
+      await expect(pages.deleteSpace(member, mine.id)).rejects.toThrow(PagesError)
+      await appDb.close()
+    })
   })
 }

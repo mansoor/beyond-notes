@@ -30,6 +30,11 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       publicLogoAttachmentId: null,
       publicTagline: null,
       publicHeaderLayout: 'classic',
+      analyticsProvider: 'none',
+      analyticsSiteId: null,
+      analyticsHost: null,
+      lockPolicy: null,
+      lockIdleMinutes: null,
       createdAt: now(),
     }
     await repo.insertSpace(space)
@@ -62,6 +67,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       archivedBy: null,
       trashedAt: null,
       trashedBy: null,
+      lockPolicy: null,
+      lockIdleMinutes: null,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -142,6 +149,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         archivedBy: null,
         trashedAt: null,
         trashedBy: null,
+        lockPolicy: null,
+        lockIdleMinutes: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -269,6 +278,8 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         archivedBy: null,
         trashedAt: null,
         trashedBy: null,
+        lockPolicy: null,
+        lockIdleMinutes: null,
         createdAt: now(),
         updatedAt: now(),
       }

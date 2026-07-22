@@ -147,3 +147,39 @@ describe('markdownToBlocks', () => {
     expect(blocks.length).toBeGreaterThan(1) // table rows survive as text, not lost
   })
 })
+
+describe('markdown tables', () => {
+  const md = '| Name | Note |\n| --- | --- |\n| Ann | **bold** |\n| Bo | a \\| pipe |'
+
+  it('parses a pipe table into a BlockNote table block', () => {
+    const blocks = markdownToBlocks(md) as Array<{
+      type: string
+      content: { type: string; headerRows?: number; rows: Array<{ cells: unknown[] }> }
+    }>
+    expect(blocks).toHaveLength(1)
+    const table = blocks[0]
+    expect(table?.type).toBe('table')
+    expect(table?.content.type).toBe('tableContent')
+    expect(table?.content.headerRows).toBe(1)
+    expect(table?.content.rows).toHaveLength(3)
+    expect(table?.content.rows[0]?.cells).toHaveLength(2)
+  })
+
+  it('round-trips back to markdown, escapes intact', () => {
+    const back = blocknoteToMarkdown(JSON.stringify(markdownToBlocks(md)))
+    expect(back).toContain('| Name | Note |')
+    expect(back).toContain('| --- | --- |')
+    expect(back).toContain('**bold**')
+    expect(back).toContain('a \\| pipe')
+  })
+
+  it('does not swallow a table that follows a paragraph without a blank line', () => {
+    const blocks = markdownToBlocks('intro text\n| A |\n| --- |\n| 1 |') as Array<{ type: string }>
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'table'])
+  })
+
+  it('leaves a lone pipe line as a paragraph (no divider, no table)', () => {
+    const blocks = markdownToBlocks('| not a table |') as Array<{ type: string }>
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph'])
+  })
+})

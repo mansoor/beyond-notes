@@ -5,6 +5,7 @@ import {
   TABLE_EMBED_CSS,
   TABLE_EMBED_JS,
   albumCardsHtml,
+  analyticsHtml,
   buildRss,
   buildSitemap,
   docs404,
@@ -107,6 +108,25 @@ export function createPublicServer(
   ): Promise<boolean> {
     const space = await resolveSpace(host)
     if (!space) return false
+
+    // Analytics is added once, here, rather than threaded through a dozen
+    // shell calls: every published page leaves through this function, and each
+    // shell emits exactly one </head>. Nothing is added when the space has no
+    // provider — the tag simply does not exist on the page.
+    const analytics = analyticsHtml({
+      provider: space.analyticsProvider,
+      siteId: space.analyticsSiteId,
+      host: space.analyticsHost,
+    })
+    if (analytics) {
+      const send = reply.send.bind(reply)
+      reply.send = ((payload: unknown) => {
+        if (typeof payload === 'string' && payload.includes('</head>')) {
+          return send(payload.replace('</head>', `${analytics}</head>`))
+        }
+        return send(payload)
+      }) as typeof reply.send
+    }
 
     const path = rawPath === '' ? '/' : rawPath
 

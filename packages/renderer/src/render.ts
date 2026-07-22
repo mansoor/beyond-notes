@@ -145,6 +145,39 @@ function renderBlocks(blocks: Block[], seen: Map<string, number> = new Map()): s
       case 'quote':
         out += `<blockquote${alignStyle(block)}>${renderInline(block.content)}</blockquote>`
         break
+      case 'table': {
+        // a table's content is an object ({type:'tableContent', rows}), not the
+        // inline array every other block carries
+        const table = block.content as
+          | { rows?: Array<{ cells?: unknown }>; headerRows?: number }
+          | undefined
+        const rows = Array.isArray(table?.rows) ? table.rows : []
+        if (rows.length === 0) break
+        const headerRows = typeof table?.headerRows === 'number' ? table.headerRows : 1
+        const cellHtml = (cell: unknown, tag: 'th' | 'td'): string => {
+          // BlockNote writes either a {type:'tableCell'} object or bare inline content
+          const c = cell as { content?: unknown; props?: Record<string, unknown> } | unknown[]
+          const inner = Array.isArray(c) ? renderInline(c) : renderInline(c?.content)
+          const align = Array.isArray(c) ? null : c?.props?.textAlignment
+          const style =
+            align === 'center' || align === 'right' ? ` style="text-align:${align}"` : ''
+          return `<${tag}${style}>${inner}</${tag}>`
+        }
+        const renderRow = (row: { cells?: unknown }, tag: 'th' | 'td') =>
+          `<tr>${(Array.isArray(row?.cells) ? row.cells : []).map((c) => cellHtml(c, tag)).join('')}</tr>`
+        const head = rows
+          .slice(0, headerRows)
+          .map((r) => renderRow(r, 'th'))
+          .join('')
+        const body = rows
+          .slice(headerRows)
+          .map((r) => renderRow(r, 'td'))
+          .join('')
+        out += `<div class="table-wrap"><table>${head ? `<thead>${head}</thead>` : ''}${
+          body ? `<tbody>${body}</tbody>` : ''
+        }</table></div>`
+        break
+      }
       case 'image': {
         const url = safeHref(block.props?.url)
         if (!url) break
@@ -253,6 +286,21 @@ export function plainText(contentJson: string): string {
   const lines: string[] = []
   const walk = (list: Block[]) => {
     for (const block of list) {
+      // tables carry their text in an object, so search would miss it otherwise
+      const rows = (block.content as { rows?: Array<{ cells?: unknown }> } | undefined)?.rows
+      if (block.type === 'table' && Array.isArray(rows)) {
+        for (const row of rows) {
+          const cells = Array.isArray(row?.cells) ? row.cells : []
+          const text = cells
+            .map((c) =>
+              inlinePlain(Array.isArray(c) ? c : (c as { content?: unknown } | null)?.content),
+            )
+            .filter(Boolean)
+            .join(' | ')
+          if (text) lines.push(text)
+        }
+        continue
+      }
       const text = inlinePlain(block.content)
       if (text) lines.push(text)
       if (Array.isArray(block.children)) walk(block.children)

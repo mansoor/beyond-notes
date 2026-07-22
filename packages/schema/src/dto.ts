@@ -71,6 +71,10 @@ export type UserView = {
   name: string
   role: 'admin' | 'member'
   emailNotifications: boolean
+  /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
+  sidebarHidden: string[]
+  /** how many days ahead the Today page's "Coming up" list reaches */
+  comingUpDays: number
   createdAt: string
 }
 
@@ -117,6 +121,9 @@ export type SpaceView = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: SiteHeaderLayoutName
+  analyticsProvider: AnalyticsProviderName
+  analyticsSiteId: string | null
+  analyticsHost: string | null
   createdAt: string
 }
 
@@ -307,7 +314,7 @@ export const hostSchema = z
 export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand', 'bloom'])
 export type SiteTheme = z.infer<typeof siteTheme>
 
-export const siteAppearance = z.enum(['auto', 'light', 'dark'])
+export const siteAppearance = z.enum(['auto', 'light', 'dark', 'toggle'])
 export type SiteAppearance = z.infer<typeof siteAppearance>
 
 export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])
@@ -332,6 +339,18 @@ export const socialLinkInput = z.object({
   url: z.string().trim().min(1).max(500),
 })
 export type SocialLinkValue = z.infer<typeof socialLinkInput>
+
+export const analyticsProvider = z.enum(['none', 'plausible', 'umami', 'ga4'])
+export type AnalyticsProviderName = z.infer<typeof analyticsProvider>
+
+/** Ids and hosts are validated again in the renderer before they reach a script
+ *  tag; this is the friendly first pass, not the security boundary. */
+export const updateAnalyticsInput = z.object({
+  spaceId: z.string(),
+  provider: analyticsProvider,
+  siteId: z.string().trim().max(64).nullable().default(null),
+  host: z.string().trim().max(120).nullable().default(null),
+})
 
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
@@ -860,4 +879,235 @@ export function validateRowCells(
     }
   }
   return { ok: true, cells: out }
+}
+
+// ---- wiki import (markdown / GitHub -> a tree of pages) ----
+
+/**
+ * One proposed page. The plan travels to the browser for review and comes back
+ * edited, so it carries its own content — the server holds no import session and
+ * a preview can be re-ordered, renamed or thrown away for free.
+ */
+export const importNodeKind = z.enum(['intro', 'section', 'file'])
+export type ImportNodeKind = z.infer<typeof importNodeKind>
+
+export const importNodePlan = z.object({
+  key: z.string().min(1).max(64),
+  title: z.string().trim().min(1).max(200),
+  /** 0 = a top-level page in the space; each step nests one deeper */
+  level: z.number().int().min(0).max(6),
+  kind: importNodeKind,
+  /** the source anchor this section had, so in-page links can be rewritten */
+  anchor: z.string().max(200).optional(),
+  /** repo-relative path, for nodes that came from a file */
+  path: z.string().max(400).optional(),
+  markdown: z.string().max(400_000),
+  excerpt: z.string().max(400),
+})
+export type ImportNodePlan = z.infer<typeof importNodePlan>
+
+export type ImportPlanView = {
+  /** what was read, shown above the review list */
+  sourceLabel: string
+  /** raw base for resolving relative image paths; null for pasted markdown */
+  imageBase?: string | null
+  /** how many images the source refers to, so the review can offer to fetch them */
+  imageCount?: number
+  /** proposed name when the import creates its own space */
+  suggestedName: string
+  nodes: ImportNodePlan[]
+  warnings: string[]
+}
+
+export const importMarkdownInput = z.object({
+  markdown: z.string().min(1).max(2_000_000),
+  filename: z.string().trim().max(200).default(''),
+})
+
+export const importGithubInput = z.object({
+  url: z.string().trim().min(1).max(500),
+  /** optional read token for a private repo; used for this request only, never stored */
+  token: z.string().trim().max(200).default(''),
+  /** also scan docs/ for markdown files */
+  includeDocs: z.boolean().default(true),
+})
+
+export const importApplyInput = z
+  .object({
+    /** import into this existing space… */
+    spaceId: z.string().optional(),
+    /** …or create one with this name */
+    newSpaceName: z.string().trim().max(120).optional(),
+    category: spaceCategory.default('wiki'),
+    personal: z.boolean().default(false),
+    /** publish every created page instead of leaving drafts */
+    publish: z.boolean().default(false),
+    /** archive whatever the target space already holds, first */
+    archiveExisting: z.boolean().default(false),
+    /** fetch the images the markdown refers to and store them here */
+    importImages: z.boolean().default(false),
+    /** raw base the plan came with, for resolving relative image paths */
+    imageBase: z.string().max(400).nullable().default(null),
+    nodes: z.array(importNodePlan).min(1).max(500),
+  })
+  .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
+    message: 'Choose either an existing space or a name for a new one.',
+  })
+
+export type ImportResultView = {
+  spaceId: string
+  pages: number
+  published: number
+  /** images fetched and stored alongside the pages */
+  images: number
+  /** anything skipped along the way, worth showing rather than swallowing */
+  warnings?: string[]
+  /** pages that were already in the target space and got archived first */
+  archived: number
+  firstPageId: string | null
+}
+
+export type ImportApplyInput = z.infer<typeof importApplyInput>
+export type ImportMarkdownInput = z.infer<typeof importMarkdownInput>
+export type ImportGithubInput = z.infer<typeof importGithubInput>
+
+/**
+ * Merging in the import review: a row can be folded into an earlier one instead
+ * of becoming its own page — the classic case is a README `## License` section
+ * next to a LICENSE file, or a subsection too small to deserve a page.
+ *
+ * The plan records the intent (`key -> target key`) rather than concatenating
+ * as you click, so a merge stays visible and reversible in the review list. The
+ * fold happens once, here, when the user approves.
+ */
+export type MergeMap = Record<string, string>
+
+export function foldMergedNodes(nodes: ImportNodePlan[], merges: MergeMap): ImportNodePlan[] {
+  // A merged into B and B into C means A's content belongs to C
+  const resolve = (key: string): string => {
+    const seen = new Set<string>()
+    let current = key
+    while (merges[current] && !seen.has(current)) {
+      seen.add(current)
+      current = merges[current] as string
+    }
+    return current
+  }
+
+  const kept = new Map<string, ImportNodePlan>()
+  for (const node of nodes) if (!merges[node.key]) kept.set(node.key, { ...node })
+
+  for (const node of nodes) {
+    if (!merges[node.key]) continue
+    const target = kept.get(resolve(node.key))
+    if (!target) continue // merged into something that was itself dropped
+    // the folded section keeps its title as a heading, so nothing reads as if
+    // it had been silently glued on
+    const heading = node.title.trim() ? `## ${node.title.trim()}\n\n` : ''
+    target.markdown = `${target.markdown}\n\n${heading}${node.markdown}`.trim()
+  }
+
+  return nodes.filter((n) => !merges[n.key]).map((n) => kept.get(n.key) as ImportNodePlan)
+}
+
+// ---- day rollover ----
+
+/**
+ * Milliseconds until the next local midnight. Used by the day view to notice
+ * that "today" has moved on while the tab sat open.
+ *
+ * Local, not UTC — the day a person is living in is the one their clock shows.
+ * Built by asking for tomorrow at 00:00:00 rather than adding 24h, so the two
+ * days a year that are 23 or 25 hours long land on midnight anyway.
+ */
+export function msUntilNextMidnight(now: Date): number {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0)
+  return Math.max(1, next.getTime() - now.getTime())
+}
+
+// ---- sidebar visibility + password locks ----
+
+/**
+ * Sidebar hiding is a view preference, not access control: a hidden section or
+ * space still works, still accepts new pages, and is one checkbox from coming
+ * back. Tokens are 'cat:<category>' for a whole section, 'space:<id>' or
+ * 'db:<id>' for one item.
+ */
+export const sidebarTokenPattern =
+  /^(cat:(notebook|wiki|site|database)|space:[\w-]{1,40}|db:[\w-]{1,40})$/
+
+export const setSidebarHiddenInput = z.object({
+  hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),
+})
+
+/** 1 day to 3 months: shorter than a day is just "today", longer stops being
+ *  a horizon at all — which is the bug this setting exists to fix. */
+export const comingUpDaysSchema = z.number().int().min(1).max(90)
+
+export const setComingUpDaysInput = z.object({ days: comingUpDaysSchema })
+
+export const lockPolicy = z.enum(['session', 'idle'])
+export type LockPolicyView = z.infer<typeof lockPolicy>
+
+export const setLockInput = z.object({
+  target: z.enum(['space', 'page']),
+  id: z.string(),
+  /** null unlocks it for good; otherwise how often the password is re-asked */
+  policy: lockPolicy.nullable(),
+  /** for 'idle': minutes of disuse before it re-asks. Null uses the 30-minute
+   *  default; the ceiling is a week, past which "locked" stops meaning much. */
+  idleMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 7)
+    .nullable()
+    .default(null),
+  /** the account password — required to lock and to unlock permanently */
+  password: z.string().min(1).max(200),
+})
+
+export const unlockInput = z.object({
+  target: z.enum(['space', 'page']),
+  id: z.string(),
+  password: z.string().min(1).max(200),
+})
+
+export type LockStateView = {
+  target: 'space' | 'page'
+  id: string
+  policy: LockPolicyView
+  /** minutes for an 'idle' lock; null means the 30-minute default */
+  idleMinutes: number | null
+  /** true once this session has entered the password and the grant still holds */
+  open: boolean
+}
+
+// ---- what belongs on the Today page's "Coming up" list ----
+
+/** Calendar-date arithmetic on a YYYY-MM-DD key. UTC so no zone can shift a day. */
+export function shiftDayKey(key: string, days: number): string {
+  const [y, m, d] = key.split('-').map(Number)
+  const at = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1))
+  at.setUTCDate(at.getUTCDate() + days)
+  return at.toISOString().slice(0, 10)
+}
+
+/**
+ * Should this land in "Coming up"?
+ *
+ * Two rules, and the second is why this is a function rather than a comparison:
+ * anything inside the horizon qualifies, but a reminder carrying a heads-up
+ * window has explicitly asked to be surfaced early — annual life-admin is the
+ * entire reason that field exists — so it also qualifies once its own window
+ * opens, however distant the date. Everything else stays off the page.
+ */
+export function isComingUp(
+  item: { dueDate: string; headsUpDays?: number | null },
+  opts: { today: string; horizonDays: number },
+): boolean {
+  if (item.dueDate <= opts.today) return false // overdue/today live in the column
+  if (item.dueDate <= shiftDayKey(opts.today, opts.horizonDays)) return true
+  const lead = item.headsUpDays
+  return lead != null && shiftDayKey(item.dueDate, -lead) <= opts.today
 }

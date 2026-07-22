@@ -1,4 +1,14 @@
-import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
+import {
+  APPEARANCE_CSS,
+  APPEARANCE_JS,
+  APPEARANCE_RESTORE_JS,
+  BEYOND_LINK,
+  CHROME_JS,
+  GALLERY_CSS,
+  type SocialLink,
+  appearanceToggleHtml,
+  socialLinksHtml,
+} from './chrome'
 import { type TocEntry, escapeHtml } from './render'
 import type { SiteMeta } from './site'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
@@ -47,9 +57,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:15px;line-height:1.65}
 header{display:flex;align-items:center;gap:18px;padding:14px 28px;border-bottom:1px solid var(--border)}
 header .logo{font-weight:700;text-decoration:none;color:var(--text);font-size:15px}
-header form{margin-left:auto}
+header form{margin-left:auto;position:relative}
 header input{border:1px solid var(--border);background:var(--panel);color:var(--text);
-border-radius:6px;padding:4px 12px;font-size:13px;width:180px}
+border-radius:6px;padding:6px 12px;font-size:14px;width:360px;max-width:42vw}
+/* recent searches, remembered in the visitor's own browser and never sent
+   anywhere. Hidden until it has something to offer. */
+.recents{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;
+background:var(--panel);border:1px solid var(--border);border-radius:8px;
+box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px;display:none;text-align:left}
+.recents[data-open]{display:block}
+.recents button{display:block;width:100%;text-align:left;background:none;border:0;
+color:var(--text);font:inherit;font-size:13.5px;padding:6px 10px;border-radius:6px;cursor:pointer}
+.recents button:hover,.recents button[data-on]{background:var(--code)}
+.recents .rhead{display:flex;align-items:center;padding:4px 10px 2px;font-size:11px;
+text-transform:uppercase;letter-spacing:.05em;color:var(--text3)}
+.recents .rhead button{width:auto;padding:0;font-size:11px;color:var(--text3);margin-left:auto;
+text-transform:none;letter-spacing:0}
+@media(max-width:640px){header input{width:100%;max-width:none}}
 header.hassocial{display:grid;grid-template-columns:1fr auto 1fr;gap:18px}
 header.hassocial .logo{justify-self:start}
 header.hassocial form{margin:0;justify-self:center}
@@ -91,6 +115,10 @@ main p code{background:var(--code);border-radius:4px;padding:1px 5px}
 main blockquote{border-left:3px solid var(--border);padding-left:14px;color:var(--text2);margin:10px 0}
 main a{color:var(--accent)}
 main .indent{padding-left:18px}
+main .table-wrap{overflow-x:auto;margin:14px 0}
+main table{border-collapse:collapse;width:100%;font-size:14px}
+main th,main td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
+main thead th{background:var(--code);font-weight:600}
 .prevnext{display:flex;justify-content:space-between;gap:10px;margin-top:38px}
 .prevnext a{border:1px solid var(--border);border-radius:8px;padding:9px 15px;font-size:13px;
 text-decoration:none;color:var(--text2);flex:1}
@@ -279,6 +307,74 @@ if(links.length){
   };
   document.addEventListener('scroll',tick,{passive:true});tick();
 }
+// Recent searches. Kept in the visitor's own localStorage, keyed per site so
+// two wikis on one origin (the /s/<domain>/ preview path) never share a list,
+// and never sent anywhere. Everything is written with textContent — the values
+// are the visitor's own typing, but that is exactly the input you should not
+// hand to innerHTML.
+(function(){
+  var form=document.querySelector('header form');if(!form)return;
+  var input=form.querySelector('input[name=q]');
+  var box=form.querySelector('.recents');
+  if(!input||!box)return;
+  var KEY='bn-recent:'+(form.getAttribute('action')||'/');
+  var MAX=8, cursor=-1;
+  function load(){try{var v=JSON.parse(localStorage.getItem(KEY)||'[]');return Array.isArray(v)?v.filter(function(s){return typeof s==='string'}):[]}catch(e){return[]}}
+  function save(list){try{localStorage.setItem(KEY,JSON.stringify(list.slice(0,MAX)))}catch(e){}}
+  function remember(q){
+    q=(q||'').trim();if(!q)return;
+    var list=load().filter(function(s){return s.toLowerCase()!==q.toLowerCase()});
+    list.unshift(q);save(list);
+  }
+  function items(){
+    var typed=(input.value||'').trim().toLowerCase();
+    var list=load();
+    // while typing, the list narrows to what still matches
+    return typed?list.filter(function(s){return s.toLowerCase().indexOf(typed)>=0&&s.toLowerCase()!==typed}):list;
+  }
+  function close(){box.removeAttribute('data-open');box.hidden=true;cursor=-1}
+  function open(){
+    var list=items();
+    box.textContent='';
+    if(!list.length){close();return}
+    var head=document.createElement('div');head.className='rhead';
+    head.appendChild(document.createTextNode('Recent'));
+    var clear=document.createElement('button');clear.type='button';clear.textContent='Clear';
+    clear.addEventListener('mousedown',function(e){e.preventDefault();save([]);close()});
+    head.appendChild(clear);box.appendChild(head);
+    list.forEach(function(q){
+      var b=document.createElement('button');b.type='button';b.textContent=q;
+      // mousedown, not click: the input's blur would close the box first
+      b.addEventListener('mousedown',function(e){e.preventDefault();input.value=q;remember(q);form.submit()});
+      box.appendChild(b);
+    });
+    box.hidden=false;box.setAttribute('data-open','');cursor=-1;
+  }
+  function options(){
+    // the header row holds a Clear button too, which is not a suggestion
+    return [].slice.call(box.children).filter(function(el){return el.tagName==='BUTTON'});
+  }
+  function moveCursor(step){
+    var btns=options();
+    if(!btns.length)return;
+    if(cursor>=0&&btns[cursor])btns[cursor].removeAttribute('data-on');
+    cursor+=step;
+    if(cursor<0)cursor=btns.length-1;
+    if(cursor>=btns.length)cursor=0;
+    btns[cursor].setAttribute('data-on','');
+    input.value=btns[cursor].textContent;
+  }
+  input.addEventListener('focus',open);
+  input.addEventListener('click',open);
+  input.addEventListener('input',open);
+  input.addEventListener('blur',function(){setTimeout(close,120)});
+  input.addEventListener('keydown',function(e){
+    if(e.key==='ArrowDown'){e.preventDefault();if(box.hidden)open();else moveCursor(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();moveCursor(-1)}
+    else if(e.key==='Escape')close();
+  });
+  form.addEventListener('submit',function(){remember(input.value)});
+})();
 })();`
 
 const SIDEBAR_DRAG_JS = `(function(){
@@ -332,13 +428,13 @@ function page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
 ${docsMetaHtml(title, siteTitle, meta)}
-<script>${SIDEBAR_RESTORE_JS}</script>
-<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${extraCss}</style>
+<script>${SIDEBAR_RESTORE_JS}${appearance === 'toggle' ? APPEARANCE_RESTORE_JS : ''}</script>
+<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${appearance === 'toggle' ? APPEARANCE_CSS : ''}${extraCss}</style>
 </head>
 <body data-appearance="${appearance}">
 ${body}
-<footer><span>${escapeHtml(footer)}</span><span>Built with Beyond Notes</span></footer>
-<script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}</script>
+<footer><span>${escapeHtml(footer)}</span><span>Built with ${BEYOND_LINK}</span></footer>
+<script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}${appearance === 'toggle' ? APPEARANCE_JS : ''}</script>
 </body>
 </html>`
 }
@@ -348,17 +444,24 @@ function headerHtml(
   basePath: string,
   searchQuery = '',
   social: SocialLink[] = [],
+  appearance: ThemeAppearance = 'auto',
 ) {
   const logo = `<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>`
-  const search = `<form action="${escapeHtml(`${basePath}/_search`)}" method="get">
+  // autocomplete=off keeps the browser's own history popup from fighting the
+  // recents list below; the list is filled by DOCS_JS and stays empty without it
+  const search = `<form action="${escapeHtml(`${basePath}/_search`)}" method="get" autocomplete="off">
 <input type="search" name="q" placeholder="Search docs" value="${escapeHtml(searchQuery)}">
+<div class="recents" hidden></div>
 </form>`
   const socials = socialLinksHtml(social)
+  // the toggle is always the last thing in the header, so it lands rightmost
+  // whichever of the two header shapes is in play
+  const toggle = appearance === 'toggle' ? appearanceToggleHtml() : ''
   // with socials the header is a three-track grid: logo left, search centered,
   // socials right. Without, the search keeps its right-aligned place.
   return socials
-    ? `<header class="hassocial">${logo}${search}${socials}</header>`
-    : `<header>${logo}${search}</header>`
+    ? `<header class="hassocial">${logo}${search}<span class="socials">${socials}${toggle}</span></header>`
+    : `<header>${logo}${search}${toggle}</header>`
 }
 
 export function docsShell(input: ShellInput): string {
@@ -382,7 +485,7 @@ export function docsShell(input: ShellInput): string {
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
-  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -430,7 +533,7 @@ export function docsSearchResults(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -457,7 +560,7 @@ export function docs404(
   theme: ThemeName = 'paper',
   appearance: ThemeAppearance = 'auto',
 ): string {
-  const body = `${headerHtml(siteTitle, basePath)}
+  const body = `${headerHtml(siteTitle, basePath, '', [], appearance)}
 <div class="layout"><main><div class="inner"><h1>Not found</h1><p>This page does not exist or is not published.</p></div></main></div>`
   return page(siteTitle, footer, basePath, body, 'Not found', false, theme, appearance)
 }
@@ -483,7 +586,7 @@ export function docsTagPage(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>

@@ -107,6 +107,8 @@ export function createAuthService(
         totpEnabled: false,
         recoveryCodes: null,
         emailNotifications: false,
+        sidebarHidden: '[]',
+        comingUpDays: 7,
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -218,6 +220,15 @@ export function createAuthService(
       await repo.updateUser(user.id, { name: input.name, email: input.email })
     },
 
+    /**
+     * Verify the account password without changing anything — the lock screen
+     * asks for it before opening a locked notebook or page. Returns a boolean
+     * rather than throwing: the caller decides what a wrong password means.
+     */
+    async checkPassword(user: UserRow, password: string): Promise<boolean> {
+      return argonVerify(user.passwordHash, password)
+    },
+
     async changePassword(user: UserRow, current: string, next: string) {
       if (!(await argonVerify(user.passwordHash, current))) {
         throw new AuthError('BAD_CREDENTIALS', 'Current password is wrong.')
@@ -320,6 +331,8 @@ export function createAuthService(
         totpEnabled: false,
         recoveryCodes: null,
         emailNotifications: false,
+        sidebarHidden: '[]',
+        comingUpDays: 7,
         createdAt: now(),
       }
       await repo.insertUser(user)

@@ -1,3 +1,4 @@
+import { msUntilNextMidnight } from '@bn/schema'
 import type { CSSProperties, FormEvent, ReactNode, RefObject } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -61,6 +62,7 @@ export function Field(props: {
   value: string
   onChange: (v: string) => void
   autoFocus?: boolean
+  placeholder?: string
 }) {
   return (
     <label className="block mb-4">
@@ -71,6 +73,7 @@ export function Field(props: {
         type={props.type ?? 'text'}
         value={props.value}
         autoFocus={props.autoFocus}
+        placeholder={props.placeholder}
         onChange={(e) => props.onChange(e.target.value)}
       />
     </label>
@@ -507,4 +510,58 @@ export function useSubmit(fn: () => Promise<void>) {
     }
   }
   return { busy, error, onSubmit }
+}
+
+/**
+ * Calls back when the local day changes while the tab is open.
+ *
+ * Two triggers, because a timer alone is not enough: one scheduled for the next
+ * midnight, and a check whenever the tab becomes visible again — a laptop that
+ * slept through midnight fires its timer late, and a phone may not fire it at
+ * all until you look at the screen.
+ */
+export function useDayRollover(onRoll: (nextDay: string) => void) {
+  const handler = useRef(onRoll)
+  handler.current = onRoll
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    let day = keyOf(new Date())
+
+    const check = () => {
+      const now = keyOf(new Date())
+      if (now !== day) {
+        day = now
+        handler.current(now)
+      }
+    }
+
+    const schedule = () => {
+      timer = setTimeout(() => {
+        check()
+        schedule()
+      }, msUntilNextMidnight(new Date()) + 500) // a beat past midnight, never before
+    }
+
+    schedule()
+    document.addEventListener('visibilitychange', check)
+    window.addEventListener('focus', check)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', check)
+      window.removeEventListener('focus', check)
+    }
+  }, [])
+}
+
+/** Local YYYY-MM-DD, matching the day view's own keys. */
+function keyOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`
+}
+
+/** Users who asked their OS for less motion get the plain version. */
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 }

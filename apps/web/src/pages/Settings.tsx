@@ -1,12 +1,29 @@
 import { useState } from 'react'
 import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
+import {
+  type HideableKind,
+  KIND_LABEL,
+  catToken,
+  dbToken,
+  spaceToken,
+  useSidebarPrefs,
+} from '../sidebarprefs'
 import { trpc } from '../trpc'
 
-const TABS = ['Account', 'Security', 'Notifications', 'Integrations', 'Users', 'Storage'] as const
+const TABS = [
+  'Account',
+  'Appearance',
+  'Security',
+  'Notifications',
+  'Integrations',
+  'Users',
+  'Storage',
+] as const
 type Tab = (typeof TABS)[number]
 const ADMIN_TABS: Tab[] = ['Users', 'Storage']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
+  Appearance: '👁',
   Security: '🔒',
   Notifications: '🔔',
   Integrations: '🔗',
@@ -44,6 +61,7 @@ export function SettingsPage() {
         </nav>
         <div className="flex-1 min-w-0">
           {tab === 'Account' && <AccountTab />}
+          {tab === 'Appearance' && <AppearanceTab />}
           {tab === 'Security' && <SecurityTab />}
           {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
           {tab === 'Integrations' && <IntegrationsTab />}
@@ -52,6 +70,130 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Sidebar visibility. Hiding is only about what takes up room: a hidden section
+ * keeps its spaces, still accepts new ones, and creating something of a hidden
+ * kind warns and offers to unhide rather than being refused.
+ */
+function AppearanceTab() {
+  const prefs = useSidebarPrefs()
+  const spaces = trpc.spaces.list.useQuery()
+  const databases = trpc.databases.list.useQuery()
+
+  const kinds: HideableKind[] = ['notebook', 'site', 'wiki', 'database']
+
+  const itemsOf = (kind: HideableKind) =>
+    kind === 'database'
+      ? (databases.data ?? []).map((d) => ({ id: d.id, name: d.name, token: dbToken(d.id) }))
+      : (spaces.data ?? [])
+          .filter((sp) => sp.category === kind)
+          .map((sp) => ({ id: sp.id, name: sp.name, token: spaceToken(sp.id) }))
+
+  return (
+    <>
+      <ComingUpCard />
+      <Card title="Sidebar">
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          Hide sections you do not use, or single items inside them. Nothing is deleted or turned
+          off — a hidden space still works, still takes new pages, and comes back the moment you
+          untick it. Applies everywhere you sign in.
+        </p>
+        {kinds.map((kind) => {
+          const sectionHidden = prefs.isHidden(catToken(kind))
+          const items = itemsOf(kind)
+          return (
+            <div key={kind} className="mb-4">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={!sectionHidden}
+                  disabled={prefs.saving}
+                  onChange={(e) => prefs.setHidden(catToken(kind), !e.target.checked)}
+                />
+                {KIND_LABEL[kind]}
+                {sectionHidden ? (
+                  <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    hidden
+                  </span>
+                ) : null}
+              </label>
+              <div className="pl-6 mt-1 flex flex-col gap-0.5">
+                {items.length === 0 ? (
+                  <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    none yet
+                  </span>
+                ) : (
+                  items.map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex items-center gap-2 text-sm"
+                      style={{ opacity: sectionHidden ? 0.45 : 1 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!prefs.isHidden(item.token)}
+                        disabled={prefs.saving || sectionHidden}
+                        onChange={(e) => prefs.setHidden(item.token, !e.target.checked)}
+                      />
+                      <span style={{ color: 'var(--text-2)' }}>{item.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </Card>
+    </>
+  )
+}
+
+/**
+ * How far ahead "Coming up" reaches on the Today page. It used to be seven
+ * hard-coded days for tasks and no limit at all for reminders, which is how a
+ * reminder for next spring ended up on today's page.
+ */
+function ComingUpCard() {
+  const prefs = useSidebarPrefs()
+  const [days, setDays] = useState<number | null>(null)
+  const value = days ?? prefs.comingUpDays
+
+  const commit = async (next: number) => {
+    const clamped = Math.min(Math.max(Math.round(next), 1), 90)
+    setDays(clamped)
+    await prefs.setComingUpDays(clamped)
+  }
+
+  return (
+    <Card title="Today page">
+      <label className="block mb-1">
+        <span className="block text-sm font-medium mb-1">“Coming up” looks ahead</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={90}
+            className="w-24 rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={value}
+            disabled={prefs.saving}
+            onChange={(e) => setDays(Number(e.target.value))}
+            onBlur={(e) => commit(Number(e.target.value))}
+          />
+          <span className="text-sm" style={{ color: 'var(--text-2)' }}>
+            days
+          </span>
+        </div>
+      </label>
+      <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+        Tasks and reminders further out than this stay off the Today page. A reminder with a
+        heads-up window is the exception — it appears when its own window opens, however far away
+        the date is, which is what that setting is for.
+      </p>
+    </Card>
   )
 }
 
@@ -68,12 +210,7 @@ function Card(props: { title: string; children: React.ReactNode }) {
 }
 
 function AccountTab() {
-  return (
-    <>
-      <ProfileCard />
-      <ChangePasswordCard />
-    </>
-  )
+  return <ProfileCard />
 }
 
 function ProfileCard() {
@@ -162,10 +299,16 @@ function ChangePasswordCard() {
 }
 
 function SecurityTab() {
+  const status = trpc.auth.status.useQuery()
+  const isAdmin = status.data?.me?.role === 'admin'
   return (
     <>
+      <ChangePasswordCard />
       <TwoFactorCard />
       <SessionsCard />
+      {/* form spam protection is a security control, not a notification channel —
+          it only lived on that tab because reCAPTCHA needed a home */}
+      {isAdmin ? <RecaptchaCard /> : null}
     </>
   )
 }
@@ -378,7 +521,6 @@ function NotificationsTab(props: { isAdmin: boolean }) {
         <>
           <SmtpCard />
           <NtfyCard />
-          <RecaptchaCard />
         </>
       ) : (
         <Card title="Push (ntfy)">

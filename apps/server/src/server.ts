@@ -14,6 +14,7 @@ import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { exportSpaceZip } from './export'
+import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
 import { createPublicServer } from './public'
@@ -77,6 +78,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const reminders = createRemindersService(repo)
   const webhooks = createWebhooksService(repo, daily)
   const tables = createTablesService(repo)
+  const locks = createLockService(repo)
 
   const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
 
@@ -423,6 +425,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         settings,
         webhooks,
         tables,
+        locks,
       }),
     },
   })
