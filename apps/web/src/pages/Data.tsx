@@ -36,6 +36,84 @@ const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
 
 const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : String(v))
 
+// ---- grid geometry ----
+
+const GUTTER_WIDTH = 44
+const ACTIONS_WIDTH = 34
+const MIN_COL_WIDTH = 64
+const MAX_COL_WIDTH = 720
+/** Room for the value a type usually holds — the starting point, not a rule. */
+const TYPE_WIDTH: Record<DbColumnType, number> = {
+  text: 200,
+  longtext: 300,
+  number: 120,
+  checkbox: 90,
+  date: 140,
+  select: 170,
+  email: 220,
+}
+
+/** A column opens wide enough for its own heading, then the user owns it. */
+function defaultColumnWidth(col: { name: string; type: DbColumnType }): number {
+  return Math.min(MAX_COL_WIDTH, Math.max(TYPE_WIDTH[col.type] ?? 180, col.name.length * 8 + 60))
+}
+
+const widthKey = (tableId: string) => `bn-colw:${tableId}`
+
+function readWidths(tableId: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(widthKey(tableId))
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Column widths, per table, in this browser. A view preference like the
+ * sidebar splitter — not part of the table's shape, so it does not travel with
+ * the data or fight another member's idea of the right width.
+ */
+function useColumnWidths(tableId: string) {
+  const [widths, setWidths] = useState<Record<string, number>>(() => readWidths(tableId))
+  // the ref is written by set/reset rather than during render: a drag ends in
+  // the same tick as its last move, before React has re-rendered, and saving
+  // from state would then persist the width from one move ago
+  const latest = useRef(widths)
+  useEffect(() => {
+    const stored = readWidths(tableId)
+    latest.current = stored
+    setWidths(stored)
+  }, [tableId])
+
+  const apply = (next: Record<string, number>) => {
+    latest.current = next
+    setWidths(next)
+  }
+  return {
+    widths,
+    set: (colId: string, px: number) =>
+      apply({
+        ...latest.current,
+        [colId]: Math.round(Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, px))),
+      }),
+    reset: (colId: string) => {
+      const next = { ...latest.current }
+      delete next[colId]
+      apply(next)
+    },
+    /** One write per gesture — a drag is hundreds of moves, not hundreds of saves. */
+    save: () => {
+      try {
+        localStorage.setItem(widthKey(tableId), JSON.stringify(latest.current))
+      } catch {
+        // private mode or a full quota: the widths just do not outlive the tab
+      }
+    },
+  }
+}
+
 // ---- sidebar section ----
 
 /** Top-level "Databases" section: each database holds tables, a peer to the
@@ -513,6 +591,37 @@ function TableView(props: { table: DbTableView }) {
     deleteRow.mutate({ rowId })
   }
 
+  const colWidths = useColumnWidths(table.id)
+  const widthOf = (col: { id: string; name: string; type: DbColumnType }) =>
+    colWidths.widths[col.id] ?? defaultColumnWidth(col)
+  // the table must not shrink below the sum of its columns, or a "fixed" width
+  // stops being fixed as soon as the window is narrow
+  const gridWidth =
+    GUTTER_WIDTH + ACTIONS_WIDTH + table.columns.reduce((sum, c) => sum + widthOf(c), 0)
+
+  /** Drag the right edge of a header. Listeners live on the window so the
+   *  pointer can leave the 7px strip (it always does) without dropping. */
+  const startResize = (
+    e: React.PointerEvent,
+    col: { id: string; name: string; type: DbColumnType },
+  ) => {
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    const startX = e.clientX
+    const startWidth = widthOf(col)
+    handle.classList.add('dragging')
+    const onMove = (ev: PointerEvent) => colWidths.set(col.id, startWidth + (ev.clientX - startX))
+    const onUp = () => {
+      handle.classList.remove('dragging')
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      // one write per drag, not one per pixel
+      colWidths.save()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-10 py-8">
       {databaseName && (
@@ -581,34 +690,71 @@ function TableView(props: { table: DbTableView }) {
           className="mt-4 overflow-x-auto border rounded-lg"
           style={{ borderColor: 'var(--border)' }}
         >
-          <table className="w-full text-sm border-collapse">
+          <table className="bn-grid w-full text-sm" style={{ minWidth: gridWidth }}>
+            {/* widths live here, not on the cells: one <col> per column is what
+                table-layout:fixed reads, and what a drag has to move */}
+            <colgroup>
+              <col style={{ width: GUTTER_WIDTH }} />
+              {table.columns.map((col) => (
+                <col key={col.id} style={{ width: widthOf(col) }} />
+              ))}
+              <col style={{ width: ACTIONS_WIDTH }} />
+              {/* soaks up whatever is left so the grid still fills the panel */}
+              <col />
+            </colgroup>
             <thead>
-              <tr style={{ background: 'var(--panel)' }}>
+              <tr>
+                <th className="bn-gutter font-normal py-2">#</th>
                 {table.columns.map((col) => (
                   <th
                     key={col.id}
-                    className="text-left font-medium px-3 py-2 border-b whitespace-nowrap"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+                    className="text-left font-medium px-2 py-2 truncate"
+                    style={{ color: 'var(--text-2)' }}
+                    title={`${col.name}${col.required ? ' (required)' : ''} · ${col.type}`}
                   >
                     {col.name}
                     {col.required && <span style={{ color: 'var(--danger)' }}> *</span>}
                     <span className="ml-1 text-[10px]" style={{ color: 'var(--text-3)' }}>
                       {col.type === 'text' ? '' : col.type}
                     </span>
+                    {/* a keyboard can resize too: the arrows nudge, Home resets */}
+                    <span
+                      className="bn-colresize"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${col.name}`}
+                      tabIndex={0}
+                      title="Drag to resize · double-click to reset"
+                      onPointerDown={(e) => startResize(e, col)}
+                      onDoubleClick={() => {
+                        colWidths.reset(col.id)
+                        colWidths.save()
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home')
+                          return
+                        e.preventDefault()
+                        if (e.key === 'Home') colWidths.reset(col.id)
+                        else
+                          colWidths.set(col.id, widthOf(col) + (e.key === 'ArrowRight' ? 16 : -16))
+                        colWidths.save()
+                      }}
+                    />
                   </th>
                 ))}
-                <th className="w-8 border-b" style={{ borderColor: 'var(--border)' }} />
+                <th />
+                <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, index) => (
                 <tr key={row.id} className="group">
+                  <td className="bn-gutter" title={row.source === 'form' ? 'From the form' : ''}>
+                    {index + 1}
+                    {row.source === 'form' && <span className="ml-0.5">✉</span>}
+                  </td>
                   {table.columns.map((col) => (
-                    <td
-                      key={col.id}
-                      className="px-2 py-1 border-b align-top"
-                      style={{ borderColor: 'var(--border)' }}
-                    >
+                    <td key={col.id} className={col.type === 'checkbox' ? 'bn-check' : ''}>
                       <CellEditor
                         type={col.type}
                         choices={col.choices}
@@ -617,35 +763,24 @@ function TableView(props: { table: DbTableView }) {
                       />
                     </td>
                   ))}
-                  <td
-                    className="px-1 border-b text-center whitespace-nowrap"
-                    style={{ borderColor: 'var(--border)' }}
-                  >
-                    {row.source === 'form' && (
-                      <span
-                        className="text-[10px] mr-1"
-                        style={{ color: 'var(--text-3)' }}
-                        title="Submitted through the form"
-                      >
-                        ✉
-                      </span>
-                    )}
+                  <td className="text-center">
                     <button
                       type="button"
                       title="Delete row"
-                      className="opacity-0 group-hover:opacity-100 text-xs px-1"
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-xs px-1"
                       style={{ color: 'var(--danger)' }}
                       onClick={() => removeRow(row.id)}
                     >
                       ✕
                     </button>
                   </td>
+                  <td />
                 </tr>
               ))}
               {rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={table.columns.length + 1}
+                    colSpan={table.columns.length + 3}
                     className="px-3 py-4 text-center"
                     style={{ color: 'var(--text-3)' }}
                   >
@@ -741,16 +876,13 @@ function CellEditor(props: {
   const [draft, setDraft] = useState(cellString(value))
   useEffect(() => setDraft(cellString(value)), [value])
 
-  const inputStyle = {
-    background: 'transparent',
-    borderColor: 'var(--border)',
-  } as const
-  const base = 'w-full min-w-[8rem] rounded border px-2 py-1 text-sm outline-none'
-
+  // no border, no rounding: the table cell is the box, and the input only
+  // shows itself once it has focus (see .bn-cell)
   if (type === 'checkbox') {
     return (
       <input
         type="checkbox"
+        className="my-1.5"
         checked={value === true}
         onChange={(e) => onCommit(e.target.checked)}
       />
@@ -759,8 +891,7 @@ function CellEditor(props: {
   if (type === 'select') {
     return (
       <select
-        className={base}
-        style={inputStyle}
+        className="bn-cell truncate"
         value={cellString(value)}
         onChange={(e) => onCommit(e.target.value || null)}
       >
@@ -776,8 +907,8 @@ function CellEditor(props: {
   if (type === 'longtext') {
     return (
       <textarea
-        className={`${base} min-h-[2.2rem] resize-y`}
-        style={inputStyle}
+        className="bn-cell"
+        rows={1}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => draft !== cellString(value) && onCommit(draft)}
@@ -789,8 +920,7 @@ function CellEditor(props: {
   return (
     <input
       type={htmlType}
-      className={base}
-      style={inputStyle}
+      className="bn-cell"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== cellString(value) && onCommit(draft || null)}

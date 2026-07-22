@@ -309,6 +309,10 @@ tables. A table is a simple, editable grid:
   min/max, min/max length, regex pattern
 - Rows added, edited and deleted inline; duplicate, rename, move, archive or
   restore a whole table from its **⋯ menu**
+- A spreadsheet grid: numbered rows in a gutter that stays put while you scroll
+  sideways, cells that edit in place, and **columns you can drag to any width**
+  (double-click the divider — or press Home on it — to go back to the default).
+  Widths are remembered per table in your browser
 
 Two things make tables more than a spreadsheet:
 

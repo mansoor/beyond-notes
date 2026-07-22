@@ -124,6 +124,108 @@ body {
   font-size: 1.15em;
 }
 
+/* ---- data grid ----
+   A spreadsheet, not a list of boxes: the borders belong to the cells, so the
+   inputs inside them are invisible until focused. Column widths are honoured
+   exactly (table-layout: fixed), which is what makes dragging one work. */
+.bn-grid {
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.bn-grid th,
+.bn-grid td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.bn-grid th:last-child,
+.bn-grid td:last-child {
+  border-right: 0;
+}
+.bn-grid tr:last-child td {
+  border-bottom: 0;
+}
+.bn-grid thead th {
+  background: var(--panel);
+  position: relative;
+  user-select: none;
+}
+/* the row-number gutter stays put while the fields scroll under it */
+.bn-grid .bn-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  color: var(--text-3);
+  text-align: right;
+  font-size: 11px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.bn-grid tbody tr:hover .bn-gutter {
+  color: var(--text-2);
+}
+/* the cell IS the input: no inner border, no rounding, fills its box */
+.bn-cell {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 6px 8px;
+  font: inherit;
+  color: inherit;
+  display: block;
+}
+.bn-cell:focus {
+  /* drawn inside so a focused cell does not nudge its neighbours */
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--panel);
+  position: relative;
+  z-index: 2;
+}
+textarea.bn-cell {
+  resize: none;
+  height: 2rem;
+  line-height: 1.25rem;
+  overflow: hidden;
+}
+/* a long-text cell is one line at rest and opens up while you are in it */
+textarea.bn-cell:focus {
+  height: 5rem;
+  overflow: auto;
+}
+select.bn-cell {
+  appearance: none;
+  cursor: pointer;
+}
+.bn-grid td.bn-check {
+  text-align: center;
+}
+/* the grab strip on a header's right edge; widened invisibly for the pointer */
+.bn-colresize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+  touch-action: none;
+}
+.bn-colresize::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+}
+.bn-colresize:hover::after,
+.bn-colresize.dragging::after {
+  background: var(--accent);
+}
+
 /* mermaid previews in the editor */
 .mermaidhost .mermaid-box {
   border: 1px solid var(--border);
