@@ -191,6 +191,22 @@ describe('site layout width', () => {
     expect(css.indexOf('@media(max-width:640px)')).toBeGreaterThan(css.indexOf('footer{border-top'))
   })
 
+  it('sizes the wordmark and the logo per site, and only when asked', () => {
+    // an untouched site keeps the stylesheet it had: no :root override at all
+    expect(sitePage({ ...base, nav: [] })).not.toContain('--title-size:')
+
+    const branded = sitePage({ ...base, nav: [], titlePx: 26, logoPx: 60 })
+    expect(branded).toContain(':root{--title-size:26px;--logo-h:60px}')
+    // the variables are what the brand rules read
+    expect(branded).toContain('font-size:var(--title-size,17px)')
+    expect(branded).toContain('height:var(--logo-h,44px)')
+
+    // a "logo" 400px tall is a banner, and the header has no answer for it
+    expect(sitePage({ ...base, nav: [], titlePx: 400, logoPx: 400 })).toContain(
+      ':root{--title-size:40px;--logo-h:96px}',
+    )
+  })
+
   it('closes the header with a rule, the way the footer opens with one', () => {
     // the chrome used to end in a 44px void with nothing to explain it: the nav
     // sat 14px under the tagline and 44px above the page

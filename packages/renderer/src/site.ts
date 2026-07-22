@@ -87,9 +87,11 @@ background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
 header{padding:26px 40px 15px;max-width:var(--site-w);margin:0 auto;
 border-bottom:1px solid var(--border)}
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
-.brand img{height:44px;width:auto;border-radius:8px;display:block}
+/* the two branding sizes are variables so one <style> line per site sets them,
+   and everything around them (tagline, gap) stays in proportion */
+.brand img{height:var(--logo-h,44px);width:auto;border-radius:8px;display:block}
 .brand .bt{display:flex;flex-direction:column}
-.brand .title{font-weight:700;font-size:17px;line-height:1.25}
+.brand .title{font-weight:700;font-size:var(--title-size,17px);line-height:1.25}
 .brand .tagline{font-size:12.5px;color:var(--text3)}
 header nav{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
 .hl-classic{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
@@ -314,6 +316,19 @@ function metaHtml(title: string, siteTitle: string, meta?: SiteMeta): string {
   return lines.join('\n')
 }
 
+/**
+ * One line of CSS for the site's own branding sizes. Emitted only when a site
+ * asked for something other than the defaults, so an untouched site keeps the
+ * exact stylesheet it had. Both are clamped: a "logo" 400px tall is a banner,
+ * and the header has no answer for it.
+ */
+function brandingCss(titlePx?: number, logoPx?: number): string {
+  const parts: string[] = []
+  if (titlePx) parts.push(`--title-size:${Math.min(Math.max(Math.round(titlePx), 12), 40)}px`)
+  if (logoPx) parts.push(`--logo-h:${Math.min(Math.max(Math.round(logoPx), 16), 96)}px`)
+  return parts.length ? `\n:root{${parts.join(';')}}` : ''
+}
+
 function shell(input: {
   siteTitle: string
   footer: string
@@ -327,6 +342,9 @@ function shell(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
@@ -362,7 +380,7 @@ ${metaHtml(input.title, input.siteTitle, input.meta)}${
   input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
 }
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_CSS : ''}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${brandingCss(input.titlePx, input.logoPx)}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_CSS : ''}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
 ${(input.appearance ?? 'auto') === 'toggle' ? `<script>${APPEARANCE_RESTORE_JS}</script>` : ''}
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
@@ -381,6 +399,9 @@ export function sitePage(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -405,6 +426,9 @@ export function siteBlogIndex(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -495,6 +519,9 @@ export function sitePost(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -534,6 +561,9 @@ export function siteTagPage(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   siteTitle: string
   footer: string
   theme: ThemeName
@@ -573,6 +603,9 @@ export function siteSearchResults(input: {
   logoUrl?: string | null
   tagline?: string | null
   headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+  /** wordmark size and logo height in px; see SITE_TITLE_PX / SITE_LOGO_PX */
+  titlePx?: number
+  logoPx?: number
   query: string
   results: Array<{ title: string; path: string; snippet: string }>
 }): string {

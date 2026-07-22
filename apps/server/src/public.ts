@@ -35,7 +35,13 @@ import type {
   SiteNavItem,
   SocialLink,
 } from '@bn/renderer'
-import { clampFormColumns, normalizeFormLayout, normalizeFormOrder } from '@bn/schema'
+import {
+  SITE_LOGO_PX,
+  SITE_TITLE_PX,
+  clampFormColumns,
+  normalizeFormLayout,
+  normalizeFormOrder,
+} from '@bn/schema'
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
@@ -315,13 +321,16 @@ export function createPublicServer(
     const theme = space.publicTheme
     const appearance = space.publicAppearance
     const socials = parseSocialLinks(space.publicSocial)
+    // an explicit favicon wins; the logo is the fallback, which is what every
+    // site had before there was a separate field
+    const faviconId = space.publicFaviconAttachmentId ?? space.publicLogoAttachmentId
     const branding = {
       logoUrl: space.publicLogoAttachmentId ? `/api/files/${space.publicLogoAttachmentId}` : null,
       tagline: space.publicTagline,
       headerLayout: space.publicHeaderLayout,
-      faviconUrl: space.publicLogoAttachmentId
-        ? `/api/files/${space.publicLogoAttachmentId}/thumb`
-        : null,
+      titlePx: SITE_TITLE_PX[space.publicTitleSize],
+      logoPx: SITE_LOGO_PX[space.publicLogoSize],
+      faviconUrl: faviconId ? `/api/files/${faviconId}/thumb` : null,
     }
     const absUrl = (p2: string) => `https://${host}${p2}`
     // og/meta head block: description falls back to the snapshot's text

@@ -124,6 +124,17 @@ that is the right first version:
 The UI says all of this at the moment of locking, rather than letting the word
 "password" imply more than it delivers.
 
+**A lock covers writes, not just reads (fixed in v0.9).** The check lived in
+exactly one place — reading a page's document — so a locked notebook hid its
+content while the sidebar's ⋯ and ＋ still renamed it, deleted it, published
+from it and added pages to it. The fix is a tRPC middleware on *every* authed
+mutation rather than a check per procedure: if the input names a `pageId`,
+`parentId` or `spaceId` this session has not unlocked, it never reaches the
+resolver. Queries stay unguarded on purpose — you have to see a locked notebook
+to unlock it — and the two paths that expose content check for themselves.
+A new mutation is covered the day it is written, which is the whole point of
+putting it there.
+
 Two upgrades are open if the promise ever needs to be bigger: encryption with a
 **separate passphrase** per notebook (strongest, needs an explicit "if you lose
 this, the notes are gone" ceremony), or a key derived from the account password

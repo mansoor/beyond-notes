@@ -83,6 +83,16 @@ export const spaces = sqliteTable('spaces', {
   })
     .notNull()
     .default('classic'),
+  // how loud the wordmark is, and how much room the logo takes beside it —
+  // 'md' is what every site rendered before these existed
+  publicTitleSize: text('public_title_size', { enum: ['sm', 'md', 'lg', 'xl'] })
+    .notNull()
+    .default('md'),
+  publicLogoSize: text('public_logo_size', { enum: ['sm', 'md', 'lg'] })
+    .notNull()
+    .default('md'),
+  // a square mark for the browser tab; falls back to the logo when unset
+  publicFaviconAttachmentId: text('public_favicon_attachment_id'),
   // opt-in analytics for the published site only — never the app. Provider is
   // 'none' unless chosen; host lets Plausible/Umami point at a self-hosted
   // instance instead of the vendor's.

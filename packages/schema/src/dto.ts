@@ -123,6 +123,9 @@ export type SpaceView = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: SiteHeaderLayoutName
+  publicTitleSize: SiteTitleSize
+  publicLogoSize: SiteLogoSize
+  publicFaviconAttachmentId: string | null
   analyticsProvider: AnalyticsProviderName
   analyticsSiteId: string | null
   analyticsHost: string | null
@@ -340,6 +343,21 @@ export type SiteAppearance = z.infer<typeof siteAppearance>
 export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])
 export type SiteHeaderLayoutName = z.infer<typeof siteHeaderLayout>
 
+/**
+ * How loud the wordmark is, and how much room the logo takes. Sizes rather
+ * than pixels: a site picks a weight for its own name, and the header keeps
+ * its proportions at every one of them. 'md' is what sites rendered before
+ * these settings existed.
+ */
+export const siteTitleSize = z.enum(['sm', 'md', 'lg', 'xl'])
+export type SiteTitleSize = z.infer<typeof siteTitleSize>
+export const siteLogoSize = z.enum(['sm', 'md', 'lg'])
+export type SiteLogoSize = z.infer<typeof siteLogoSize>
+
+/** Both in one place, so the renderer and the settings preview cannot drift. */
+export const SITE_TITLE_PX: Record<SiteTitleSize, number> = { sm: 15, md: 17, lg: 21, xl: 26 }
+export const SITE_LOGO_PX: Record<SiteLogoSize, number> = { sm: 30, md: 44, lg: 60 }
+
 export const socialPlatform = z.enum([
   'github',
   'x',
@@ -382,8 +400,11 @@ export const updatePublishingInput = z.object({
   appearance: siteAppearance.default('auto'),
   social: z.array(socialLinkInput).max(10).default([]),
   logoAttachmentId: z.string().nullable().default(null),
+  faviconAttachmentId: z.string().nullable().default(null),
   tagline: z.string().trim().max(160).nullable().default(null),
   headerLayout: siteHeaderLayout.default('classic'),
+  titleSize: siteTitleSize.default('md'),
+  logoSize: siteLogoSize.default('md'),
 })
 export type UpdatePublishingInput = z.infer<typeof updatePublishingInput>
 

@@ -166,6 +166,9 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         logoAttachmentId?: string | null
         tagline?: string | null
         headerLayout?: 'classic' | 'centered' | 'split' | 'minimal'
+        titleSize?: 'sm' | 'md' | 'lg' | 'xl'
+        logoSize?: 'sm' | 'md' | 'lg'
+        faviconAttachmentId?: string | null
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
@@ -192,6 +195,9 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         publicLogoAttachmentId: input.logoAttachmentId ?? null,
         publicTagline: input.tagline ?? null,
         publicHeaderLayout: input.headerLayout ?? 'classic',
+        publicTitleSize: input.titleSize ?? 'md',
+        publicLogoSize: input.logoSize ?? 'md',
+        publicFaviconAttachmentId: input.faviconAttachmentId ?? null,
       })
       invalidateAttachmentCache()
     },
