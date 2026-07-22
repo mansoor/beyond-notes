@@ -138,6 +138,12 @@ export const createPageInput = z.object({
   spaceId: z.string(),
   parentId: z.string().nullable().default(null),
   title: z.string().trim().max(300).default(''),
+  /**
+   * Drop the new page directly after this sibling instead of at the end of the
+   * group — what "Add sibling" on a page's ＋ means. Omit to append, which is
+   * what the notebook/site/wiki-level ＋ wants.
+   */
+  afterPageId: z.string().nullable().default(null),
 })
 export type CreatePageInput = z.infer<typeof createPageInput>
 

@@ -275,7 +275,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
 
     async createPage(
       user: UserRow,
-      input: { spaceId: string; parentId: string | null; title: string },
+      input: {
+        spaceId: string
+        parentId: string | null
+        title: string
+        afterPageId?: string | null
+      },
     ): Promise<PageRow> {
       assertSpaceAccess(await repo.getSpace(input.spaceId), user)
       if (input.parentId) {
@@ -284,15 +289,26 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
           throw new PagesError('BAD_MOVE', 'Parent page is not in this space.')
         }
       }
-      const siblings = (await repo.listPagesInSpace(input.spaceId)).filter(
-        (p) => p.parentId === input.parentId,
-      )
+      // Sorted over every sibling, archived and trashed included: their
+      // positions are real and renumbering around them would shuffle the group
+      // when they come back.
+      const siblings = (await repo.listPagesInSpace(input.spaceId))
+        .filter((p) => p.parentId === input.parentId)
+        .sort((a, b) => a.position - b.position)
+      // "Add sibling" wants the new page next to the one you clicked, not at
+      // the bottom of the group. An afterPageId that is not in this group (a
+      // stale sidebar, say) falls back to appending rather than failing —
+      // landing in the wrong place beats refusing to create the page.
+      const after = input.afterPageId
+        ? siblings.findIndex((p) => p.id === input.afterPageId)
+        : -1
+      const at = after >= 0 ? after + 1 : siblings.length
       const page: PageRow = {
         id: nanoid(),
         spaceId: input.spaceId,
         parentId: input.parentId,
         title: input.title || 'Untitled',
-        position: siblings.length,
+        position: at,
         dateKey: null,
         pageType: 'doc',
         slug: null,
@@ -315,6 +331,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         updatedAt: now(),
       }
       await repo.insertPage(page)
+      // push everything at or below the insertion point down one, so the group
+      // stays 0..n with no duplicate positions. Nothing to do when appending.
+      for (let i = at; i < siblings.length; i++) {
+        const sibling = siblings[i]
+        if (sibling) await repo.updatePage(sibling.id, { position: i + 1 })
+      }
       await repo.insertDocument({
         pageId: page.id,
         content: EMPTY_DOC,

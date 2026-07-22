@@ -380,8 +380,18 @@ function SpaceItem(props: { space: SpaceView }) {
   const [lockOpen, setLockOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  const addPage = async (parentId: string | null) => {
-    const page = await createPage.mutateAsync({ spaceId: props.space.id, parentId, title: '' })
+  /**
+   * `afterPageId` places the new page directly below that sibling — what the
+   * per-page ＋ means by "Add sibling". The space-level ＋ passes nothing and
+   * lands at the bottom of the notebook.
+   */
+  const addPage = async (parentId: string | null, afterPageId: string | null = null) => {
+    const page = await createPage.mutateAsync({
+      spaceId: props.space.id,
+      parentId,
+      title: '',
+      afterPageId,
+    })
     await utils.pages.tree.invalidate({ spaceId: props.space.id })
     navigate({ to: '/p/$pageId', params: { pageId: page.id } })
   }
@@ -1489,7 +1499,7 @@ function PageTreeLevel(props: {
   /** the whole notebook is locked shut: nothing inside it takes a write */
   spaceShut: boolean
   dnd: TreeDnd
-  onAddChild: (parentId: string | null) => void
+  onAddChild: (parentId: string | null, afterPageId?: string | null) => void
   onAction: (a: PageAction) => void
 }) {
   const params = useParams({ strict: false }) as { pageId?: string }
@@ -1617,7 +1627,10 @@ function PageUnlockButton(props: { page: PageMeta; policy: LockPolicyView }) {
 }
 
 /** The per-page ＋: choose whether the new page is a sibling or a child. */
-function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => void }) {
+function AddButton(props: {
+  page: PageMeta
+  onAdd: (parentId: string | null, afterPageId?: string | null) => void
+}) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 128)
@@ -1645,7 +1658,8 @@ function AddButton(props: { page: PageMeta; onAdd: (parentId: string | null) => 
             style={{ color: 'var(--text)' }}
             onClick={() => {
               setOpen(false)
-              props.onAdd(props.page.parentId)
+              // directly below this page, not at the end of its group
+              props.onAdd(props.page.parentId, props.page.id)
             }}
           >
             Add sibling
