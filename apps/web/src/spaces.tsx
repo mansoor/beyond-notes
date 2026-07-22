@@ -844,6 +844,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                     <option value="auto">Auto — follow each visitor&apos;s device</option>
                     <option value="light">Always light</option>
                     <option value="dark">Always dark</option>
+                    <option value="toggle">Visitor&apos;s choice — show a light/dark switch</option>
                   </select>
                 </label>
                 {isSite && (

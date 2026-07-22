@@ -341,3 +341,54 @@ describe('docs search box', () => {
     expect(script).not.toContain('innerHTML')
   })
 })
+
+describe('visitor-controlled appearance', () => {
+  const withToggle = docsShell({
+    siteTitle: 'W',
+    footer: 'f',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>x</p>',
+    appearance: 'toggle',
+  })
+  const withAuto = docsShell({
+    siteTitle: 'W',
+    footer: 'f',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>x</p>',
+    appearance: 'auto',
+  })
+
+  it('offers the switch, last in the header so it sits rightmost', () => {
+    expect(withToggle).toContain('class="appear"')
+    expect(withToggle.indexOf('class="appear"')).toBeGreaterThan(withToggle.indexOf('<form'))
+  })
+
+  it('starts from the OS but lets an explicit choice win', () => {
+    expect(withToggle).toContain('@media(prefers-color-scheme:dark)')
+    expect(withToggle).toContain(':root[data-appear=light]')
+    expect(withToggle).toContain(':root[data-appear=dark]')
+  })
+
+  it('applies a remembered choice in <head>, before the first paint', () => {
+    const head = withToggle.slice(0, withToggle.indexOf('</head>'))
+    expect(head).toContain("localStorage.getItem('bn-appear')")
+  })
+
+  it('ships none of it when the site did not ask for it', () => {
+    // note: the body has always carried data-appearance="…", which is a
+    // different thing — check for the toggle's own artefacts specifically
+    expect(withAuto).not.toContain('class="appear"')
+    expect(withAuto).not.toContain('bn-appear')
+    expect(withAuto).not.toContain('[data-appear=')
+  })
+
+  it('credits Beyond Notes with a link home', () => {
+    expect(withAuto).toContain(
+      '<a href="https://github.com/mansoor/beyond-notes" target="_blank" rel="noopener">Beyond Notes</a>',
+    )
+  })
+})

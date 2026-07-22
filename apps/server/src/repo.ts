@@ -44,7 +44,7 @@ export type SpaceRow = {
   publicTitle: string | null
   publicFooter: string | null
   publicTheme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
-  publicAppearance: 'auto' | 'light' | 'dark'
+  publicAppearance: 'auto' | 'light' | 'dark' | 'toggle'
   publicSocial: string
   publicLogoAttachmentId: string | null
   publicTagline: string | null

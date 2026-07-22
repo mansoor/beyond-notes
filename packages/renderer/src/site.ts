@@ -1,4 +1,14 @@
-import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
+import {
+  APPEARANCE_CSS,
+  APPEARANCE_JS,
+  APPEARANCE_RESTORE_JS,
+  BEYOND_LINK,
+  CHROME_JS,
+  GALLERY_CSS,
+  type SocialLink,
+  appearanceToggleHtml,
+  socialLinksHtml,
+} from './chrome'
 import { escapeHtml } from './render'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
 
@@ -261,7 +271,8 @@ function shell(input: {
     input.tagline ? `<span class="tagline">${escapeHtml(input.tagline)}</span>` : ''
   }</span></a>`
   const search = `<form class="sitesearch" action="${escapeHtml(`${input.basePath}/_search`)}" method="get"><input type="search" name="q" placeholder="Search"></form>`
-  const tail = `<span class="tail">${socials}${search}</span>`
+  const toggle = (input.appearance ?? 'auto') === 'toggle' ? appearanceToggleHtml() : ''
+  const tail = `<span class="tail">${socials}${search}${toggle}</span>`
   const layout = input.headerLayout ?? 'classic'
   const header =
     layout === 'centered'
@@ -281,15 +292,16 @@ ${metaHtml(input.title, input.siteTitle, input.meta)}${
   input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
 }
 ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(input.siteTitle)}" href="${escapeHtml(input.basePath + input.rssPath)}">` : ''}
-<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}${SITE_CSS}${GALLERY_CSS}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_CSS : ''}${siteNavHasMaterialIcon(input.nav) ? MATERIAL_CSS : ''}</style>
+${(input.appearance ?? 'auto') === 'toggle' ? `<script>${APPEARANCE_RESTORE_JS}</script>` : ''}
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
 ${header}
 <main>
 ${input.body}
 </main>
-<footer><span>${escapeHtml(input.footer)}</span><span>Built with Beyond Notes</span></footer>
-<script>${CHROME_JS}</script>
+<footer><span>${escapeHtml(input.footer)}</span><span>Built with ${BEYOND_LINK}</span></footer>
+<script>${CHROME_JS}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_JS : ''}</script>
 </body>
 </html>`
 }

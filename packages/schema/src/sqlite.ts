@@ -67,7 +67,7 @@ export const spaces = sqliteTable('spaces', {
   publicTheme: text('public_theme', { enum: ['paper', 'ink', 'mist', 'sand', 'bloom'] })
     .notNull()
     .default('paper'),
-  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark', 'toggle'] })
     .notNull()
     .default('auto'),
   // JSON array of {platform, url} shown in the published site header

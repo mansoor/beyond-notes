@@ -314,7 +314,7 @@ export const hostSchema = z
 export const siteTheme = z.enum(['paper', 'ink', 'mist', 'sand', 'bloom'])
 export type SiteTheme = z.infer<typeof siteTheme>
 
-export const siteAppearance = z.enum(['auto', 'light', 'dark'])
+export const siteAppearance = z.enum(['auto', 'light', 'dark', 'toggle'])
 export type SiteAppearance = z.infer<typeof siteAppearance>
 
 export const siteHeaderLayout = z.enum(['classic', 'centered', 'split', 'minimal'])

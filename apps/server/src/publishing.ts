@@ -161,7 +161,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         title: string | null
         footer: string | null
         theme: 'paper' | 'ink' | 'mist' | 'sand' | 'bloom'
-        appearance?: 'auto' | 'light' | 'dark'
+        appearance?: 'auto' | 'light' | 'dark' | 'toggle'
         social?: Array<{ platform: string; url: string }>
         logoAttachmentId?: string | null
         tagline?: string | null

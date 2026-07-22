@@ -86,7 +86,7 @@ export const spaces = pgTable('spaces', {
     .notNull()
     .default('paper'),
   // 'auto' follows the visitor's OS; 'light'/'dark' pin one palette
-  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark'] })
+  publicAppearance: text('public_appearance', { enum: ['auto', 'light', 'dark', 'toggle'] })
     .notNull()
     .default('auto'),
   // JSON array of {platform, url} shown in the published site header

@@ -1,4 +1,14 @@
-import { CHROME_JS, GALLERY_CSS, type SocialLink, socialLinksHtml } from './chrome'
+import {
+  APPEARANCE_CSS,
+  APPEARANCE_JS,
+  APPEARANCE_RESTORE_JS,
+  BEYOND_LINK,
+  CHROME_JS,
+  GALLERY_CSS,
+  type SocialLink,
+  appearanceToggleHtml,
+  socialLinksHtml,
+} from './chrome'
 import { type TocEntry, escapeHtml } from './render'
 import type { SiteMeta } from './site'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
@@ -418,13 +428,13 @@ function page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<title>${escapeHtml(title)} — ${escapeHtml(siteTitle)}</title>
 ${docsMetaHtml(title, siteTitle, meta)}
-<script>${SIDEBAR_RESTORE_JS}</script>
-<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${extraCss}</style>
+<script>${SIDEBAR_RESTORE_JS}${appearance === 'toggle' ? APPEARANCE_RESTORE_JS : ''}</script>
+<style>${themeCss(theme, appearance)}${CSS}${GALLERY_CSS}${appearance === 'toggle' ? APPEARANCE_CSS : ''}${extraCss}</style>
 </head>
 <body data-appearance="${appearance}">
 ${body}
-<footer><span>${escapeHtml(footer)}</span><span>Built with Beyond Notes</span></footer>
-<script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}</script>
+<footer><span>${escapeHtml(footer)}</span><span>Built with ${BEYOND_LINK}</span></footer>
+<script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}${appearance === 'toggle' ? APPEARANCE_JS : ''}</script>
 </body>
 </html>`
 }
@@ -434,6 +444,7 @@ function headerHtml(
   basePath: string,
   searchQuery = '',
   social: SocialLink[] = [],
+  appearance: ThemeAppearance = 'auto',
 ) {
   const logo = `<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>`
   // autocomplete=off keeps the browser's own history popup from fighting the
@@ -443,11 +454,14 @@ function headerHtml(
 <div class="recents" hidden></div>
 </form>`
   const socials = socialLinksHtml(social)
+  // the toggle is always the last thing in the header, so it lands rightmost
+  // whichever of the two header shapes is in play
+  const toggle = appearance === 'toggle' ? appearanceToggleHtml() : ''
   // with socials the header is a three-track grid: logo left, search centered,
   // socials right. Without, the search keeps its right-aligned place.
   return socials
-    ? `<header class="hassocial">${logo}${search}${socials}</header>`
-    : `<header>${logo}${search}</header>`
+    ? `<header class="hassocial">${logo}${search}<span class="socials">${socials}${toggle}</span></header>`
+    : `<header>${logo}${search}${toggle}</header>`
 }
 
 export function docsShell(input: ShellInput): string {
@@ -471,7 +485,7 @@ export function docsShell(input: ShellInput): string {
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
-  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -519,7 +533,7 @@ export function docsSearchResults(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, input.query, input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
@@ -546,7 +560,7 @@ export function docs404(
   theme: ThemeName = 'paper',
   appearance: ThemeAppearance = 'auto',
 ): string {
-  const body = `${headerHtml(siteTitle, basePath)}
+  const body = `${headerHtml(siteTitle, basePath, '', [], appearance)}
 <div class="layout"><main><div class="inner"><h1>Not found</h1><p>This page does not exist or is not published.</p></div></main></div>`
   return page(siteTitle, footer, basePath, body, 'Not found', false, theme, appearance)
 }
@@ -572,7 +586,7 @@ export function docsTagPage(input: {
               `<li><a href="${escapeHtml(input.basePath + r.path)}">${escapeHtml(r.title)}</a><br><small>${escapeHtml(r.snippet)}</small></li>`,
           )
           .join('')}</ul>`
-  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social)}
+  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>
