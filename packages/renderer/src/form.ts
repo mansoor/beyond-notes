@@ -33,6 +33,10 @@ export type FormRenderInput = {
   columns?: number
 }
 
+/** Widest grid a form may declare. Mirrors FORM_MAX_COLUMNS in @bn/schema —
+ *  the renderer clamps again because it also renders configs it did not save. */
+const MAX_COLUMNS = 4
+
 /** Google's widget loader — appended once by the serve-time expander when any
  *  form on the page uses reCAPTCHA. The single sanctioned CDN load, opt-in. */
 export const RECAPTCHA_SCRIPT =
@@ -108,10 +112,14 @@ export function formHtml(input: FormRenderInput): string {
     : ''
   // one column is the old single-stack markup, byte for byte — a form that
   // never asked for a grid does not get one
-  const columns = Math.min(Math.max(1, Math.round(input.columns ?? 1)), 4)
+  const columns = Math.min(Math.max(1, Math.round(input.columns ?? 1)), MAX_COLUMNS)
   const cells = input.fields.map((f) => fieldHtml(f, columns)).join('')
+  // 3- and 4-wide grids are marked so a tablet can fall back to two columns
+  // before the phone rule flattens them entirely
   const fields =
-    columns > 1 ? `<div class="bn-form-grid" style="--bn-cols:${columns}">${cells}</div>` : cells
+    columns > 1
+      ? `<div class="bn-form-grid${columns > 2 ? ' bn-form-dense' : ''}">${cells}</div>`
+      : cells
   // honeypot: a real submitter never fills it; bots that fill every field do
   const honeypot =
     '<div class="bn-form-hp" aria-hidden="true"><label>Leave this field empty<input type="text" name="_website" tabindex="-1" autocomplete="off"></label></div>'
@@ -119,8 +127,11 @@ export function formHtml(input: FormRenderInput): string {
   const success = escapeHtml(input.successMessage)
   const submit = escapeHtml(input.submitLabel || 'Submit')
   const captcha = captchaHtml(input.captcha ?? null)
-  const wide = columns > 1 ? ' bn-form-wide' : ''
-  return `<div class="bn-form-wrap"><form class="bn-form${wide}" method="post" action="${action}" data-bn-form data-success="${success}">${honeypot}${title}${desc}${fields}${captcha}<button type="submit" class="bn-form-submit">${submit}</button><p class="bn-form-msg" role="status" hidden></p></form></div>`
+  // the column count lives on the form, not the grid: the form's own width has
+  // to grow with it, and the grid inherits the variable either way
+  const formAttrs =
+    columns > 1 ? ` class="bn-form bn-form-wide" style="--bn-cols:${columns}"` : ' class="bn-form"'
+  return `<div class="bn-form-wrap"><form${formAttrs} method="post" action="${action}" data-bn-form data-success="${success}">${honeypot}${title}${desc}${fields}${captcha}<button type="submit" class="bn-form-submit">${submit}</button><p class="bn-form-msg" role="status" hidden></p></form></div>`
 }
 
 /** Styling that leans on the published theme's CSS variables. */
@@ -137,13 +148,23 @@ export const FORM_CSS = `
 /* multi-column layout. Placement rides on --c/--w so this media query can
    collapse everything back to one column on a phone — an inline grid-column
    would outrank it and leave fields squeezed into a sliver. */
-.bn-form-wide{max-width:46rem}
+/* the form widens with the grid it declares: 2 cols ~46rem … 4 cols ~70rem */
+.bn-form-wide{max-width:calc(34rem + (var(--bn-cols,1) - 1) * 12rem)}
 .bn-form-grid{display:grid;grid-template-columns:repeat(var(--bn-cols,1),minmax(0,1fr));
 gap:.85rem;align-items:start}
 .bn-form-grid>*{grid-column:var(--c,auto)/span var(--w,1)}
+/* a 3- or 4-wide form is unusable on a tablet long before it is on a phone:
+   halve it there, then flatten everything below phone width */
+@media(max-width:52rem){
+.bn-form-grid.bn-form-dense{grid-template-columns:repeat(2,minmax(0,1fr))}
+.bn-form-grid.bn-form-dense>*{grid-column:auto/span 1}
+}
+/* the phone rule has to match the dense selector too: .bn-form-grid alone is
+   less specific than .bn-form-grid.bn-form-dense above, so a 4-column form
+   would stop halfway and stay two columns on a phone */
 @media(max-width:34rem){
-.bn-form-grid{grid-template-columns:1fr}
-.bn-form-grid>*{grid-column:1/-1}
+.bn-form-grid,.bn-form-grid.bn-form-dense{grid-template-columns:1fr}
+.bn-form-grid>*,.bn-form-grid.bn-form-dense>*{grid-column:1/-1}
 }
 .bn-form-check{display:flex;align-items:center;gap:.5rem;font-size:.9rem}
 .bn-form-check input{width:auto}

@@ -76,13 +76,30 @@ describe('formHtml column layout', () => {
         },
       ],
     })
-    expect(html).toContain('<div class="bn-form-grid" style="--bn-cols:2">')
+    expect(html).toContain('<div class="bn-form-grid">')
     expect(html).toContain('style="--c:1;--w:1"')
     expect(html).toContain('style="--c:2;--w:1"')
     // the full-width message row
     expect(html).toContain('style="--c:1;--w:2"')
-    // a multi-column form is allowed to be wider than the 32rem stack
-    expect(html).toContain('class="bn-form bn-form-wide"')
+    // a multi-column form is allowed to be wider than the 32rem stack, and the
+    // count sits on the form so its width can grow with it
+    expect(html).toContain('class="bn-form bn-form-wide" style="--bn-cols:2"')
+    // two columns still fit a tablet — no halving class
+    expect(html).not.toContain('bn-form-dense')
+  })
+
+  it('marks a 3- or 4-wide grid so a tablet can halve it', () => {
+    const wide = (columns: number) =>
+      formHtml({
+        ...base,
+        columns,
+        fields: [{ id: 'c', name: 'C', type: 'text', required: false, choices: [], col: 1 }],
+      })
+    expect(wide(3)).toContain('class="bn-form-grid bn-form-dense"')
+    expect(wide(4)).toContain('--bn-cols:4')
+    // 4 is the cap: asking for more does not widen the grid past it
+    expect(wide(9)).toContain('--bn-cols:4')
+    expect(FORM_CSS).toContain('.bn-form-grid.bn-form-dense{grid-template-columns:repeat(2')
   })
 
   it('will not let a field spill past the last column', () => {
@@ -105,6 +122,11 @@ describe('formHtml column layout', () => {
     // squeezed onto a phone; the placement has to arrive as variables
     expect(FORM_CSS).toContain('grid-column:var(--c,auto)/span var(--w,1)')
     expect(FORM_CSS).toMatch(/@media\(max-width:34rem\)/)
-    expect(FORM_CSS).toContain('.bn-form-grid>*{grid-column:1/-1}')
+    // the phone rule must out-specify the tablet halving rule, or a 4-column
+    // form stops at two columns on a phone (it did, until it was measured)
+    expect(FORM_CSS).toContain(
+      '.bn-form-grid,.bn-form-grid.bn-form-dense{grid-template-columns:1fr}',
+    )
+    expect(FORM_CSS).toContain('.bn-form-grid>*,.bn-form-grid.bn-form-dense>*{grid-column:1/-1}')
   })
 })

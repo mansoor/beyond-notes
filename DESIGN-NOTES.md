@@ -162,10 +162,23 @@ including a deliberate gap.
 
 Two things make it safe. The clamp (`normalizeFormLayout`) lives in `@bn/schema`
 so the browser's dropdowns and the saved config cannot disagree about what fits;
-narrowing a 3-column form to 2 refits every field instead of stranding one. And
+narrowing a 4-column form to 2 refits every field instead of stranding one. And
 placement travels as `--c` / `--w` custom properties rather than an inline
 `grid-column`, because the phone breakpoint has to collapse everything to one
 column and an inline style would outrank the media query.
+
+The cap is **four**, which is more than a usable public form wants — the point
+is room to arrange, not to fill. Wide grids degrade in two steps: `.bn-form-dense`
+(3–4 columns) halves on a tablet, then everything flattens on a phone. The phone
+rule has to name the dense selector too, or it loses on specificity and a
+4-column form stops at two columns on a phone. That one was found by measuring
+the rendered grid at three widths, not by reading the CSS.
+
+**One table, not two.** Which fields are on the form and where they sit is a
+single decision, so it is a single table: tick box, field name, position, width.
+The controls stay visible but inert for a field that is off (or a form with no
+grid) rather than appearing and disappearing, so the table does not reflow while
+you work down it.
 
 ## Milestone history
 

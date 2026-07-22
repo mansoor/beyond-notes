@@ -315,11 +315,12 @@ Two things make tables more than a spreadsheet:
 **Public forms.** Turn any table into a form. Configure the title, description,
 which columns appear, the submit-button label, the thank-you message and whether
 a submission notifies you — then drop `[[form:<id>]]` into any page of a
-published space. Forms can be laid out in **one, two or three columns**: each
-field picks its column and how many columns it spans, so *Zip* can sit beside
-*City* while *Message* runs the full width. A field can only span as far as the
-last column, so the width choices change with the column you pick. On a phone
-the form always falls back to a single column. Submissions land as rows, tagged with their source. A hidden
+published space. Forms can be laid out in **up to four columns**: one table
+lists every column of the table with a tick box, a **position** and a **width**,
+so *Zip* can sit beside *City* while *Message* runs the full width. A field can
+only span as far as the last position, so the width choices change with the
+position you pick. Narrow screens step down — a wide form halves on a tablet,
+and everything falls back to a single column on a phone. Submissions land as rows, tagged with their source. A hidden
 honeypot field and per-IP rate limiting are always on; on top of that you can
 switch on a **built-in math CAPTCHA** (self-hosted, no third party, no network
 calls) or **Google reCAPTCHA v2** if an admin adds keys in Settings →

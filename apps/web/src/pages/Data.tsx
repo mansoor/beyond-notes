@@ -1068,6 +1068,8 @@ function IconBtn(props: {
 }
 
 const DEFAULT_SUCCESS = 'Thanks — your response was received.'
+/** on · field name · position · width */
+const FIELD_GRID = '2rem 1fr 5rem 5rem'
 
 function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
   const update = trpc.tables.updateForm.useMutation()
@@ -1140,122 +1142,117 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
           Enable this form (accept public submissions)
         </label>
 
-        <div className="mb-3">
-          <span className="block text-sm font-medium mb-1">Fields to show</span>
+        <label className="block mb-3">
+          <span className="block text-sm font-medium mb-1">Layout</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={columns}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              setColumns(next)
+              // narrowing the grid can strand a field — refit everything
+              setLayout((prev) => normalizeFormLayout(ordered, next, prev))
+            }}
+          >
+            {Array.from({ length: FORM_MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? 'Single column' : `${n} columns`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* one table: what is on the form and where it sits are the same
+            decision, and splitting them meant reading two lists to answer it */}
+        <div className="mb-4">
+          <span className="block text-sm font-medium mb-1">Fields configuration</span>
           {props.table.columns.length === 0 ? (
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
               Add columns first — the form is generated from them.
             </p>
           ) : (
-            props.table.columns.map((col) => (
-              <label key={col.id} className="flex items-center gap-2 text-sm py-0.5">
-                <input
-                  type="checkbox"
-                  checked={fields.includes(col.id)}
-                  onChange={() => toggleField(col.id)}
-                />
-                {col.name}
-                <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                  {col.type}
-                  {col.required ? ' · required' : ''}
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-
-        <div className="mb-4">
-          <label className="block mb-2">
-            <span className="block text-sm font-medium mb-1">Layout</span>
-            <select
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-              value={columns}
-              onChange={(e) => {
-                const next = Number(e.target.value)
-                setColumns(next)
-                // narrowing the grid can strand a field — refit everything
-                setLayout((prev) => normalizeFormLayout(ordered, next, prev))
-              }}
+            <div
+              className="rounded-lg border overflow-hidden"
+              style={{ borderColor: 'var(--border)' }}
             >
-              {Array.from({ length: FORM_MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n === 1 ? 'Single column' : `${n} columns`}
-                </option>
-              ))}
-            </select>
-          </label>
-          {columns > 1 &&
-            (ordered.length === 0 ? (
-              <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-                Tick some fields above to place them.
-              </p>
-            ) : (
               <div
-                className="rounded-lg border overflow-hidden"
-                style={{ borderColor: 'var(--border)' }}
+                className="grid text-[11px] uppercase tracking-wide px-3 py-1.5"
+                style={{
+                  gridTemplateColumns: FIELD_GRID,
+                  background: 'var(--panel)',
+                  color: 'var(--text-3)',
+                }}
               >
-                <div
-                  className="grid text-[11px] uppercase tracking-wide px-3 py-1.5"
-                  style={{
-                    gridTemplateColumns: '1fr 6.5rem 6.5rem',
-                    background: 'var(--panel)',
-                    color: 'var(--text-3)',
-                  }}
-                >
-                  <span>Field</span>
-                  <span>Column</span>
-                  <span>Width</span>
-                </div>
-                {ordered.map((id) => {
-                  const col = props.table.columns.find((c) => c.id === id)
-                  const at = placed[id] ?? { col: 1, width: 1 }
-                  return (
-                    <div
-                      key={id}
-                      className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
-                      style={{
-                        gridTemplateColumns: '1fr 6.5rem 6.5rem',
-                        borderColor: 'var(--border)',
-                      }}
-                    >
-                      <span className="truncate">{col?.name ?? id}</span>
-                      <select
-                        className="rounded-md border px-2 py-1 text-xs"
-                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                        value={at.col}
-                        onChange={(e) => place(id, { col: Number(e.target.value) })}
-                      >
-                        {Array.from({ length: columns }, (_, i) => i + 1).map((n) => (
-                          <option key={n} value={n}>
-                            Column {n}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="rounded-md border px-2 py-1 text-xs"
-                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-                        value={at.width}
-                        onChange={(e) => place(id, { width: Number(e.target.value) })}
-                      >
-                        {/* a field in the last column can only be one wide */}
-                        {formWidthChoices(at.col, columns).map((n) => (
-                          <option key={n} value={n}>
-                            Width {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )
-                })}
+                <span>On</span>
+                <span>Field name</span>
+                <span>Position</span>
+                <span>Width</span>
               </div>
-            ))}
-          {columns > 1 && (
-            <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-              Fields fill the grid in the order above. On a phone the form always falls back to a
-              single column.
-            </p>
+              {props.table.columns.map((col) => {
+                const on = fields.includes(col.id)
+                const at = placed[col.id] ?? layout[col.id] ?? { col: 1, width: 1 }
+                // a field that is off the form, or a form with no grid, has
+                // nothing to place — the controls stay visible but inert so
+                // the table does not reflow as boxes are ticked
+                const inert = !on || columns === 1
+                return (
+                  <div
+                    key={col.id}
+                    className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
+                    style={{ gridTemplateColumns: FIELD_GRID, borderColor: 'var(--border)' }}
+                  >
+                    <input
+                      type="checkbox"
+                      className="justify-self-start"
+                      aria-label={`Show ${col.name} on the form`}
+                      checked={on}
+                      onChange={() => toggleField(col.id)}
+                    />
+                    <span className="truncate" style={{ opacity: on ? 1 : 0.55 }}>
+                      {col.name}{' '}
+                      <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                        {col.type}
+                        {col.required ? ' · required' : ''}
+                      </span>
+                    </span>
+                    <select
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                      disabled={inert}
+                      value={at.col}
+                      onChange={(e) => place(col.id, { col: Number(e.target.value) })}
+                    >
+                      {Array.from({ length: columns }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                      disabled={inert}
+                      value={at.width}
+                      onChange={(e) => place(col.id, { width: Number(e.target.value) })}
+                    >
+                      {/* a field in the last position can only be one wide */}
+                      {formWidthChoices(at.col, columns).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
           )}
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+            {columns === 1
+              ? 'Fields appear in this order, one per row. Choose a multi-column layout to place them side by side.'
+              : 'Fields fill the grid in the order above; a new row starts when the position is already taken. Narrow screens fall back to fewer columns.'}
+          </p>
         </div>
 
         <Field label="Heading (optional)" value={title} onChange={setTitle} />

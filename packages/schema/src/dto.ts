@@ -755,7 +755,7 @@ export type CaptchaMode = z.infer<typeof captchaMode>
  * why the widths on offer depend on the column chosen (in a 2-column form,
  * column 1 can be 2 wide, column 2 can only be 1).
  */
-export const FORM_MAX_COLUMNS = 3
+export const FORM_MAX_COLUMNS = 4
 export const formFieldPlacement = z.object({
   col: z.number().int().min(1).max(FORM_MAX_COLUMNS),
   width: z.number().int().min(1).max(FORM_MAX_COLUMNS),
