@@ -38,11 +38,11 @@ describe('site layout width', () => {
     const html = sitePage({
       ...base,
       nav: [{ title: 'Home', path: '/', active: true }],
-      body: '<h1>Hi</h1>',
+      contentHtml: '<h1>Hi</h1>',
     })
     // one shared variable, referenced by all three — a regression to separate
     // pixel widths (the header once ran 1140 vs main's 880) would break this
-    expect(html).toContain('--site-w:880px')
+    expect(html).toContain('--site-w:960px')
     expect(html).toContain('header{padding:18px 40px;max-width:var(--site-w)')
     expect(html).toContain('main{max-width:var(--site-w)')
     expect(html).toMatch(/footer\{[^}]*max-width:var\(--site-w\)/)

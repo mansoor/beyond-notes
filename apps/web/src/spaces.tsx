@@ -14,6 +14,8 @@ import {
   useSubmit,
 } from './components'
 import { ImportModal } from './import'
+import { LockModal, useLockState } from './locks'
+import { KIND_LABEL, catToken, spaceToken, useSidebarPrefs } from './sidebarprefs'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -38,10 +40,15 @@ type TreeDnd = {
 
 export function SpacesNav() {
   const spaces = trpc.spaces.list.useQuery()
+  const prefs = useSidebarPrefs()
   // null = closed; otherwise the kind the New space dialog opens on
   const [creating, setCreating] = useState<NewKind | null>(null)
 
-  const groups: SpaceCategory[] = ['notebook', 'site', 'wiki']
+  // hidden sections leave the sidebar entirely; Settings › Appearance is the
+  // only place they can be brought back, so nothing here hints at them
+  const groups: SpaceCategory[] = (['notebook', 'site', 'wiki'] as SpaceCategory[]).filter(
+    (cat) => !prefs.isHidden(catToken(cat)),
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,7 +61,9 @@ export function SpacesNav() {
         ＋ New space
       </button>
       {groups.map((cat) => {
-        const inGroup = spaces.data?.filter((s) => s.category === cat) ?? []
+        const inGroup = (spaces.data ?? []).filter(
+          (s) => s.category === cat && !prefs.isHidden(spaceToken(s.id)),
+        )
         return (
           <div key={cat}>
             <div
@@ -132,6 +141,8 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
 
   const publishable = kind === 'wiki' || kind === 'site'
   const importable = kind !== 'database'
+  const prefs = useSidebarPrefs()
+  const kindHidden = prefs.isHidden(catToken(kind))
 
   const { busy, error, onSubmit } = useSubmit(async () => {
     if (kind === 'database') {
@@ -208,6 +219,28 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
         <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
           {KIND_BLURB[kind]}
         </p>
+
+        {kindHidden ? (
+          // creating into a hidden section is allowed — it would just land
+          // somewhere you cannot see, so say so and offer the one-click fix
+          <p
+            className="text-sm mb-4 rounded-lg border p-2 flex items-center gap-2 flex-wrap"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          >
+            <span>
+              <b>{KIND_LABEL[kind]}</b> is hidden in your sidebar, so this will not appear there.
+            </span>
+            <button
+              type="button"
+              className="underline"
+              style={{ color: 'var(--accent)' }}
+              disabled={prefs.saving}
+              onClick={() => prefs.setHidden(catToken(kind), false)}
+            >
+              Show {KIND_LABEL[kind]} again
+            </button>
+          </p>
+        ) : null}
 
         <Field label="Name" value={name} onChange={setName} autoFocus />
 
@@ -314,6 +347,7 @@ function SpaceItem(props: { space: SpaceView }) {
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [lockOpen, setLockOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const addPage = async (parentId: string | null) => {
@@ -360,6 +394,7 @@ function SpaceItem(props: { space: SpaceView }) {
   }
 
   const roots = (tree.data ?? []).filter((p) => p.parentId === null)
+  const spaceLock = useLockState('space', props.space.id)
 
   return (
     <div className="mb-1">
@@ -400,6 +435,7 @@ function SpaceItem(props: { space: SpaceView }) {
           </button>
           <SpaceMenu
             space={props.space}
+            onLock={() => setLockOpen(true)}
             onPublishing={() => setPublishingOpen(true)}
             onReorganize={() => setReorgOpen(true)}
             onImport={() => setImportOpen(true)}
@@ -409,6 +445,15 @@ function SpaceItem(props: { space: SpaceView }) {
         </span>
       </div>
       {renameOpen && <RenameSpaceModal space={props.space} onClose={() => setRenameOpen(false)} />}
+      {lockOpen && (
+        <LockModal
+          target="space"
+          id={props.space.id}
+          name={props.space.name}
+          current={spaceLock}
+          onClose={() => setLockOpen(false)}
+        />
+      )}
       {deleteOpen && (
         <DeleteSpaceModal
           space={props.space}
@@ -472,8 +517,10 @@ function SpaceMenu(props: {
   onImport: () => void
   onRename: () => void
   onDelete: () => void
+  onLock: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const lock = useLockState('space', props.space.id)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 220)
 
@@ -511,6 +558,13 @@ function SpaceMenu(props: {
           onMouseLeave={() => setOpen(false)}
         >
           {item('Rename', 'Rename this space', props.onRename)}
+          {item(
+            lock ? 'Remove the lock…' : 'Lock with my password…',
+            lock
+              ? 'Open it without a password from now on'
+              : 'Ask for your account password before opening this space',
+            props.onLock,
+          )}
           {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
           {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
           {item('Import pages…', 'From markdown or a GitHub repository', props.onImport)}

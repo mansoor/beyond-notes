@@ -82,6 +82,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         publicLogoAttachmentId: null,
         publicTagline: null,
         publicHeaderLayout: 'classic',
+        lockPolicy: null,
         createdAt: now(),
       }
       await repo.insertSpace(space)
@@ -238,6 +239,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         archivedBy: null,
         trashedAt: null,
         trashedBy: null,
+        lockPolicy: null,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -291,6 +293,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         archivedBy: null,
         trashedAt: null,
         trashedBy: null,
+        lockPolicy: null,
         createdAt: now(),
         updatedAt: now(),
       }

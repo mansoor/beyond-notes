@@ -33,6 +33,10 @@ export const users = pgTable('users', {
   recoveryCodes: text('recovery_codes'),
   // per-user opt-in for the email notification channel (channel itself is env config)
   emailNotifications: boolean('email_notifications').notNull().default(false),
+  // sidebar sections/spaces this user has hidden, JSON array of tokens like
+  // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
+  // working, it just stops taking up room in the sidebar.
+  sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -92,6 +96,10 @@ export const spaces = pgTable('spaces', {
   })
     .notNull()
     .default('classic'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
@@ -138,6 +146,10 @@ export const pages = pgTable('pages', {
   // Trashed pages vanish from the tree, search, tags, AND the public site.
   trashedAt: timestamp('trashed_at', { withTimezone: true, mode: 'date' }),
   trashedBy: text('trashed_by'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })

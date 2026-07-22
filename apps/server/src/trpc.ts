@@ -5,6 +5,7 @@ import type { AttachmentsService } from './attachments'
 import type { AuthService } from './auth'
 import type { Config } from './config'
 import type { DailyService } from './daily'
+import type { LockService } from './locks'
 import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
 import type { PublishingService } from './publishing'
@@ -33,6 +34,7 @@ export type Context = {
   settings: SettingsService
   webhooks: WebhooksService
   tables: TablesService
+  locks: LockService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -51,6 +53,7 @@ export function makeCreateContext(deps: {
   settings: SettingsService
   webhooks: WebhooksService
   tables: TablesService
+  locks: LockService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

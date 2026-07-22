@@ -11,6 +11,8 @@ export type UserRow = {
   totpEnabled: boolean
   recoveryCodes: string | null
   emailNotifications: boolean
+  /** JSON array of hidden sidebar tokens, e.g. ["cat:site","space:abc"] */
+  sidebarHidden: string
   createdAt: Date
 }
 
@@ -45,6 +47,8 @@ export type SpaceRow = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
+  /** null = open; otherwise how often the account password is re-asked */
+  lockPolicy: 'session' | 'idle' | null
   createdAt: Date
 }
 
@@ -68,6 +72,8 @@ export type PageRow = {
   archivedBy: string | null
   trashedAt: Date | null
   trashedBy: string | null
+  /** null = open; otherwise how often the account password is re-asked */
+  lockPolicy: 'session' | 'idle' | null
   createdAt: Date
   updatedAt: Date
 }
@@ -440,6 +446,22 @@ export function createRepo(appDb: AppDb) {
 
     async listArchivedPages(): Promise<PageRow[]> {
       return db.select().from(t.pages).where(sqlOp`${t.pages.archivedAt} is not null`)
+    },
+
+    async listLockedPages(): Promise<PageRow[]> {
+      return db.select().from(t.pages).where(sqlOp`${t.pages.lockPolicy} is not null`)
+    },
+
+    async setPageLock(id: string, policy: 'session' | 'idle' | null): Promise<void> {
+      await db.update(t.pages).set({ lockPolicy: policy }).where(eq(t.pages.id, id))
+    },
+
+    async setSpaceLock(id: string, policy: 'session' | 'idle' | null): Promise<void> {
+      await db.update(t.spaces).set({ lockPolicy: policy }).where(eq(t.spaces.id, id))
+    },
+
+    async setSidebarHidden(userId: string, hidden: string): Promise<void> {
+      await db.update(t.users).set({ sidebarHidden: hidden }).where(eq(t.users.id, userId))
     },
 
     // ---- trash ----

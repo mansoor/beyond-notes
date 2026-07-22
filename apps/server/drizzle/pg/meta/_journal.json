@@ -169,6 +169,13 @@
       "when": 1784653653584,
       "tag": "0023_strange_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784680567029,
+      "tag": "0024_tan_green_goblin",
+      "breakpoints": true
     }
   ]
 }

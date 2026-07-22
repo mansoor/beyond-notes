@@ -53,7 +53,7 @@ const SITE_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}
 /* one shared column so header, content and footer line up on both edges — the
    header and footer used to run ~260px wider than the 880px content and jut out */
-:root{--site-w:880px}
+:root{--site-w:960px}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:var(--text);font-size:16px;line-height:1.7}
 header{padding:18px 40px;max-width:var(--site-w);margin:0 auto}

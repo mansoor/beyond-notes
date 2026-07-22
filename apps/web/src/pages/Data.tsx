@@ -12,6 +12,7 @@ import type {
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
+import { catToken, dbToken, useSidebarPrefs } from '../sidebarprefs'
 import { NewSpaceModal } from '../spaces'
 import { trpc } from '../trpc'
 
@@ -34,9 +35,13 @@ const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : Str
 export function DatabasesNav() {
   const databases = trpc.databases.list.useQuery()
   const tables = trpc.tables.list.useQuery()
+  const prefs = useSidebarPrefs()
   // the same dialog the other sections use, so a database is named (and can get
   // its first table) at creation instead of arriving as "Untitled database"
   const [creating, setCreating] = useState(false)
+
+  // hidden from Settings › Appearance — the section leaves the sidebar whole
+  if (prefs.isHidden(catToken('database'))) return null
 
   return (
     <div>
@@ -55,13 +60,15 @@ export function DatabasesNav() {
         </button>
       </div>
       {creating && <NewSpaceModal preset="database" onClose={() => setCreating(false)} />}
-      {databases.data?.map((database) => (
-        <DatabaseItem
-          key={database.id}
-          database={database}
-          tables={(tables.data ?? []).filter((t) => t.databaseId === database.id)}
-        />
-      ))}
+      {(databases.data ?? [])
+        .filter((database) => !prefs.isHidden(dbToken(database.id)))
+        .map((database) => (
+          <DatabaseItem
+            key={database.id}
+            database={database}
+            tables={(tables.data ?? []).filter((t) => t.databaseId === database.id)}
+          />
+        ))}
       {databases.data?.length === 0 && (
         <div className="text-xs px-2 py-1" style={{ color: 'var(--text-3)' }}>
           none yet —{' '}

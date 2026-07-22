@@ -71,6 +71,8 @@ export type UserView = {
   name: string
   role: 'admin' | 'member'
   emailNotifications: boolean
+  /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
+  sidebarHidden: string[]
   createdAt: string
 }
 
@@ -992,4 +994,45 @@ export function foldMergedNodes(nodes: ImportNodePlan[], merges: MergeMap): Impo
 export function msUntilNextMidnight(now: Date): number {
   const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0)
   return Math.max(1, next.getTime() - now.getTime())
+}
+
+// ---- sidebar visibility + password locks ----
+
+/**
+ * Sidebar hiding is a view preference, not access control: a hidden section or
+ * space still works, still accepts new pages, and is one checkbox from coming
+ * back. Tokens are 'cat:<category>' for a whole section, 'space:<id>' or
+ * 'db:<id>' for one item.
+ */
+export const sidebarTokenPattern =
+  /^(cat:(notebook|wiki|site|database)|space:[\w-]{1,40}|db:[\w-]{1,40})$/
+
+export const setSidebarHiddenInput = z.object({
+  hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),
+})
+
+export const lockPolicy = z.enum(['session', 'idle'])
+export type LockPolicyView = z.infer<typeof lockPolicy>
+
+export const setLockInput = z.object({
+  target: z.enum(['space', 'page']),
+  id: z.string(),
+  /** null unlocks it for good; otherwise how often the password is re-asked */
+  policy: lockPolicy.nullable(),
+  /** the account password — required to lock and to unlock permanently */
+  password: z.string().min(1).max(200),
+})
+
+export const unlockInput = z.object({
+  target: z.enum(['space', 'page']),
+  id: z.string(),
+  password: z.string().min(1).max(200),
+})
+
+export type LockStateView = {
+  target: 'space' | 'page'
+  id: string
+  policy: LockPolicyView
+  /** true once this session has entered the password and the grant still holds */
+  open: boolean
 }

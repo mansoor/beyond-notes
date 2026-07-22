@@ -1,12 +1,29 @@
 import { useState } from 'react'
 import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
+import {
+  type HideableKind,
+  KIND_LABEL,
+  catToken,
+  dbToken,
+  spaceToken,
+  useSidebarPrefs,
+} from '../sidebarprefs'
 import { trpc } from '../trpc'
 
-const TABS = ['Account', 'Security', 'Notifications', 'Integrations', 'Users', 'Storage'] as const
+const TABS = [
+  'Account',
+  'Appearance',
+  'Security',
+  'Notifications',
+  'Integrations',
+  'Users',
+  'Storage',
+] as const
 type Tab = (typeof TABS)[number]
 const ADMIN_TABS: Tab[] = ['Users', 'Storage']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
+  Appearance: '👁',
   Security: '🔒',
   Notifications: '🔔',
   Integrations: '🔗',
@@ -44,6 +61,7 @@ export function SettingsPage() {
         </nav>
         <div className="flex-1 min-w-0">
           {tab === 'Account' && <AccountTab />}
+          {tab === 'Appearance' && <AppearanceTab />}
           {tab === 'Security' && <SecurityTab />}
           {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
           {tab === 'Integrations' && <IntegrationsTab />}
@@ -52,6 +70,81 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Sidebar visibility. Hiding is only about what takes up room: a hidden section
+ * keeps its spaces, still accepts new ones, and creating something of a hidden
+ * kind warns and offers to unhide rather than being refused.
+ */
+function AppearanceTab() {
+  const prefs = useSidebarPrefs()
+  const spaces = trpc.spaces.list.useQuery()
+  const databases = trpc.databases.list.useQuery()
+
+  const kinds: HideableKind[] = ['notebook', 'site', 'wiki', 'database']
+
+  const itemsOf = (kind: HideableKind) =>
+    kind === 'database'
+      ? (databases.data ?? []).map((d) => ({ id: d.id, name: d.name, token: dbToken(d.id) }))
+      : (spaces.data ?? [])
+          .filter((sp) => sp.category === kind)
+          .map((sp) => ({ id: sp.id, name: sp.name, token: spaceToken(sp.id) }))
+
+  return (
+    <Card title="Sidebar">
+      <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+        Hide sections you do not use, or single items inside them. Nothing is deleted or turned off
+        — a hidden space still works, still takes new pages, and comes back the moment you untick
+        it. Applies everywhere you sign in.
+      </p>
+      {kinds.map((kind) => {
+        const sectionHidden = prefs.isHidden(catToken(kind))
+        const items = itemsOf(kind)
+        return (
+          <div key={kind} className="mb-4">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={!sectionHidden}
+                disabled={prefs.saving}
+                onChange={(e) => prefs.setHidden(catToken(kind), !e.target.checked)}
+              />
+              {KIND_LABEL[kind]}
+              {sectionHidden ? (
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  hidden
+                </span>
+              ) : null}
+            </label>
+            <div className="pl-6 mt-1 flex flex-col gap-0.5">
+              {items.length === 0 ? (
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  none yet
+                </span>
+              ) : (
+                items.map((item) => (
+                  <label
+                    key={item.id}
+                    className="flex items-center gap-2 text-sm"
+                    style={{ opacity: sectionHidden ? 0.45 : 1 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!prefs.isHidden(item.token)}
+                      disabled={prefs.saving || sectionHidden}
+                      onChange={(e) => prefs.setHidden(item.token, !e.target.checked)}
+                    />
+                    <span style={{ color: 'var(--text-2)' }}>{item.name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </Card>
   )
 }
 

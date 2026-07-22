@@ -104,6 +104,32 @@ Every space = **authoring mode × visibility × public renderer**.
 
 ---
 
+## Password locks are a lock screen, not encryption (v0.8, decided 2026-07-21)
+
+A locked notebook or page asks for the **account password** before it opens, and
+remembers the answer for the session or for 30 idle minutes. Enforcement is
+server-side: the document never leaves the server locked, and locked pages are
+filtered out of search so a snippet cannot leak what the page refuses to show.
+
+It is deliberately **not** encryption. The content stays plain text in the
+database, so a backup, the DB file, or `cli export` still reveal it. Two reasons
+that is the right first version:
+
+- **A forgotten passphrase would be unrecoverable data loss.** Encrypting at
+  rest turns "I locked my notes" into "I destroyed my notes" for anyone who
+  forgets, and a personal-notes tool should not hold that gun.
+- **The threat it was asked to answer is the laptop left open**, not an attacker
+  with disk access. Someone with the database file already has everything.
+
+The UI says all of this at the moment of locking, rather than letting the word
+"password" imply more than it delivers.
+
+Two upgrades are open if the promise ever needs to be bigger: encryption with a
+**separate passphrase** per notebook (strongest, needs an explicit "if you lose
+this, the notes are gone" ceremony), or a key derived from the account password
+(no second secret, but a password change means re-encrypting and the CLI reset
+would orphan locked notes). Both were considered and deferred, not overlooked.
+
 ## Milestone history
 
 - **v0.1.0** — settings tabs, TOTP 2FA (hand-rolled RFC 6238, verified against

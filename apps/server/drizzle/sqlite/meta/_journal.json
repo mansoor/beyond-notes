@@ -169,6 +169,13 @@
       "when": 1784653660001,
       "tag": "0023_flat_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784680577294,
+      "tag": "0024_glossy_purifiers",
+      "breakpoints": true
     }
   ]
 }

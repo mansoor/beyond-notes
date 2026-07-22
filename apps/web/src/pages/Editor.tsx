@@ -4,6 +4,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPicker, Modal, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
+import { UnlockModal } from '../locks'
 import { isDarkTheme } from '../theme'
 import { trpc } from '../trpc'
 
@@ -18,6 +19,10 @@ export function EditorPage() {
       </div>
     )
   }
+  // the server answers LOCKED instead of the document; the content never
+  // reached the browser, so there is nothing here to hide
+  if (q.error?.message === 'LOCKED')
+    return <LockedPage pageId={pageId} onOpened={() => q.refetch()} />
   if (q.error || !q.data) {
     return (
       <div className="p-10 text-sm" style={{ color: 'var(--danger)' }}>
@@ -32,6 +37,56 @@ export function EditorPage() {
       doc={q.data.doc}
       publishing={q.data.publishing}
     />
+  )
+}
+
+/**
+ * What a locked page looks like: its own lock, or the notebook's. The title is
+ * already in the sidebar — you have to be able to find the thing to unlock it —
+ * but nothing of the content is here until the password lands.
+ */
+function LockedPage(props: { pageId: string; onOpened: () => void }) {
+  const locks = trpc.locks.list.useQuery()
+  const [asking, setAsking] = useState(true)
+
+  const pageLock = (locks.data ?? []).find((l) => l.target === 'page' && l.id === props.pageId)
+  // if it is not the page itself, the notebook it sits in is what is locked
+  const spaceLock = (locks.data ?? []).find((l) => l.target === 'space' && !l.open)
+  const lock = pageLock ?? spaceLock
+
+  return (
+    <div className="p-10">
+      <div
+        className="max-w-md rounded-xl border p-6 text-center"
+        style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+      >
+        <div className="text-3xl mb-2">🔒</div>
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          This is locked. Enter your account password to open it.
+        </p>
+        <button
+          type="button"
+          className="rounded-lg px-4 py-2 text-sm text-white"
+          style={{ background: 'var(--accent)' }}
+          onClick={() => setAsking(true)}
+        >
+          Unlock
+        </button>
+      </div>
+      {asking && lock ? (
+        <UnlockModal
+          target={lock.target}
+          id={lock.id}
+          name={lock.target === 'page' ? 'this page' : 'this notebook'}
+          policy={lock.policy}
+          onClose={() => setAsking(false)}
+          onOpened={() => {
+            setAsking(false)
+            props.onOpened()
+          }}
+        />
+      ) : null}
+    </div>
   )
 }
 

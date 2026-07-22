@@ -21,6 +21,10 @@ export const users = sqliteTable('users', {
   totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
   recoveryCodes: text('recovery_codes'),
   emailNotifications: integer('email_notifications', { mode: 'boolean' }).notNull().default(false),
+  // sidebar sections/spaces this user has hidden, JSON array of tokens like
+  // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
+  // working, it just stops taking up room in the sidebar.
+  sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -73,6 +77,10 @@ export const spaces = sqliteTable('spaces', {
   })
     .notNull()
     .default('classic'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -104,6 +112,10 @@ export const pages = sqliteTable('pages', {
   archivedBy: text('archived_by'),
   trashedAt: integer('trashed_at', { mode: 'timestamp_ms' }),
   trashedBy: text('trashed_by'),
+  // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
+  // re-asks after 30 minutes without opening it. A lock hides content behind
+  // the account password; it does not encrypt (see DESIGN-NOTES).
+  lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

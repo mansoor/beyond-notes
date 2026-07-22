@@ -49,6 +49,8 @@ is a page that got published. Learn the editor once and you know the whole app.
    - [Publishing to the web](#publishing-to-the-web)
    - [Files, images and galleries](#files-images-and-galleries)
    - [People, access and security](#people-access-and-security)
+   - [Keeping the sidebar yours](#keeping-the-sidebar-yours)
+   - [Password-locking a notebook or a page](#password-locking-a-notebook-or-a-page)
    - [Safety nets](#safety-nets)
 3. [Configuration](#configuration)
    - [Environment variables](#environment-variables)
@@ -406,6 +408,34 @@ moves them; it is idempotent and safe to re-run.
   docker compose exec app node dist/cli.js user:reset-password you@example.com <new-password>
   ```
   That resets the password, disables 2FA and revokes every session.
+
+### Keeping the sidebar yours
+
+**Settings → Appearance** hides sections you don't use — Notebooks, Sites, Wikis
+or Databases — or single spaces inside them. Hiding is only about clutter: a
+hidden space still works, still takes new pages, and comes straight back when you
+untick it. Creating something of a hidden kind is still allowed; the dialog warns
+you it won't appear and offers to unhide it in one click. The preference follows
+your account to every device you sign in from.
+
+### Password-locking a notebook or a page
+
+Lock a whole notebook or one page from its **⋯ menu**, and it asks for your
+account password before opening. Choose when it asks again: **once per sign-in**,
+or **again after 30 minutes unused** (reading it keeps it open). Signing out
+re-locks everything, and so does a server restart.
+
+> **What a lock is:** a lock screen for the laptop left open on the kitchen
+> table. The server refuses to send a locked document, and locked pages never
+> appear in search results.
+>
+> **What it is not:** encryption. The content is still plain text in the
+> database, so a backup, the database file or a full-instance export can be read
+> by anyone holding them. The lock dialog says so too — see
+> [`DESIGN-NOTES.md`](DESIGN-NOTES.md) for why that trade was made and what the
+> upgrade path is.
+
+A page that is live on a public site cannot be locked — retire it first.
 
 ### Safety nets
 
