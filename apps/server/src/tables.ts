@@ -4,6 +4,8 @@ import {
   type DbColumnConstraints,
   type DbColumnDraft,
   type FormConfig,
+  clampFormColumns,
+  normalizeFormLayout,
   validateRowCells,
 } from '@bn/schema'
 import { zipSync } from 'fflate'
@@ -281,7 +283,16 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
       let form: FormConfig | null = null
       if (input.form) {
         const columnIds = new Set(parseColumns(table.columns).map((c) => c.id))
-        form = { ...input.form, fields: input.form.fields.filter((id) => columnIds.has(id)) }
+        const fields = input.form.fields.filter((id) => columnIds.has(id))
+        const columns = clampFormColumns(input.form.columns)
+        // placements are rebuilt from the surviving fields, so a field that
+        // just left the form cannot leave a stale (or impossible) slot behind
+        form = {
+          ...input.form,
+          fields,
+          columns,
+          layout: normalizeFormLayout(fields, columns, input.form.layout),
+        }
       }
       await repo.updateDbTable(input.tableId, {
         form: form ? JSON.stringify(form) : null,

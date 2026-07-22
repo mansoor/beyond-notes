@@ -193,6 +193,13 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
   const category: SpaceCategory = space?.category ?? 'notebook'
   const isSite = category === 'site'
   const isGallery = props.page.pageType === 'gallery'
+  // a "post" is any page filed under a blog page — the sidebar already has the
+  // tree cached, so the parent lookup costs nothing
+  const tree = trpc.pages.tree.useQuery({ spaceId: props.page.spaceId })
+  const parent = props.page.parentId
+    ? tree.data?.find((p) => p.id === props.page.parentId)
+    : undefined
+  const isPost = parent?.pageType === 'blog'
 
   return (
     <div className="flex flex-col gap-4">
@@ -207,6 +214,11 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
       <ContextCard bare={props.bare} title="Icon">
         <IconSection page={props.page} />
       </ContextCard>
+      {(isGallery || isPost) && (
+        <ContextCard bare={props.bare} title="Category">
+          <CategorySection page={props.page} />
+        </ContextCard>
+      )}
       <ContextCard bare={props.bare} title="Tags">
         <TagsSection pageId={props.page.id} />
       </ContextCard>
@@ -215,8 +227,9 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
         <ContextCard bare={props.bare} title={isGallery ? 'Gallery' : 'Sharing & listing'}>
           <OptionsSection page={props.page} isSite={isSite} />
           <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
-            Layout, autoplay, and images apply on the next publish; the share toggle applies
-            immediately.
+            {props.page.pageType === 'blog'
+              ? 'The post list is composed when a reader asks for it — layout changes show at once, with no republish.'
+              : 'Layout, autoplay, and images apply on the next publish; the share toggle applies immediately.'}
           </p>
         </ContextCard>
       )}
@@ -800,6 +813,102 @@ function TagsSection(props: { pageId: string }) {
   )
 }
 
+const NEW_CATEGORY = ' new'
+
+/**
+ * One category per page, picked from the ones the space already uses or typed
+ * fresh. There is no category list to curate: choosing a name that no other
+ * page uses creates it, and dropping the last page using a name retires it.
+ */
+function CategorySection(props: { page: PageMeta }) {
+  const utils = trpc.useUtils()
+  const spaceId = props.page.spaceId
+  const existing = trpc.pages.categories.useQuery({ spaceId })
+  const update = trpc.pages.updateOptions.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.pages.get.invalidate({ pageId: props.page.id }),
+        utils.pages.categories.invalidate({ spaceId }),
+      ]),
+  })
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const current = props.page.category
+  const options = existing.data ?? []
+  // a page's own spelling always appears, even if the shared list settled on
+  // different casing for the same name
+  const list = current && !options.includes(current) ? [current, ...options] : options
+
+  const choose = (value: string) => {
+    if (value === NEW_CATEGORY) {
+      setDraft('')
+      setAdding(true)
+      return
+    }
+    setAdding(false)
+    update.mutate({ pageId: props.page.id, category: value || null })
+  }
+
+  const commitNew = () => {
+    const name = draft.trim()
+    if (!name) return setAdding(false)
+    update.mutate({ pageId: props.page.id, category: name })
+    setAdding(false)
+  }
+
+  return (
+    <div>
+      <select
+        className="w-full rounded-lg border px-3 py-1.5 text-sm"
+        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+        value={adding ? NEW_CATEGORY : (current ?? '')}
+        disabled={update.isPending}
+        onChange={(e) => choose(e.target.value)}
+      >
+        <option value="">— none —</option>
+        {list.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+        <option value={NEW_CATEGORY}>＋ New category…</option>
+      </select>
+      {adding && (
+        <div className="flex items-center gap-2 mt-2">
+          <input
+            autoFocus
+            className="flex-1 rounded-lg border px-3 py-1.5 text-xs"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            placeholder="Category name"
+            maxLength={60}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitNew()
+              }
+              if (e.key === 'Escape') setAdding(false)
+            }}
+          />
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: 'var(--accent)' }}
+            onClick={commitNew}
+          >
+            add
+          </button>
+        </div>
+      )}
+      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+        Shown on the published page and used by the category filter.
+      </p>
+    </div>
+  )
+}
+
 function OptionsSection(props: { page: PageMeta; isSite: boolean }) {
   const utils = trpc.useUtils()
   const update = trpc.pages.updateOptions.useMutation({
@@ -808,6 +917,7 @@ function OptionsSection(props: { page: PageMeta; isSite: boolean }) {
   const [uploading, setUploading] = useState(false)
   const page = props.page
   const isGallery = page.pageType === 'gallery'
+  const isBlog = page.pageType === 'blog'
   const stripLayout = page.galleryLayout === 'carousel' || page.galleryLayout === 'filmstrip'
   const isSite = props.isSite
 
@@ -838,6 +948,26 @@ function OptionsSection(props: { page: PageMeta; isSite: boolean }) {
             onChange={(e) => update.mutate({ pageId: page.id, shareEnabled: e.target.checked })}
           />
           Social share buttons on the published page
+        </label>
+      )}
+
+      {isBlog && (
+        <label className="block">
+          <span className="block font-medium mb-1">Post list layout</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={page.blogLayout}
+            onChange={(e) =>
+              update.mutate({
+                pageId: page.id,
+                blogLayout: e.target.value as PageMeta['blogLayout'],
+              })
+            }
+          >
+            <option value="list">List — dated rows</option>
+            <option value="grid">Grid — cards with cover images</option>
+          </select>
         </label>
       )}
 

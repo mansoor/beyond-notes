@@ -113,6 +113,23 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         .sort((a, b) => a.position - b.position)
     },
 
+    /**
+     * The categories already in use in a space — the picker's "choose an
+     * existing one" list. There is no category table: this IS the set, derived
+     * from the pages, so a category disappears when its last page lets it go.
+     */
+    async categories(user: UserRow, spaceId: string): Promise<string[]> {
+      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      const seen = new Map<string, string>()
+      for (const page of await repo.listPagesInSpace(spaceId)) {
+        const name = page.category?.trim()
+        // case-insensitive dedupe, first spelling wins — so "Travel" and
+        // "travel" do not both sit in the list
+        if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name)
+      }
+      return [...seen.values()].sort((a, b) => a.localeCompare(b))
+    },
+
     // ---- archive ----
 
     /** Archive a page and its whole subtree. Publish state is untouched. */
@@ -290,6 +307,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         liveVersionId: null,
         galleryLayout: 'grid',
         galleryAutoplaySecs: null,
+        blogLayout: 'list',
+        category: null,
         shareEnabled: false,
         coverAttachmentId: null,
         metaDescription: null,
@@ -326,6 +345,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         pageId: string
         galleryLayout?: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
         galleryAutoplaySecs?: number | null
+        blogLayout?: 'list' | 'grid'
+        category?: string | null
         shareEnabled?: boolean
         coverAttachmentId?: string | null
         metaDescription?: string | null
@@ -338,6 +359,8 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       if (input.galleryAutoplaySecs !== undefined) {
         patch.galleryAutoplaySecs = input.galleryAutoplaySecs
       }
+      if (input.blogLayout !== undefined) patch.blogLayout = input.blogLayout
+      if (input.category !== undefined) patch.category = input.category?.trim() || null
       if (input.shareEnabled !== undefined) patch.shareEnabled = input.shareEnabled
       if (input.coverAttachmentId !== undefined) patch.coverAttachmentId = input.coverAttachmentId
       if (input.metaDescription !== undefined) {

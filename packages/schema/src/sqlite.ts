@@ -118,6 +118,12 @@ export const pages = sqliteTable('pages', {
     .default('grid'),
   // carousel auto-rotate interval in seconds; null = off
   galleryAutoplaySecs: integer('gallery_autoplay_secs'),
+  // how a blog page lays its posts out; ignored on other page types
+  blogLayout: text('blog_layout', { enum: ['list', 'grid'] })
+    .notNull()
+    .default('list'),
+  // free-text taxonomy for blog posts and galleries; null = uncategorised
+  category: text('category'),
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
   metaDescription: text('meta_description'),

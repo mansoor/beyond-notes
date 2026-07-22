@@ -48,3 +48,63 @@ describe('formHtml', () => {
     expect(FORM_JS).not.toMatch(/https?:\/\//)
   })
 })
+
+describe('formHtml column layout', () => {
+  it('emits no grid at all for a single-column form', () => {
+    const html = formHtml({ ...base, columns: 1 })
+    expect(html).not.toContain('bn-form-grid')
+    expect(html).not.toContain('--c:')
+    // and the same markup as a form that never mentioned columns
+    expect(html).toBe(formHtml(base))
+  })
+
+  it('wraps the fields in a grid and carries each placement', () => {
+    const html = formHtml({
+      ...base,
+      columns: 2,
+      fields: [
+        { id: 'c_name', name: 'Name', type: 'text', required: true, choices: [], col: 1, width: 1 },
+        { id: 'c_ph', name: 'Phone', type: 'text', required: false, choices: [], col: 2, width: 1 },
+        {
+          id: 'c_msg',
+          name: 'Message',
+          type: 'longtext',
+          required: false,
+          choices: [],
+          col: 1,
+          width: 2,
+        },
+      ],
+    })
+    expect(html).toContain('<div class="bn-form-grid" style="--bn-cols:2">')
+    expect(html).toContain('style="--c:1;--w:1"')
+    expect(html).toContain('style="--c:2;--w:1"')
+    // the full-width message row
+    expect(html).toContain('style="--c:1;--w:2"')
+    // a multi-column form is allowed to be wider than the 32rem stack
+    expect(html).toContain('class="bn-form bn-form-wide"')
+  })
+
+  it('will not let a field spill past the last column', () => {
+    const html = formHtml({
+      ...base,
+      columns: 2,
+      fields: [
+        { id: 'c', name: 'C', type: 'text', required: false, choices: [], col: 2, width: 2 },
+        { id: 'd', name: 'D', type: 'checkbox', required: false, choices: [], col: 9, width: 9 },
+      ],
+    })
+    expect(html).toContain('style="--c:2;--w:1"')
+    expect(html).not.toContain('--w:2')
+    // checkboxes are placed too — they are fields like any other
+    expect(html).toContain('class="bn-form-check" style="--c:2;--w:1"')
+  })
+
+  it('lets a narrow screen override the placement (custom props, not inline grid-column)', () => {
+    // an inline `grid-column` would beat the media query and leave two columns
+    // squeezed onto a phone; the placement has to arrive as variables
+    expect(FORM_CSS).toContain('grid-column:var(--c,auto)/span var(--w,1)')
+    expect(FORM_CSS).toMatch(/@media\(max-width:34rem\)/)
+    expect(FORM_CSS).toContain('.bn-form-grid>*{grid-column:1/-1}')
+  })
+})

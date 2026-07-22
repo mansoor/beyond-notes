@@ -10,6 +10,7 @@ import {
   socialLinksHtml,
 } from './chrome'
 import { escapeHtml } from './render'
+import { slugify } from './slug'
 import { type ThemeAppearance, type ThemeName, themeCss } from './themes'
 
 export type SiteNavItem = {
@@ -47,7 +48,10 @@ export type PostListItem = {
   date: string
   snippet: string
   cover?: string | null
+  category?: string | null
 }
+/** A blog page shows its posts as a dated list or as cover-led cards. */
+export type BlogLayout = 'list' | 'grid'
 export type Crumb = { title: string; path: string }
 /** SEO head block: emitted only for real content pages. Urls must be absolute. */
 export type SiteMeta = {
@@ -57,7 +61,16 @@ export type SiteMeta = {
   type?: 'website' | 'article'
   noindex?: boolean
 }
-export type AlbumCard = { title: string; path: string; coverUrl: string | null; count: number }
+export type AlbumCard = {
+  title: string
+  path: string
+  coverUrl: string | null
+  count: number
+  category?: string | null
+}
+
+/** Categories are matched in URLs by their slug, never by their raw name. */
+export const categorySlug = (name: string): string => slugify(name)
 
 const SITE_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}
@@ -119,6 +132,7 @@ background:var(--code);border:1px solid var(--border)}
 .albums .cover.empty{display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:24px}
 .albums .name{font-weight:600;font-size:15px;margin-top:7px}
 .albums .n{color:var(--text3);font-size:12px}
+.albums .cat{margin-top:7px}
 main{max-width:var(--site-w);margin:0 auto;padding:26px 40px 60px}
 main h1{font-size:30px;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
 main h2{font-size:21px;margin:26px 0 8px}
@@ -147,6 +161,29 @@ padding:13px 0;border-top:1px solid var(--border)}
 .postlist .post a:hover{color:var(--accent)}
 .postlist .date{color:var(--text3);font-size:13px;white-space:nowrap;font-family:ui-monospace,Consolas,monospace}
 .postlist .snippet{color:var(--text2);font-size:14px;margin:2px 0 0}
+/* category: a label on the item, and a filter row above the list. The chips
+   are the only way to reach ?category= — nothing else links to a filtered
+   view, so a category with no chip would be unreachable. */
+.cat{display:inline-block;font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;
+color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 9px;
+text-decoration:none}
+.postlist .cat{margin-bottom:3px}
+.cfilter{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 4px}
+.cfilter a{font-size:13px;color:var(--text2);text-decoration:none;border:1px solid var(--border);
+border-radius:999px;padding:3px 12px}
+.cfilter a:hover{color:var(--text)}
+.cfilter a.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.postgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:22px;margin-top:20px}
+.postgrid .pcard{display:flex;flex-direction:column;gap:5px;text-decoration:none;color:var(--text)}
+.postgrid .pcover{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;display:block;
+background:var(--code);border:1px solid var(--border)}
+.postgrid .pcover.empty{display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:22px}
+/* the card is a flex column, so the chip would stretch edge to edge without this */
+.postgrid .cat{align-self:flex-start}
+.postgrid .ptitle{font-size:16.5px;font-weight:600;line-height:1.35}
+.postgrid .pcard:hover .ptitle{color:var(--accent)}
+.postgrid .pdate{color:var(--text3);font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+.postgrid .psnip{color:var(--text2);font-size:13.5px;margin:0}
 .backlink{display:inline-block;margin-bottom:14px;font-size:13px;color:var(--text3);text-decoration:none}
 .tagrow{margin:6px 0 14px;display:flex;gap:8px;flex-wrap:wrap}
 .tagrow a{font-size:12.5px;color:var(--accent);text-decoration:none;background:var(--code);
@@ -216,10 +253,32 @@ export function albumCardsHtml(cards: AlbumCard[], basePath: string): string {
           c.coverUrl
             ? `<img class="cover" src="${escapeHtml(c.coverUrl)}" alt="${escapeHtml(c.title)}" loading="lazy">`
             : '<span class="cover empty">🖼</span>'
-        }<span class="name">${escapeHtml(c.title)}</span> <span class="n">${c.count} photo${c.count === 1 ? '' : 's'}</span></a>`,
+        }<span class="name">${escapeHtml(c.title)}</span> <span class="n">${c.count} photo${c.count === 1 ? '' : 's'}</span>${
+          c.category ? `<span class="cat">${escapeHtml(c.category)}</span>` : ''
+        }</a>`,
     )
     .join('')
   return `<div class="albums">${cells}</div>`
+}
+
+/**
+ * The chips that narrow a blog index or a gallery to one category. `active` is
+ * a slug (what the URL carries); the names keep their original spelling.
+ */
+export function categoryFilterHtml(input: {
+  categories: string[]
+  active: string | null
+  basePath: string
+  path: string
+}): string {
+  if (input.categories.length === 0) return ''
+  const href = (slug: string | null) =>
+    `${input.basePath}${input.path}${slug ? `?category=${encodeURIComponent(slug)}` : ''}`
+  const chip = (label: string, slug: string | null) =>
+    `<a class="${slug === input.active ? 'on' : ''}" href="${escapeHtml(href(slug))}">${escapeHtml(label)}</a>`
+  return `<div class="cfilter">${chip('All', null)}${input.categories
+    .map((c) => chip(c, categorySlug(c)))
+    .join('')}</div>`
 }
 
 function metaHtml(title: string, siteTitle: string, meta?: SiteMeta): string {
@@ -348,24 +407,64 @@ export function siteBlogIndex(input: {
   rssPath: string
   meta?: SiteMeta
   faviconUrl?: string | null
+  layout?: BlogLayout
+  /** every category used by the blog's posts — the chips, unfiltered */
+  categories?: string[]
+  /** the slug currently filtered on, or null for everything */
+  activeCategory?: string | null
   /** present when the list spans multiple pages; blogPath builds ?page= links */
   pagination?: { page: number; totalPages: number; blogPath: string }
 }): string {
-  const list = input.posts
+  const catTag = (p: PostListItem) =>
+    p.category ? `<span class="cat">${escapeHtml(p.category)}</span>` : ''
+  const rows = input.posts
     .map(
       (p) =>
         `<div class="post">${
           p.cover
             ? `<a class="postcover" href="${escapeHtml(input.basePath + p.path)}"><img src="${escapeHtml(p.cover)}" alt="" loading="lazy"></a>`
             : ''
-        }<span><a href="${escapeHtml(input.basePath + p.path)}">${escapeHtml(p.title)}</a>${
+        }<span>${catTag(p)}<a href="${escapeHtml(input.basePath + p.path)}">${escapeHtml(p.title)}</a>${
           p.snippet ? `<p class="snippet">${escapeHtml(p.snippet)}</p>` : ''
         }</span><span class="date">${escapeHtml(p.date)}</span></div>`,
     )
     .join('')
+  const cards = input.posts
+    .map(
+      (p) =>
+        `<a class="pcard" href="${escapeHtml(input.basePath + p.path)}">${
+          p.cover
+            ? `<img class="pcover" src="${escapeHtml(p.cover)}" alt="" loading="lazy">`
+            : '<span class="pcover empty">✎</span>'
+        }${catTag(p)}<span class="ptitle">${escapeHtml(p.title)}</span><span class="pdate">${escapeHtml(
+          p.date,
+        )}</span>${p.snippet ? `<p class="psnip">${escapeHtml(p.snippet)}</p>` : ''}</a>`,
+    )
+    .join('')
+  const list =
+    input.posts.length === 0
+      ? `<div class="postlist"><p class="meta">${
+          input.activeCategory ? 'No posts in this category.' : 'No posts yet.'
+        }</p></div>`
+      : input.layout === 'grid'
+        ? `<div class="postgrid">${cards}</div>`
+        : `<div class="postlist">${rows}</div>`
+  const filter = categoryFilterHtml({
+    categories: input.categories ?? [],
+    active: input.activeCategory ?? null,
+    basePath: input.basePath,
+    path: input.pagination?.blogPath ?? '',
+  })
   const pg = input.pagination
-  const pageHref = (n: number) =>
-    `${input.basePath}${pg?.blogPath ?? ''}${n > 1 ? `?page=${n}` : ''}`
+  // page links have to carry the filter, or paging past page 1 silently drops
+  // back to every post
+  const pageHref = (n: number) => {
+    const params = new URLSearchParams()
+    if (input.activeCategory) params.set('category', input.activeCategory)
+    if (n > 1) params.set('page', String(n))
+    const qs = params.toString()
+    return `${input.basePath}${pg?.blogPath ?? ''}${qs ? `?${qs}` : ''}`
+  }
   const pager =
     pg && pg.totalPages > 1
       ? `<div class="pagenav"><span>${
@@ -376,7 +475,7 @@ export function siteBlogIndex(input: {
             : ''
         }</span></div>`
       : ''
-  const body = `${crumbsHtml(input.crumbs ?? [], input.basePath)}<h1>${escapeHtml(input.title)}</h1>${input.introHtml}<div class="postlist">${list || '<p class="meta">No posts yet.</p>'}</div>${pager}`
+  const body = `${crumbsHtml(input.crumbs ?? [], input.basePath)}<h1>${escapeHtml(input.title)}</h1>${input.introHtml}${filter}${list}${pager}`
   return shell({ ...input, body })
 }
 
@@ -400,14 +499,21 @@ export function sitePost(input: {
   meta?: SiteMeta
   faviconUrl?: string | null
   tags?: string[]
+  category?: string | null
 }): string {
   const tagRow = input.tags?.length
     ? `<div class="tagrow">${input.tags
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
+  // the category leads back to the index filtered on it — the sibling posts
+  const catLink = input.category
+    ? `<a class="cat" href="${escapeHtml(
+        `${input.basePath}${input.blogPath}?category=${encodeURIComponent(categorySlug(input.category))}`,
+      )}">${escapeHtml(input.category)}</a> `
+    : ''
   const body = `<a class="backlink" href="${escapeHtml(input.basePath + input.blogPath)}">← ${escapeHtml(input.blogTitle)}</a>
-<h1>${escapeHtml(input.title)}</h1><p class="meta">${escapeHtml(input.date)}</p>${tagRow}${input.contentHtml}`
+<h1>${escapeHtml(input.title)}</h1><p class="meta">${catLink}${escapeHtml(input.date)}</p>${tagRow}${input.contentHtml}`
   return shell({ ...input, body })
 }
 

@@ -252,6 +252,8 @@ for (const dialect of dialects) {
         form: {
           enabled: true,
           fields: [nameId, emailId],
+          columns: 1,
+          layout: {},
           title: 'Say hi',
           description: '',
           submitLabel: 'Send',
@@ -291,6 +293,8 @@ for (const dialect of dialects) {
         form: {
           enabled: false,
           fields: [],
+          columns: 1,
+          layout: {},
           title: '',
           description: '',
           submitLabel: 'Submit',
@@ -316,6 +320,8 @@ for (const dialect of dialects) {
         form: {
           enabled: true,
           fields: [realId, 'ghost-column-id'],
+          columns: 1,
+          layout: {},
           title: '',
           description: '',
           submitLabel: 'Submit',
@@ -342,6 +348,8 @@ for (const dialect of dialects) {
         form: {
           enabled: true,
           fields: [x],
+          columns: 1,
+          layout: {},
           title: '',
           description: '',
           submitLabel: 'Submit',

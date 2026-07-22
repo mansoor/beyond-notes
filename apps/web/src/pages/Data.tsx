@@ -8,7 +8,9 @@ import type {
   DbRowView,
   DbTableView,
   FormConfig,
+  FormFieldPlacement,
 } from '@bn/schema'
+import { FORM_MAX_COLUMNS, formWidthChoices, normalizeFormLayout } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
@@ -1081,17 +1083,29 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   const [notify, setNotify] = useState(existing?.notify ?? false)
   const [captcha, setCaptcha] = useState<CaptchaMode>(existing?.captcha ?? 'none')
   const [copied, setCopied] = useState(false)
+  const [columns, setColumns] = useState(existing?.columns ?? 1)
+  const [layout, setLayout] = useState<Record<string, FormFieldPlacement>>(existing?.layout ?? {})
 
   const embed = `[[form:${props.table.id}]]`
   const toggleField = (id: string) =>
     setFields((prev) => (prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]))
 
+  // fields always persist in column order, whatever order they were ticked in
+  const ordered = props.table.columns.map((c) => c.id).filter((id) => fields.includes(id))
+  // the placements actually in force: every enabled field, clamped to the grid
+  const placed = normalizeFormLayout(ordered, columns, layout)
+  const place = (id: string, patch: Partial<FormFieldPlacement>) =>
+    setLayout((prev) => ({
+      ...normalizeFormLayout(ordered, columns, prev),
+      [id]: { ...(placed[id] ?? { col: 1, width: 1 }), ...patch },
+    }))
+
   const { busy, error, onSubmit } = useSubmit(async () => {
-    // persist fields in column order regardless of click order
-    const ordered = props.table.columns.map((c) => c.id).filter((id) => fields.includes(id))
     const form: FormConfig = {
       enabled,
       fields: ordered,
+      columns,
+      layout: placed,
       title: title.trim(),
       description: description.trim(),
       submitLabel: submitLabel.trim() || 'Submit',
@@ -1147,6 +1161,100 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                 </span>
               </label>
             ))
+          )}
+        </div>
+
+        <div className="mb-4">
+          <label className="block mb-2">
+            <span className="block text-sm font-medium mb-1">Layout</span>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={columns}
+              onChange={(e) => {
+                const next = Number(e.target.value)
+                setColumns(next)
+                // narrowing the grid can strand a field — refit everything
+                setLayout((prev) => normalizeFormLayout(ordered, next, prev))
+              }}
+            >
+              {Array.from({ length: FORM_MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? 'Single column' : `${n} columns`}
+                </option>
+              ))}
+            </select>
+          </label>
+          {columns > 1 &&
+            (ordered.length === 0 ? (
+              <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+                Tick some fields above to place them.
+              </p>
+            ) : (
+              <div
+                className="rounded-lg border overflow-hidden"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <div
+                  className="grid text-[11px] uppercase tracking-wide px-3 py-1.5"
+                  style={{
+                    gridTemplateColumns: '1fr 6.5rem 6.5rem',
+                    background: 'var(--panel)',
+                    color: 'var(--text-3)',
+                  }}
+                >
+                  <span>Field</span>
+                  <span>Column</span>
+                  <span>Width</span>
+                </div>
+                {ordered.map((id) => {
+                  const col = props.table.columns.find((c) => c.id === id)
+                  const at = placed[id] ?? { col: 1, width: 1 }
+                  return (
+                    <div
+                      key={id}
+                      className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
+                      style={{
+                        gridTemplateColumns: '1fr 6.5rem 6.5rem',
+                        borderColor: 'var(--border)',
+                      }}
+                    >
+                      <span className="truncate">{col?.name ?? id}</span>
+                      <select
+                        className="rounded-md border px-2 py-1 text-xs"
+                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                        value={at.col}
+                        onChange={(e) => place(id, { col: Number(e.target.value) })}
+                      >
+                        {Array.from({ length: columns }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            Column {n}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="rounded-md border px-2 py-1 text-xs"
+                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                        value={at.width}
+                        onChange={(e) => place(id, { width: Number(e.target.value) })}
+                      >
+                        {/* a field in the last column can only be one wide */}
+                        {formWidthChoices(at.col, columns).map((n) => (
+                          <option key={n} value={n}>
+                            Width {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          {columns > 1 && (
+            <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+              Fields fill the grid in the order above. On a phone the form always falls back to a
+              single column.
+            </p>
           )}
         </div>
 

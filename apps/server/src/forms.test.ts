@@ -107,6 +107,8 @@ for (const dialect of dialects) {
         form: {
           enabled: true,
           fields: [nameId, emailId],
+          columns: 1,
+          layout: {},
           title: 'Contact me',
           description: '',
           submitLabel: 'Send',
@@ -261,6 +263,8 @@ for (const dialect of dialects) {
         form: {
           enabled: true,
           fields: [nameId, emailId],
+          columns: 1,
+          layout: {},
           title: 'Contact me',
           description: '',
           submitLabel: 'Send',

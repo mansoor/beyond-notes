@@ -254,6 +254,8 @@ function toPageMeta(p: PageRow): PageMeta {
     pageType: p.pageType,
     galleryLayout: p.galleryLayout,
     galleryAutoplaySecs: p.galleryAutoplaySecs,
+    blogLayout: p.blogLayout,
+    category: p.category,
     shareEnabled: p.shareEnabled,
     coverAttachmentId: p.coverAttachmentId,
     metaDescription: p.metaDescription,
@@ -550,6 +552,16 @@ const pagesRouter = router({
     .query(async ({ ctx, input }): Promise<PageMeta[]> => {
       try {
         return (await ctx.pages.tree(ctx.user, input.spaceId)).map(toPageMeta)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  categories: authedProcedure
+    .input(z.object({ spaceId: z.string() }))
+    .query(async ({ ctx, input }): Promise<string[]> => {
+      try {
+        return await ctx.pages.categories(ctx.user, input.spaceId)
       } catch (err) {
         rethrow(err)
       }

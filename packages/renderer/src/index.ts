@@ -19,8 +19,10 @@ export {
   crumbsHtml,
   sectionListHtml,
   albumCardsHtml,
+  categoryFilterHtml,
+  categorySlug,
 } from './site'
-export type { SiteNavItem, PostListItem, Crumb, AlbumCard, SiteMeta } from './site'
+export type { SiteNavItem, PostListItem, Crumb, AlbumCard, SiteMeta, BlogLayout } from './site'
 export { themeCss } from './themes'
 export type { ThemeName } from './themes'
 export { formHtml, FORM_CSS, FORM_JS, RECAPTCHA_SCRIPT } from './form'

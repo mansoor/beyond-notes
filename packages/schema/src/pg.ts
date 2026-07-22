@@ -144,6 +144,12 @@ export const pages = pgTable('pages', {
     .default('grid'),
   // carousel auto-rotate interval in seconds; null = off
   galleryAutoplaySecs: integer('gallery_autoplay_secs'),
+  // how a blog page lays its posts out; ignored on other page types
+  blogLayout: text('blog_layout', { enum: ['list', 'grid'] })
+    .notNull()
+    .default('list'),
+  // free-text taxonomy for blog posts and galleries; null = uncategorised
+  category: text('category'),
   // opt-in social share bar on the published page
   shareEnabled: boolean('share_enabled').notNull().default(false),
   // gallery cover / blog-post listing image (an attachments id)

@@ -166,6 +166,8 @@ export type PageMeta = {
   pageType: 'doc' | 'blog' | 'gallery'
   galleryLayout: GalleryLayoutName
   galleryAutoplaySecs: number | null
+  blogLayout: BlogLayoutName
+  category: string | null
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
@@ -174,6 +176,19 @@ export type PageMeta = {
 
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
 export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
+
+/** How a blog page arranges its posts: a dated list, or cards in a grid. */
+export const blogLayoutName = z.enum(['list', 'grid'])
+export type BlogLayoutName = z.infer<typeof blogLayoutName>
+
+/**
+ * Categories are free text, not rows: a page holds the name it was given and
+ * the set of choices is whatever the pages of that space already use. No
+ * table to keep in sync, and renaming is "type it again" — the cost is that
+ * two spellings are two categories, which is why the picker offers the
+ * existing ones first.
+ */
+export const pageCategory = z.string().trim().max(60)
 
 /**
  * The sections share one tree but are different products: wikis are plain
@@ -194,6 +209,9 @@ export const updatePageOptionsInput = z.object({
   galleryLayout: galleryLayoutName.optional(),
   // null = autoplay off; only meaningful for carousel/filmstrip layouts
   galleryAutoplaySecs: z.number().int().min(2).max(60).nullable().optional(),
+  blogLayout: blogLayoutName.optional(),
+  // null clears the category; undefined leaves it unchanged
+  category: pageCategory.nullable().optional(),
   shareEnabled: z.boolean().optional(),
   // null clears the cover; undefined leaves it unchanged
   coverAttachmentId: z.string().nullable().optional(),
@@ -731,10 +749,66 @@ export const deleteRowInput = z.object({ rowId: z.string() })
 export const captchaMode = z.enum(['none', 'basic', 'recaptcha'])
 export type CaptchaMode = z.infer<typeof captchaMode>
 
+/**
+ * Where one field sits in the form grid: it starts in column `col` and spans
+ * `width` columns. A field may never spill past the last column — which is
+ * why the widths on offer depend on the column chosen (in a 2-column form,
+ * column 1 can be 2 wide, column 2 can only be 1).
+ */
+export const FORM_MAX_COLUMNS = 3
+export const formFieldPlacement = z.object({
+  col: z.number().int().min(1).max(FORM_MAX_COLUMNS),
+  width: z.number().int().min(1).max(FORM_MAX_COLUMNS),
+})
+export type FormFieldPlacement = z.infer<typeof formFieldPlacement>
+
+/** The widths a field starting in `col` may take. Never empty. */
+export function formWidthChoices(col: number, columns: number): number[] {
+  const cols = clampFormColumns(columns)
+  const start = Math.min(Math.max(1, Math.round(col) || 1), cols)
+  return Array.from({ length: cols - start + 1 }, (_, i) => i + 1)
+}
+
+export function clampFormColumns(columns: number | undefined): number {
+  return Math.min(Math.max(1, Math.round(columns ?? 1) || 1), FORM_MAX_COLUMNS)
+}
+
+/** Fit one placement to the grid, filling in anything missing or nonsensical. */
+export function placeFormField(
+  placement: Partial<FormFieldPlacement> | undefined,
+  columns: number,
+): FormFieldPlacement {
+  const cols = clampFormColumns(columns)
+  const col = Math.min(Math.max(1, Math.round(placement?.col ?? 1) || 1), cols)
+  const width = Math.min(Math.max(1, Math.round(placement?.width ?? 1) || 1), cols - col + 1)
+  return { col, width }
+}
+
+/**
+ * Placements for exactly the fields on the form, in the grid it declares.
+ * Rebuilt rather than patched, so a field that left the form takes its
+ * placement with it, and a form saved before layouts existed still lands in a
+ * valid single column.
+ */
+export function normalizeFormLayout(
+  fields: string[],
+  columns: number | undefined,
+  layout: Record<string, Partial<FormFieldPlacement>> | undefined,
+): Record<string, FormFieldPlacement> {
+  const cols = clampFormColumns(columns)
+  const out: Record<string, FormFieldPlacement> = {}
+  for (const id of fields) out[id] = placeFormField(layout?.[id], cols)
+  return out
+}
+
 export type FormConfig = {
   enabled: boolean
   // ordered column ids exposed as fields (a subset of the table's columns)
   fields: string[]
+  // how many columns the fields are laid out in (1 = a plain stack)
+  columns: number
+  // fieldId -> where it sits; see normalizeFormLayout
+  layout: Record<string, FormFieldPlacement>
   title: string
   description: string
   submitLabel: string
@@ -748,6 +822,8 @@ export type FormConfig = {
 export const formConfigInput = z.object({
   enabled: z.boolean().default(false),
   fields: z.array(z.string()).max(50).default([]),
+  columns: z.number().int().min(1).max(FORM_MAX_COLUMNS).default(1),
+  layout: z.record(z.string(), formFieldPlacement).default({}),
   captcha: captchaMode.default('none'),
   title: z.string().trim().max(120).default(''),
   description: z.string().trim().max(500).default(''),

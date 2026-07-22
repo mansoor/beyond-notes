@@ -315,7 +315,11 @@ Two things make tables more than a spreadsheet:
 **Public forms.** Turn any table into a form. Configure the title, description,
 which columns appear, the submit-button label, the thank-you message and whether
 a submission notifies you — then drop `[[form:<id>]]` into any page of a
-published space. Submissions land as rows, tagged with their source. A hidden
+published space. Forms can be laid out in **one, two or three columns**: each
+field picks its column and how many columns it spans, so *Zip* can sit beside
+*City* while *Message* runs the full width. A field can only span as far as the
+last column, so the width choices change with the column you pick. On a phone
+the form always falls back to a single column. Submissions land as rows, tagged with their source. A hidden
 honeypot field and per-IP rate limiting are always on; on top of that you can
 switch on a **built-in math CAPTCHA** (self-hosted, no third party, no network
 calls) or **Google reCAPTCHA v2** if an admin adds keys in Settings →
@@ -383,7 +387,8 @@ Storage:
 Images are re-encoded on upload (max edge 2560, WebP, orientation applied, **EXIF
 and GPS stripped**) with 480px thumbnails. `gallery` pages get a grid manager
 with multi-upload, captions, covers, layouts, a lightbox and optional carousel
-autoplay. Public file access follows the same rule as pages: a file is served
+autoplay. A gallery can carry a **category**; a parent gallery shows its albums
+as cards with those labels and a row of chips to filter them. Public file access follows the same rule as pages: a file is served
 publicly only if it belongs to a currently-live version.
 
 Already have files in one driver and want another? `cli blobs:migrate fs s3`
@@ -553,8 +558,12 @@ world would see.
 1. **+ New space** → *Site*.
 2. Create a page and set its type to **blog** in the page settings — its child
    pages become posts, listed newest-first with pagination and an RSS feed.
-3. Give posts a description, a listing image and `#tags` — tags get their own
-   public pages.
+   Choose how they are listed: a dated **list**, or a **grid** of cards led by
+   their listing images.
+3. Give posts a description, a listing image, a **category** and `#tags` — tags
+   get their own public pages, and categories become filter chips on the blog
+   index. Pick a category from the ones the site already uses, or type a new
+   one; the set is simply whatever the pages use.
 4. Optional: schedule a post to publish itself at a future date/time.
 
 ### Collect submissions with a form

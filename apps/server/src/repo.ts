@@ -73,6 +73,8 @@ export type PageRow = {
   liveVersionId: string | null
   galleryLayout: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
   galleryAutoplaySecs: number | null
+  blogLayout: 'list' | 'grid'
+  category: string | null
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
@@ -432,6 +434,8 @@ export function createRepo(appDb: AppDb) {
           | 'slug'
           | 'galleryLayout'
           | 'galleryAutoplaySecs'
+          | 'blogLayout'
+          | 'category'
           | 'shareEnabled'
           | 'coverAttachmentId'
           | 'icon'
