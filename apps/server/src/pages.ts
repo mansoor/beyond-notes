@@ -1,4 +1,4 @@
-import { pageTypesByCategory } from '@bn/schema'
+import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
@@ -18,18 +18,7 @@ export class PagesError extends Error {
 }
 
 /** A page id plus every descendant's, walked over one space's page list. */
-function subtreeIds(all: PageRow[], rootId: string): string[] {
-  const ids = [rootId]
-  const queue = [rootId]
-  while (queue.length > 0) {
-    const parentId = queue.shift()
-    for (const child of all.filter((p) => p.parentId === parentId)) {
-      ids.push(child.id)
-      queue.push(child.id)
-    }
-  }
-  return ids
-}
+const subtreeIds = (all: PageRow[], rootId: string): string[] => pageSubtreeIds(all, rootId)
 
 function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space is SpaceRow {
   if (!space) throw new PagesError('NOT_FOUND', 'Space not found.')
@@ -515,7 +504,13 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
       user: UserRow,
       input: { pageId: string; content: string; baseUpdatedAt: string },
     ): Promise<{ updatedAt: string }> {
-      await requirePage(input.pageId, user)
+      const { page } = await requirePage(input.pageId, user)
+      // A deleted page must stop accepting writes. Without this the editor left
+      // open on a page someone trashed keeps autosaving into it, and the edits
+      // reappear if the page is ever restored.
+      if (page.trashedAt) {
+        throw new PagesError('NOT_FOUND', 'This page is in the Trash. Restore it to keep editing.')
+      }
       const doc = await repo.getDocument(input.pageId)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       if (doc.updatedAt.getTime() !== new Date(input.baseUpdatedAt).getTime()) {

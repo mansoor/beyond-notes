@@ -7,7 +7,14 @@ import type {
   SpaceCategory,
   SpaceView,
 } from '@bn/schema'
-import { SITE_LOGO_PX, SITE_TITLE_PX, pageTypesByCategory, socialPlatform } from '@bn/schema'
+import {
+  SITE_LOGO_PX,
+  SITE_TITLE_PX,
+  pageAfterRemoval,
+  pageSubtreeIds,
+  pageTypesByCategory,
+  socialPlatform,
+} from '@bn/schema'
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
@@ -1691,6 +1698,24 @@ function PageMenu(props: {
       ]),
   })
   const navigate = useNavigate()
+  const showing = useParams({ strict: false }) as { pageId?: string }
+
+  /**
+   * Archive and trash both take the whole subtree, so the page on screen goes
+   * away when it *or any ancestor* is the one acted on. Read the tree now,
+   * before the mutation invalidates it — finding the neighbour needs the
+   * departing page still in the list to measure from.
+   */
+  const exitIfShowing = (): (() => void) | null => {
+    const all = utils.pages.tree.getData({ spaceId: props.page.spaceId }) ?? []
+    const going = new Set(pageSubtreeIds(all, props.page.id))
+    if (!showing.pageId || !going.has(showing.pageId)) return null
+    const next = pageAfterRemoval(all, props.page.id)
+    return () =>
+      next
+        ? navigate({ to: '/p/$pageId', params: { pageId: next } })
+        : navigate({ to: '/space/$spaceId', params: { spaceId: props.page.spaceId } })
+  }
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 160)
   const duplicate = trpc.pages.duplicate.useMutation({
@@ -1760,7 +1785,8 @@ function PageMenu(props: {
             title="Hide from the sidebar, search, and tasks; restore any time from Archive"
             onClick={() => {
               setOpen(false)
-              archive.mutate({ pageId: props.page.id })
+              const leave = exitIfShowing()
+              archive.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
             }}
           >
             Archive
@@ -1772,7 +1798,8 @@ function PageMenu(props: {
             title="Moves to Trash; restore within 30 days, then it purges"
             onClick={() => {
               setOpen(false)
-              trash.mutate({ pageId: props.page.id })
+              const leave = exitIfShowing()
+              trash.mutate({ pageId: props.page.id }, { onSuccess: () => leave?.() })
             }}
           >
             Delete

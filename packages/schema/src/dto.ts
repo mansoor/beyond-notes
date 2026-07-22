@@ -179,6 +179,60 @@ export type PageMeta = {
   icon: string | null
 }
 
+/** The minimum shape the tree walkers below need: an id and its parent. */
+type TreeNode = { id: string; parentId: string | null }
+
+/**
+ * A page id plus every descendant's, walked over one space's page list.
+ *
+ * Archive, trash, and restore all act on a whole subtree, so both sides need
+ * the same answer to "what goes with it": the server to write the rows, the
+ * browser to know whether the page it is showing was one of them.
+ */
+export function pageSubtreeIds<T extends TreeNode>(all: T[], rootId: string): string[] {
+  const ids = [rootId]
+  const queue = [rootId]
+  while (queue.length > 0) {
+    const parentId = queue.shift()
+    for (const child of all.filter((p) => p.parentId === parentId)) {
+      ids.push(child.id)
+      queue.push(child.id)
+    }
+  }
+  return ids
+}
+
+/**
+ * Where the editor should go when `removedId` and its subtree are taken away:
+ * the next sibling, else the previous one, else the parent. Null means the
+ * space has no pages left and the caller should show its empty state.
+ *
+ * Callers must pass the list as it was *before* the removal — the point is to
+ * find the neighbour, which needs the departing page still in place to measure
+ * from.
+ */
+export function pageAfterRemoval<T extends TreeNode & { position: number }>(
+  all: T[],
+  removedId: string,
+): string | null {
+  const removed = all.find((p) => p.id === removedId)
+  if (!removed) return null
+  const gone = new Set(pageSubtreeIds(all, removedId))
+  const siblings = all
+    .filter((p) => p.parentId === removed.parentId)
+    .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
+  const self = siblings.findIndex((p) => p.id === removedId)
+  for (let i = self + 1; i < siblings.length; i++) {
+    const next = siblings[i]
+    if (next && !gone.has(next.id)) return next.id
+  }
+  for (let i = self - 1; i >= 0; i--) {
+    const prev = siblings[i]
+    if (prev && !gone.has(prev.id)) return prev.id
+  }
+  return removed.parentId && !gone.has(removed.parentId) ? removed.parentId : null
+}
+
 export const galleryLayoutName = z.enum(['grid', 'carousel', 'filmstrip', 'mosaic'])
 export type GalleryLayoutName = z.infer<typeof galleryLayoutName>
 
