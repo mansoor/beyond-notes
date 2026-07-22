@@ -1,3 +1,5 @@
+<img src="apps/web/public/logo.svg" alt="" width="80" />
+
 # Beyond Notes
 
 **Your notes, your wiki, and your website — one self-hosted app you actually own.**

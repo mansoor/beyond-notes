@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="bn-icon-title">
+  <title id="bn-icon-title">Beyond Notes</title>
+  <rect width="64" height="64" rx="15" fill="#5b4fc7"/>
+  <g transform="translate(5.5,4.72) scale(0.84)">
+    <g stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity=".5" fill="none">
+      <path d="M25.1 25.6 L19.6 20.1"/>
+      <path d="M35.4 25.6 L41.1 19.9"/>
+      <path d="M35.4 39.4 L40.9 44.9"/>
+      <path d="M25.1 39.4 L19.6 44.9"/>
+    </g>
+    <rect x="23.5" y="20" width="15" height="20" rx="3.4" fill="#fff" opacity=".45"/>
+    <rect x="21.5" y="22" width="17.5" height="21" rx="3.6" fill="#fff"/>
+    <g stroke="#5b4fc7" stroke-width="2.4" stroke-linecap="round">
+      <path d="M25 27.5 H35.5"/><path d="M25 32.5 H35.5"/><path d="M25 37.5 H31"/>
+    </g>
+    <g fill="none" stroke="#bff0da" stroke-width="2.9">
+      <circle cx="12.8" cy="12.8" r="7.2"/><path d="M5.6 12.8 H20"/><ellipse cx="12.8" cy="12.8" rx="3.1" ry="7.2"/>
+    </g>
+    <g fill="none" stroke="#fff" stroke-width="2.9" stroke-linejoin="round">
+      <path d="M50 9.5 C 47.6 7.6, 45.2 7.6, 43.4 8.6 V18.4 C45.2 17.4, 47.6 17.4, 50 19.2"/>
+      <path d="M50 9.5 C 52.4 7.6, 54.8 7.6, 56.6 8.6 V18.4 C54.8 17.4, 52.4 17.4, 50 19.2"/>
+      <path d="M50 9.5 V19.2"/>
+    </g>
+    <g stroke="#fff" stroke-width="2.7" fill="none" stroke-linejoin="round">
+      <rect x="43.2" y="43.2" width="14.4" height="14.4" rx="2.8"/><path d="M43.2 48.4 H57.6"/><path d="M50.4 48.4 V57.6"/>
+    </g>
+    <g stroke="#fff" stroke-width="2.9" fill="none" stroke-linecap="round" opacity=".72">
+      <path d="M9.8 48.4 V45.8 A3.7 3.7 0 0 1 17.2 45.8 V48.4"/>
+    </g>
+    <rect x="6.6" y="48.4" width="14" height="10.4" rx="2.8" fill="#fff" opacity=".72"/>
+  </g>
+</svg>
