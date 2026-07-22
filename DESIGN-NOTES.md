@@ -197,6 +197,21 @@ and anchors are *rebuilt from the parts*, with the href checked against
 `<script>` is not stripped — it is simply never a shape this function produces,
 and it renders as the visible text the author typed.
 
+## The site chrome is a band (v0.9)
+
+The published header ran 18 / 14 / 44: 18px above the brand, 14px between the
+tagline and the nav, then 44px of nothing before the page. The nav read as part
+of the brand block, and the gap below it looked like an accident. It is now
+26 / 20 / 16 + a hairline + 32, with the rule under the header mirroring the one
+above the footer — same width, same colour, so the chrome is closed the way it
+is opened.
+
+**One stylesheet, one order.** `SITE_CSS` is emitted verbatim, so source order
+*is* the cascade: the `@media(max-width:640px)` block sat above the `main` rule
+and lost to it on equal specificity, and phones kept 40px of side padding on the
+content while the header dropped to 20px. It now goes last. Anything added
+below it will silently fail to apply on a phone — put new rules above.
+
 ## Milestone history
 
 - **v0.1.0** — settings tabs, TOTP 2FA (hand-rolled RFC 6238, verified against

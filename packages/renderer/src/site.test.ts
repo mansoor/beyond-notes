@@ -172,10 +172,34 @@ describe('site layout width', () => {
     // one shared variable, referenced by all three — a regression to separate
     // pixel widths (the header once ran 1140 vs main's 880) would break this
     expect(html).toContain('--site-w:960px')
-    expect(html).toContain('header{padding:18px 40px;max-width:var(--site-w)')
+    expect(html).toMatch(/header\{[^}]*max-width:var\(--site-w\)/)
     expect(html).toContain('main{max-width:var(--site-w)')
     expect(html).toMatch(/footer\{[^}]*max-width:var\(--site-w\)/)
     // no stray fixed max-widths left on the chrome
     expect(html).not.toContain('max-width:1140px')
+  })
+
+  it('lets the phone rules override the desktop ones', () => {
+    // they used to be declared above `main`, and lost to it on equal
+    // specificity: the header shrank to 20px side padding on a phone while the
+    // content stayed at 40px, so the two no longer lined up
+    const html = sitePage({ ...base, nav: [] })
+    const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+    expect(css.indexOf('@media(max-width:640px)')).toBeGreaterThan(
+      css.indexOf('main{max-width:var(--site-w)'),
+    )
+    expect(css.indexOf('@media(max-width:640px)')).toBeGreaterThan(css.indexOf('footer{border-top'))
+  })
+
+  it('closes the header with a rule, the way the footer opens with one', () => {
+    // the chrome used to end in a 44px void with nothing to explain it: the nav
+    // sat 14px under the tagline and 44px above the page
+    const html = sitePage({ ...base, nav: [{ title: 'Home', path: '/', active: true }] })
+    expect(html).toMatch(/header\{[^}]*border-bottom:1px solid var\(--border\)/)
+    expect(html).toMatch(/footer\{[^}]*border-top:1px solid var\(--border\)/)
+    // and the nav gets more room under the brand than it used to
+    expect(html).toContain(
+      '.hl-centered .brand{justify-content:center;text-align:center;margin-bottom:20px}',
+    )
   })
 })
