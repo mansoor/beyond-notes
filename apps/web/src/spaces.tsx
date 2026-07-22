@@ -18,7 +18,7 @@ import {
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ErrorNote,
   Field,
@@ -85,7 +85,7 @@ export function SpacesNav() {
       <button
         type="button"
         onClick={() => setCreating('notebook')}
-        className="text-left text-sm px-2 py-1 rounded"
+        className="text-left text-sm px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5"
         style={{ color: 'var(--text-3)' }}
       >
         ＋ New space
@@ -366,9 +366,51 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
   )
 }
 
+/**
+ * Which spaces the sidebar is showing collapsed, remembered in this browser
+ * only. We store the *collapsed* set, not the expanded one, so a brand-new
+ * space defaults to open without needing an entry — and a wiped/absent key
+ * simply means "everything expanded", the old behaviour.
+ */
+const COLLAPSED_KEY = 'bn-collapsed-spaces'
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? (arr as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Per-space expand state, persisted to localStorage. Returns [expanded, toggle]. */
+function useSpaceExpanded(spaceId: string): [boolean, () => void] {
+  const [expanded, setExpanded] = useState(() => !readCollapsed().has(spaceId))
+  // reconcile once on mount in case another SpaceItem wrote the key first
+  useEffect(() => {
+    setExpanded(!readCollapsed().has(spaceId))
+  }, [spaceId])
+  const toggle = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev
+      const set = readCollapsed()
+      if (next) set.delete(spaceId)
+      else set.add(spaceId)
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
+      } catch {
+        // private mode or a full quota: the toggle still works this session
+      }
+      return next
+    })
+  }, [spaceId])
+  return [expanded, toggle]
+}
+
 function SpaceItem(props: { space: SpaceView }) {
   const utils = trpc.useUtils()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, toggleExpanded] = useSpaceExpanded(props.space.id)
   const tree = trpc.pages.tree.useQuery({ spaceId: props.space.id }, { enabled: expanded })
   const createPage = trpc.pages.create.useMutation()
   const navigate = useNavigate()
@@ -445,10 +487,16 @@ function SpaceItem(props: { space: SpaceView }) {
         className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
         style={{ color: 'var(--text-2)' }}
       >
-        <button type="button" onClick={() => setExpanded(!expanded)} className="w-4 text-xs">
+        <button type="button" onClick={toggleExpanded} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
-        <span className="truncate">{props.space.name}</span>
+        <span
+          className="truncate select-none cursor-default"
+          onDoubleClick={toggleExpanded}
+          title="Double-click to expand or collapse"
+        >
+          {props.space.name}
+        </span>
         {props.space.personal && (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal space">
             ⛭
