@@ -310,3 +310,34 @@ describe('syntax highlighting', () => {
     expect(stripped).toBe(src)
   })
 })
+
+describe('docs search box', () => {
+  const html = docsShell({
+    siteTitle: 'My Wiki',
+    footer: '',
+    basePath: '',
+    nav: [],
+    pageTitle: 'Home',
+    contentHtml: '<p>hi</p>',
+  })
+
+  it('is twice the old width and holds a recents dropdown', () => {
+    expect(html).toContain('width:360px') // was 180px
+    expect(html).toContain('<div class="recents" hidden>')
+    // the browser's own history popup would sit on top of ours
+    expect(html).toContain('autocomplete="off"')
+  })
+
+  it("keeps the history in the visitor's browser, keyed per site", () => {
+    // never posted anywhere: the only storage is localStorage, namespaced by the
+    // form action so two wikis on one origin cannot see each other's searches
+    expect(html).toContain("'bn-recent:'+(form.getAttribute('action')||'/')")
+    expect(html).toContain('localStorage')
+  })
+
+  it('builds suggestions with textContent, never innerHTML', () => {
+    const script = html.slice(html.indexOf('bn-recent'), html.indexOf('bn-recent') + 2500)
+    expect(script).toContain('textContent')
+    expect(script).not.toContain('innerHTML')
+  })
+})
