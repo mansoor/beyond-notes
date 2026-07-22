@@ -130,6 +130,73 @@ this, the notes are gone" ceremony), or a key derived from the account password
 (no second secret, but a password change means re-encrypting and the CLI reset
 would orphan locked notes). Both were considered and deferred, not overlooked.
 
+## Categories are derived, not curated (v0.9, decided 2026-07-22)
+
+A blog post or a gallery holds one **category** as free text on the page. There
+is no categories table: the list a picker offers is the distinct set the pages
+of that space already use, so a category is created by naming it and retires
+when its last page lets it go.
+
+The cost is real — two spellings are two categories — and it is paid down by
+offering the existing names first and matching case-insensitively when the set
+is derived. What it buys is that there is nothing to keep in sync: no orphan
+rows, no rename cascade, no "delete category → what happens to its pages?"
+dialog. Tags already cover many-to-many; categories are the single-value axis
+that fits in a dropdown, which is exactly why they are worth having as well.
+
+Categories and the blog's **list/grid** choice are *live presentation*, like the
+nav icon: they read from the page row at serve time, not from the frozen
+snapshot. Recategorising or switching layout shows immediately without a
+republish, which is what a reader-facing filter has to do to be useful.
+
+Filtering is `?category=<slug>` on the blog index and on a parent gallery. The
+chips are the only route to a filtered view — an unrecognised slug is ignored
+rather than 404ing, so a stale link degrades to the full list.
+
+## Form layout: a grid the author declares, not one inferred (v0.9)
+
+Multi-column forms let each field name its **column** and its **span**. Fields
+flow in order and a new row starts when the column is already taken, which is
+plain CSS grid auto-placement — so what the author declares is what renders,
+including a deliberate gap.
+
+Two things make it safe. The clamp (`normalizeFormLayout`) lives in `@bn/schema`
+so the browser's dropdowns and the saved config cannot disagree about what fits;
+narrowing a 4-column form to 2 refits every field instead of stranding one. And
+placement travels as `--c` / `--w` custom properties rather than an inline
+`grid-column`, because the phone breakpoint has to collapse everything to one
+column and an inline style would outrank the media query.
+
+The cap is **four**, which is more than a usable public form wants — the point
+is room to arrange, not to fill. Wide grids degrade in two steps: `.bn-form-dense`
+(3–4 columns) halves on a tablet, then everything flattens on a phone. The phone
+rule has to name the dense selector too, or it loses on specificity and a
+4-column form stops at two columns on a phone. That one was found by measuring
+the rendered grid at three widths, not by reading the CSS.
+
+**One table, not two.** Which fields are on the form, what they are called and
+where they sit is a single decision, so it is a single table: tick box, field
+name, label, position, width, order. The controls stay visible but inert for a
+field that is off (or a form with no grid) rather than appearing and
+disappearing, so the table does not reflow while you work down it.
+
+**Blocks are furniture, not data.** A separator and a text block sit in the same
+order and the same grid as the fields but carry no value, so `fields` still
+means "columns that accept input" and `submitForm` needed no change at all. They
+live in `blocks` with their own ids, and one `order` array interleaves the two —
+a divider's entire meaning is which fields it sits between, so ordering had to
+become explicit (which also, finally, lets fields be reordered independently of
+the table's columns). A block id that collides with a column id is dropped on
+save: two things cannot own one slot.
+
+**Links in labels, and nothing else.** A label or note may carry
+`[text](https://…)` because "I accept the [terms]" is the case that keeps coming
+up. It is not a markdown renderer and not sanitised HTML: the text is escaped
+and anchors are *rebuilt from the parts*, with the href checked against
+`https?:` / `mailto:` / a site-relative path. A `javascript:` href or a pasted
+`<script>` is not stripped — it is simply never a shape this function produces,
+and it renders as the visible text the author typed.
+
 ## Milestone history
 
 - **v0.1.0** — settings tabs, TOTP 2FA (hand-rolled RFC 6238, verified against

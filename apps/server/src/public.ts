@@ -8,6 +8,8 @@ import {
   analyticsHtml,
   buildRss,
   buildSitemap,
+  categoryFilterHtml,
+  categorySlug,
   docs404,
   docsSearchResults,
   docsShell,
@@ -28,10 +30,12 @@ import type {
   AlbumCard,
   Crumb,
   FormCaptchaInput,
+  FormItemInput,
   SiteMeta,
   SiteNavItem,
   SocialLink,
 } from '@bn/renderer'
+import { clampFormColumns, normalizeFormLayout, normalizeFormOrder } from '@bn/schema'
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
@@ -400,9 +404,24 @@ export function createPublicServer(
           cover: c.entry.version.coverAttachmentId
             ? `/api/files/${c.entry.version.coverAttachmentId}/thumb`
             : null,
+          // the category lives on the live page, not the snapshot — like the
+          // nav icon, recategorising is presentation and needs no republish
+          category: c.entry.page.category,
           blogPath,
         }))
         .sort((a, b) => b.date.getTime() - a.date.getTime())
+    }
+
+    /** ?category=<slug>, as a slug — the one place the query param is read. */
+    const askedCategory = typeof query.category === 'string' ? query.category.toLowerCase() : ''
+    /** Distinct categories over a set of live pages, in display order. */
+    const categoriesOf = (names: Array<string | null | undefined>): string[] => {
+      const seen = new Map<string, string>()
+      for (const name of names) {
+        const trimmed = name?.trim()
+        if (trimmed && !seen.has(trimmed.toLowerCase())) seen.set(trimmed.toLowerCase(), trimmed)
+      }
+      return [...seen.values()].sort((a, b) => a.localeCompare(b))
     }
 
     // per-page opt-in share buttons, composed at serve time (needs the host)
@@ -523,7 +542,17 @@ export function createPublicServer(
     // blog index page: own content + dated post list
     if (hit.entry.page.pageType === 'blog') {
       const POSTS_PER_PAGE = 10
-      const all = await postsOfBlog(hit.entry.page.id, hit.path)
+      const everything = await postsOfBlog(hit.entry.page.id, hit.path)
+      // chips list every category the blog has, even while filtered — the way
+      // back out of a filter has to stay on the page
+      const categories = categoriesOf(everything.map((p) => p.category))
+      const activeCategory =
+        askedCategory && categories.some((c) => categorySlug(c) === askedCategory)
+          ? askedCategory
+          : null
+      const all = activeCategory
+        ? everything.filter((p) => p.category && categorySlug(p.category) === activeCategory)
+        : everything
       const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE))
       const pageNum = Math.min(
         totalPages,
@@ -552,7 +581,11 @@ export function createPublicServer(
             date: p.date.toISOString().slice(0, 10),
             snippet: p.snippet,
             cover: p.cover,
+            category: p.category,
           })),
+          layout: hit.entry.page.blogLayout,
+          categories,
+          activeCategory,
           crumbs: crumbsFor(hit),
           rssPath: '/rss.xml',
           meta: metaFor(hit),
@@ -599,6 +632,7 @@ export function createPublicServer(
           rssPath,
           meta: metaFor(hit, 'article'),
           tags: tagsOf(hit),
+          category: hit.entry.page.category,
         }),
       )
       return
@@ -620,10 +654,26 @@ export function createPublicServer(
           coverUrl:
             c.entry.version.html.match(/class="cell" href="[^"]*"><img src="([^"]+)"/)?.[1] ?? null,
           count: (c.entry.version.html.match(/class="cell"/g) ?? []).length,
+          category: c.entry.page.category,
         }))
+      // albums narrow the same way posts do, on the same query param
+      const albumCategories = categoriesOf(albums.map((a) => a.category))
+      const activeCategory =
+        askedCategory && albumCategories.some((c) => categorySlug(c) === askedCategory)
+          ? askedCategory
+          : null
+      const shown = activeCategory
+        ? albums.filter((a) => a.category && categorySlug(a.category) === activeCategory)
+        : albums
       const rest = children.filter((c) => c.entry.page.pageType !== 'gallery')
       extras =
-        albumCardsHtml(albums, basePath) +
+        categoryFilterHtml({
+          categories: albumCategories,
+          active: activeCategory,
+          basePath,
+          path: hit.path,
+        }) +
+        albumCardsHtml(shown, basePath) +
         sectionListHtml(
           rest.map((c) => ({ title: c.title, path: c.path })),
           basePath,
@@ -755,16 +805,38 @@ async function renderFormById(
     columns = []
   }
   const byId = new Map(columns.map((c) => [c.id, c]))
-  const fields = form.fields
-    .map((fid) => byId.get(fid))
-    .filter((c): c is DbColumn => Boolean(c))
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      type: c.type,
-      required: c.required,
-      choices: c.choices,
-    }))
+  const blockById = new Map((form.blocks ?? []).map((b) => [b.id, b]))
+  // forms saved before layouts existed carry neither columns nor placements —
+  // normalize rather than trust, and they render as the stack they always were
+  const formColumns = clampFormColumns(form.columns)
+  const order = normalizeFormOrder(
+    [...form.fields, ...(form.blocks ?? []).map((b) => b.id)],
+    form.order,
+  )
+  const placements = normalizeFormLayout(order, formColumns, form.layout)
+  // one ordered stream: a divider only means anything relative to the fields
+  // it sits between
+  const fields: FormItemInput[] = order.flatMap((itemId): FormItemInput[] => {
+    const at = placements[itemId] ?? { col: 1, width: 1 }
+    const block = blockById.get(itemId)
+    if (block) {
+      return [{ item: block.kind, id: block.id, text: block.text, col: at.col, width: at.width }]
+    }
+    const c = byId.get(itemId)
+    if (!c) return []
+    return [
+      {
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        required: c.required,
+        choices: c.choices,
+        label: form.labels?.[c.id] ?? '',
+        col: at.col,
+        width: at.width,
+      },
+    ]
+  })
 
   const siteKey = security.recaptchaSiteKey()
   const mode = effectiveCaptchaMode(form.captcha ?? 'none', Boolean(siteKey))
@@ -787,6 +859,7 @@ async function renderFormById(
       successMessage: form.successMessage,
       fields,
       captcha,
+      columns: formColumns,
     }),
     recaptcha,
   }

@@ -13,8 +13,9 @@ export type UserRow = {
   emailNotifications: boolean
   /** JSON array of hidden sidebar tokens, e.g. ["cat:site","space:abc"] */
   sidebarHidden: string
-  /** how many days ahead "Coming up" reaches on the Today page */
-  comingUpDays: number
+  /** how many days ahead "Coming up" reaches for tasks, and for reminders */
+  taskDays: number
+  reminderDays: number
   createdAt: Date
 }
 
@@ -73,6 +74,8 @@ export type PageRow = {
   liveVersionId: string | null
   galleryLayout: 'grid' | 'carousel' | 'filmstrip' | 'mosaic'
   galleryAutoplaySecs: number | null
+  blogLayout: 'list' | 'grid'
+  category: string | null
   shareEnabled: boolean
   coverAttachmentId: string | null
   metaDescription: string | null
@@ -297,7 +300,8 @@ export function createRepo(appDb: AppDb) {
           | 'name'
           | 'email'
           | 'emailNotifications'
-          | 'comingUpDays'
+          | 'taskDays'
+          | 'reminderDays'
         >
       >,
     ): Promise<void> {
@@ -432,6 +436,8 @@ export function createRepo(appDb: AppDb) {
           | 'slug'
           | 'galleryLayout'
           | 'galleryAutoplaySecs'
+          | 'blogLayout'
+          | 'category'
           | 'shareEnabled'
           | 'coverAttachmentId'
           | 'icon'

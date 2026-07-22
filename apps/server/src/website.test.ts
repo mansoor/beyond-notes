@@ -528,5 +528,59 @@ for (const dialect of dialects) {
       // restore for any later assertions
       await publishing.updateSpacePublishing(user, { ...base, theme: 'ink', appearance: 'auto' })
     })
+
+    it('categories label posts, filter the index, and survive without a republish', async () => {
+      const essay = await makePage(siteSpaceId, blogId, 'Slow software', 'It waits for you')
+      const build = await makePage(siteSpaceId, blogId, 'Wiring the box', 'Solder and swearing')
+      await publishing.publish(user, essay.id)
+      await publishing.publish(user, build.id)
+      await pagesSvc.updatePageOptions(user, { pageId: essay.id, category: 'Essays' })
+      // categorised AFTER publishing: the category is live presentation, so it
+      // must show without touching the frozen snapshot
+      await pagesSvc.updatePageOptions(user, { pageId: build.id, category: 'Workshop' })
+
+      const blog = await get('/blog')
+      expect(blog.body).toContain('class="cfilter"')
+      expect(blog.body).toContain('href="/blog?category=essays"')
+      expect(blog.body).toContain('href="/blog?category=workshop"')
+      expect(blog.body).toContain('Slow software')
+      expect(blog.body).toContain('Wiring the box')
+
+      // filtering keeps one and drops the other
+      const filtered = await get('/blog?category=essays')
+      expect(filtered.statusCode).toBe(200)
+      expect(filtered.body).toContain('Slow software')
+      expect(filtered.body).not.toContain('Wiring the box')
+      // the chip in force is marked, and All still leads back out
+      expect(filtered.body).toContain('<a class="on" href="/blog?category=essays">')
+      expect(filtered.body).toContain('>All</a>')
+
+      // an unknown category is not a 404 and not an empty page — it is ignored
+      const bogus = await get('/blog?category=does-not-exist')
+      expect(bogus.statusCode).toBe(200)
+      expect(bogus.body).toContain('Slow software')
+      expect(bogus.body).toContain('Wiring the box')
+
+      // the post carries its category, linked back to its siblings
+      const post = await get('/blog/slow-software')
+      expect(post.body).toContain('href="/blog?category=essays"')
+      expect(post.body).toContain('>Essays</a>')
+    })
+
+    it('a blog page can show its posts as a grid of cards', async () => {
+      const list = await get('/blog')
+      expect(list.body).toContain('<div class="postlist">')
+
+      await pagesSvc.updatePageOptions(user, { pageId: blogId, blogLayout: 'grid' })
+      // no republish: the post list is composed when a reader asks for it
+      const grid = await get('/blog')
+      expect(grid.body).toContain('<div class="postgrid">')
+      expect(grid.body).not.toContain('<div class="postlist">')
+      expect(grid.body).toContain('class="ptitle"')
+      // covers still come from the published snapshot
+      expect(grid.body).toContain('/api/files/coverpick111111111111/thumb')
+
+      await pagesSvc.updatePageOptions(user, { pageId: blogId, blogLayout: 'list' })
+    })
   })
 }

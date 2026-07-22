@@ -154,46 +154,79 @@ function AppearanceTab() {
 /**
  * How far ahead "Coming up" reaches on the Today page. It used to be seven
  * hard-coded days for tasks and no limit at all for reminders, which is how a
- * reminder for next spring ended up on today's page.
+ * reminder for next spring ended up on today's page — and then one setting for
+ * both, which made a useful task horizon a useless reminder one.
  */
 function ComingUpCard() {
   const prefs = useSidebarPrefs()
-  const [days, setDays] = useState<number | null>(null)
-  const value = days ?? prefs.comingUpDays
-
-  const commit = async (next: number) => {
-    const clamped = Math.min(Math.max(Math.round(next), 1), 90)
-    setDays(clamped)
-    await prefs.setComingUpDays(clamped)
-  }
-
   return (
     <Card title="Today page">
-      <label className="block mb-1">
-        <span className="block text-sm font-medium mb-1">“Coming up” looks ahead</span>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={1}
-            max={90}
-            className="w-24 rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={value}
-            disabled={prefs.saving}
-            onChange={(e) => setDays(Number(e.target.value))}
-            onBlur={(e) => commit(Number(e.target.value))}
-          />
-          <span className="text-sm" style={{ color: 'var(--text-2)' }}>
-            days
-          </span>
-        </div>
-      </label>
-      <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-        Tasks and reminders further out than this stay off the Today page. A reminder with a
+      <span className="block text-sm font-medium mb-2">“Coming up” looks ahead</span>
+      <div className="flex flex-wrap gap-6">
+        <HorizonField
+          label="Tasks"
+          hint="due dates on checklist items"
+          value={prefs.taskDays}
+          saving={prefs.saving}
+          onCommit={(taskDays) => prefs.setHorizons({ taskDays })}
+        />
+        <HorizonField
+          label="Reminders"
+          hint="usually set further out"
+          value={prefs.reminderDays}
+          saving={prefs.saving}
+          onCommit={(reminderDays) => prefs.setHorizons({ reminderDays })}
+        />
+      </div>
+      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+        Anything further out than its own horizon stays off the Today page. A reminder with a
         heads-up window is the exception — it appears when its own window opens, however far away
         the date is, which is what that setting is for.
       </p>
     </Card>
+  )
+}
+
+function HorizonField(props: {
+  label: string
+  hint: string
+  value: number
+  saving: boolean
+  onCommit: (days: number) => Promise<unknown>
+}) {
+  // local while typing, server value once committed — so a half-typed "1" on
+  // the way to "14" is not saved and echoed back
+  const [draft, setDraft] = useState<number | null>(null)
+  const value = draft ?? props.value
+
+  return (
+    <label className="block">
+      <span className="block text-sm mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          max={90}
+          className="w-20 rounded-lg border px-3 py-2 text-sm"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={value}
+          disabled={props.saving}
+          onChange={(e) => setDraft(Number(e.target.value))}
+          onBlur={async (e) => {
+            const clamped = Math.min(Math.max(Math.round(Number(e.target.value)) || 1, 1), 90)
+            setDraft(clamped)
+            await props.onCommit(clamped)
+            setDraft(null)
+          }}
+        />
+        <span className="text-sm" style={{ color: 'var(--text-2)' }}>
+          days
+        </span>
+      </div>
+      <span className="block text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+        {props.hint}
+      </span>
+    </label>
   )
 }
 

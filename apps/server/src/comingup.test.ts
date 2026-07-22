@@ -44,6 +44,43 @@ describe('isComingUp', () => {
   })
 })
 
+/**
+ * The Today page runs the same rule twice, with a horizon each. This is the
+ * filter from Journal.tsx, lifted verbatim — the two lists must not borrow one
+ * another's reach.
+ */
+describe('two horizons', () => {
+  const today = '2026-07-21'
+  const taskHorizon = { today, horizonDays: 21 }
+  const reminderHorizon = { today, horizonDays: 45 }
+
+  const tasks = [
+    { text: 'File expenses', due: '2026-07-30' }, // inside 21 days
+    { text: 'Quarterly review', due: '2026-08-30' }, // outside 21, inside 45
+  ]
+  const reminders = [
+    { title: 'Dentist', dueDate: '2026-08-20' }, // 30 days: inside 45
+    { title: 'Passport', dueDate: '2026-09-19' }, // 60 days: outside both
+  ]
+
+  it('reaches further for reminders without dragging tasks along', () => {
+    expect(
+      tasks.filter((t) => isComingUp({ dueDate: t.due }, taskHorizon)).map((t) => t.text),
+    ).toEqual(['File expenses'])
+    expect(reminders.filter((r) => isComingUp(r, reminderHorizon)).map((r) => r.title)).toEqual([
+      'Dentist',
+    ])
+  })
+
+  it('shows the same date in one list and not the other', () => {
+    // 30 days out: past the task horizon, inside the reminder one. Before the
+    // split, one number had to be wrong for one of them.
+    const inThirty = { dueDate: '2026-08-20' }
+    expect(isComingUp(inThirty, taskHorizon)).toBe(false)
+    expect(isComingUp(inThirty, reminderHorizon)).toBe(true)
+  })
+})
+
 describe('shiftDayKey', () => {
   it('crosses months, years and a leap day without drifting', () => {
     expect(shiftDayKey('2026-07-31', 1)).toBe('2026-08-01')

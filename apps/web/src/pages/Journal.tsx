@@ -72,11 +72,13 @@ export function JournalPage() {
   // tasks and reminders landing inside the horizon, one list sorted by date.
   // Overdue/today items live in the column, not here.
   //
-  // The horizon is a setting (Settings › Appearance) because it used to be seven
-  // hard-coded days for tasks and *nothing at all* for reminders — so a reminder
-  // set for next spring sat on the Today page all year.
-  const horizonDays = status.data?.me?.comingUpDays ?? 7
-  const horizon = { today, horizonDays }
+  // The horizons are settings (Settings › Appearance) because this used to be
+  // seven hard-coded days for tasks and *nothing at all* for reminders — so a
+  // reminder set for next spring sat on the Today page all year. They are two
+  // settings because the answers differ: a task due in six weeks is noise
+  // today, a reminder six weeks out may be why it was written down.
+  const taskHorizon = { today, horizonDays: status.data?.me?.taskDays ?? 7 }
+  const reminderHorizon = { today, horizonDays: status.data?.me?.reminderDays ?? 7 }
   type ComingUp =
     | { kind: 'reminder'; key: string; icon: string; title: string; date: string; hint: string }
     | {
@@ -93,7 +95,7 @@ export function JournalPage() {
       }
   const comingUp: ComingUp[] = [
     ...(reminders.data ?? [])
-      .filter((r) => !r.completed && isComingUp(r, horizon))
+      .filter((r) => !r.completed && isComingUp(r, reminderHorizon))
       .map(
         (r): ComingUp => ({
           kind: 'reminder',
@@ -105,7 +107,7 @@ export function JournalPage() {
         }),
       ),
     ...(agenda.data ?? [])
-      .filter((t) => !t.checked && t.due !== null && isComingUp({ dueDate: t.due }, horizon))
+      .filter((t) => !t.checked && t.due !== null && isComingUp({ dueDate: t.due }, taskHorizon))
       .map(
         (t): ComingUp => ({
           kind: 'task',

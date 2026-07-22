@@ -25,9 +25,12 @@ export const users = sqliteTable('users', {
   // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
   // working, it just stops taking up room in the sidebar.
   sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
-  // how far ahead the Today page looks for "Coming up". Without a horizon a
-  // reminder set for next spring sits on today's page all year.
-  comingUpDays: integer('coming_up_days').notNull().default(7),
+  // How far ahead the Today page looks for "Coming up", per kind: a task list
+  // and a reminder list answer different questions, so they get their own
+  // horizons. (`coming_up_days` is the tasks one — it predates the split and
+  // was not renamed, because renaming a column costs a rebuild on SQLite.)
+  taskDays: integer('coming_up_days').notNull().default(7),
+  reminderDays: integer('reminder_days').notNull().default(7),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -118,6 +121,12 @@ export const pages = sqliteTable('pages', {
     .default('grid'),
   // carousel auto-rotate interval in seconds; null = off
   galleryAutoplaySecs: integer('gallery_autoplay_secs'),
+  // how a blog page lays its posts out; ignored on other page types
+  blogLayout: text('blog_layout', { enum: ['list', 'grid'] })
+    .notNull()
+    .default('list'),
+  // free-text taxonomy for blog posts and galleries; null = uncategorised
+  category: text('category'),
   shareEnabled: integer('share_enabled', { mode: 'boolean' }).notNull().default(false),
   coverAttachmentId: text('cover_attachment_id'),
   metaDescription: text('meta_description'),

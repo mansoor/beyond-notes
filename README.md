@@ -79,7 +79,7 @@ linux/arm64 — so Intel/AMD servers *and* Apple Silicon / Raspberry Pi 4+ / ARM
 VPSes) to GitHub Container Registry:
 
 ```
-ghcr.io/mansoor/beyond-notes:v0.8.0   # pinned version (recommended)
+ghcr.io/mansoor/beyond-notes:v0.8.1   # pinned version (recommended)
 ghcr.io/mansoor/beyond-notes:latest   # moving tag
 ```
 
@@ -279,7 +279,10 @@ became.
 ### Day, Inbox, Tasks, Reminders
 
 - **Today** — a date-keyed journal page plus everything due today, and a
-  "Coming up" rail for the near horizon.
+  "Coming up" rail for what is nearly here. Tasks and reminders get **separate
+  horizons** (Settings → Appearance): a fortnight of tasks is a working week's
+  worth of warning, while a reminder set for a renewal in two months is the
+  whole reason you wrote it down.
 - **Inbox** — frictionless capture. No title, no filing. Later, promote a memo
   into a note, the journal, or a task.
 - **Tasks** — a global agenda built from **checkbox blocks anywhere in your
@@ -309,13 +312,29 @@ tables. A table is a simple, editable grid:
   min/max, min/max length, regex pattern
 - Rows added, edited and deleted inline; duplicate, rename, move, archive or
   restore a whole table from its **⋯ menu**
+- A spreadsheet grid: numbered rows in a gutter that stays put while you scroll
+  sideways, cells that edit in place, and **columns you can drag to any width**
+  (double-click the divider — or press Home on it — to go back to the default).
+  Widths are remembered per table in your browser
 
 Two things make tables more than a spreadsheet:
 
 **Public forms.** Turn any table into a form. Configure the title, description,
 which columns appear, the submit-button label, the thank-you message and whether
 a submission notifies you — then drop `[[form:<id>]]` into any page of a
-published space. Submissions land as rows, tagged with their source. A hidden
+published space. Forms can be laid out in **up to four columns**: one table
+lists every column of the table with a tick box, a **position** and a **width**,
+so *Zip* can sit beside *City* while *Message* runs the full width. A field can
+only span as far as the last position, so the width choices change with the
+position you pick. Narrow screens step down — a wide form halves on a tablet,
+and everything falls back to a single column on a phone.
+
+The same table carries three more things: an optional **label** that replaces
+the column name, **separators** (a horizontal rule between groups of questions)
+and **text blocks** (a line of explanation among the fields). Labels and text
+blocks may carry a link, written as `[terms](https://example.com/terms)` — links
+are the only markup allowed, and anything else is shown as the plain text it is.
+Use ↑ ↓ to order everything, including where a separator falls. Submissions land as rows, tagged with their source. A hidden
 honeypot field and per-IP rate limiting are always on; on top of that you can
 switch on a **built-in math CAPTCHA** (self-hosted, no third party, no network
 calls) or **Google reCAPTCHA v2** if an admin adds keys in Settings →
@@ -383,7 +402,8 @@ Storage:
 Images are re-encoded on upload (max edge 2560, WebP, orientation applied, **EXIF
 and GPS stripped**) with 480px thumbnails. `gallery` pages get a grid manager
 with multi-upload, captions, covers, layouts, a lightbox and optional carousel
-autoplay. Public file access follows the same rule as pages: a file is served
+autoplay. A gallery can carry a **category**; a parent gallery shows its albums
+as cards with those labels and a row of chips to filter them. Public file access follows the same rule as pages: a file is served
 publicly only if it belongs to a currently-live version.
 
 Already have files in one driver and want another? `cli blobs:migrate fs s3`
@@ -553,8 +573,12 @@ world would see.
 1. **+ New space** → *Site*.
 2. Create a page and set its type to **blog** in the page settings — its child
    pages become posts, listed newest-first with pagination and an RSS feed.
-3. Give posts a description, a listing image and `#tags` — tags get their own
-   public pages.
+   Choose how they are listed: a dated **list**, or a **grid** of cards led by
+   their listing images.
+3. Give posts a description, a listing image, a **category** and `#tags` — tags
+   get their own public pages, and categories become filter chips on the blog
+   index. Pick a category from the ones the site already uses, or type a new
+   one; the set is simply whatever the pages use.
 4. Optional: schedule a post to publish itself at a future date/time.
 
 ### Collect submissions with a form
@@ -647,7 +671,7 @@ docker compose up -d
 
 Migrations run on boot, forward-only and additive, so an older database against
 a newer image is the supported path. Take a backup first anyway. Pinning
-`:v0.8.0` instead of `:latest` means upgrades happen when *you* decide.
+`:v0.8.1` instead of `:latest` means upgrades happen when *you* decide.
 
 ---
 

@@ -7,7 +7,15 @@ import type {
   DbColumnType,
   DbRowView,
   DbTableView,
+  FormBlock,
   FormConfig,
+  FormFieldPlacement,
+} from '@bn/schema'
+import {
+  FORM_MAX_COLUMNS,
+  formWidthChoices,
+  normalizeFormLayout,
+  normalizeFormOrder,
 } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
@@ -27,6 +35,84 @@ const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
 ]
 
 const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : String(v))
+
+// ---- grid geometry ----
+
+const GUTTER_WIDTH = 44
+const ACTIONS_WIDTH = 34
+const MIN_COL_WIDTH = 64
+const MAX_COL_WIDTH = 720
+/** Room for the value a type usually holds — the starting point, not a rule. */
+const TYPE_WIDTH: Record<DbColumnType, number> = {
+  text: 200,
+  longtext: 300,
+  number: 120,
+  checkbox: 90,
+  date: 140,
+  select: 170,
+  email: 220,
+}
+
+/** A column opens wide enough for its own heading, then the user owns it. */
+function defaultColumnWidth(col: { name: string; type: DbColumnType }): number {
+  return Math.min(MAX_COL_WIDTH, Math.max(TYPE_WIDTH[col.type] ?? 180, col.name.length * 8 + 60))
+}
+
+const widthKey = (tableId: string) => `bn-colw:${tableId}`
+
+function readWidths(tableId: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(widthKey(tableId))
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Column widths, per table, in this browser. A view preference like the
+ * sidebar splitter — not part of the table's shape, so it does not travel with
+ * the data or fight another member's idea of the right width.
+ */
+function useColumnWidths(tableId: string) {
+  const [widths, setWidths] = useState<Record<string, number>>(() => readWidths(tableId))
+  // the ref is written by set/reset rather than during render: a drag ends in
+  // the same tick as its last move, before React has re-rendered, and saving
+  // from state would then persist the width from one move ago
+  const latest = useRef(widths)
+  useEffect(() => {
+    const stored = readWidths(tableId)
+    latest.current = stored
+    setWidths(stored)
+  }, [tableId])
+
+  const apply = (next: Record<string, number>) => {
+    latest.current = next
+    setWidths(next)
+  }
+  return {
+    widths,
+    set: (colId: string, px: number) =>
+      apply({
+        ...latest.current,
+        [colId]: Math.round(Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, px))),
+      }),
+    reset: (colId: string) => {
+      const next = { ...latest.current }
+      delete next[colId]
+      apply(next)
+    },
+    /** One write per gesture — a drag is hundreds of moves, not hundreds of saves. */
+    save: () => {
+      try {
+        localStorage.setItem(widthKey(tableId), JSON.stringify(latest.current))
+      } catch {
+        // private mode or a full quota: the widths just do not outlive the tab
+      }
+    },
+  }
+}
 
 // ---- sidebar section ----
 
@@ -505,6 +591,37 @@ function TableView(props: { table: DbTableView }) {
     deleteRow.mutate({ rowId })
   }
 
+  const colWidths = useColumnWidths(table.id)
+  const widthOf = (col: { id: string; name: string; type: DbColumnType }) =>
+    colWidths.widths[col.id] ?? defaultColumnWidth(col)
+  // the table must not shrink below the sum of its columns, or a "fixed" width
+  // stops being fixed as soon as the window is narrow
+  const gridWidth =
+    GUTTER_WIDTH + ACTIONS_WIDTH + table.columns.reduce((sum, c) => sum + widthOf(c), 0)
+
+  /** Drag the right edge of a header. Listeners live on the window so the
+   *  pointer can leave the 7px strip (it always does) without dropping. */
+  const startResize = (
+    e: React.PointerEvent,
+    col: { id: string; name: string; type: DbColumnType },
+  ) => {
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    const startX = e.clientX
+    const startWidth = widthOf(col)
+    handle.classList.add('dragging')
+    const onMove = (ev: PointerEvent) => colWidths.set(col.id, startWidth + (ev.clientX - startX))
+    const onUp = () => {
+      handle.classList.remove('dragging')
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      // one write per drag, not one per pixel
+      colWidths.save()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-10 py-8">
       {databaseName && (
@@ -573,34 +690,71 @@ function TableView(props: { table: DbTableView }) {
           className="mt-4 overflow-x-auto border rounded-lg"
           style={{ borderColor: 'var(--border)' }}
         >
-          <table className="w-full text-sm border-collapse">
+          <table className="bn-grid w-full text-sm" style={{ minWidth: gridWidth }}>
+            {/* widths live here, not on the cells: one <col> per column is what
+                table-layout:fixed reads, and what a drag has to move */}
+            <colgroup>
+              <col style={{ width: GUTTER_WIDTH }} />
+              {table.columns.map((col) => (
+                <col key={col.id} style={{ width: widthOf(col) }} />
+              ))}
+              <col style={{ width: ACTIONS_WIDTH }} />
+              {/* soaks up whatever is left so the grid still fills the panel */}
+              <col />
+            </colgroup>
             <thead>
-              <tr style={{ background: 'var(--panel)' }}>
+              <tr>
+                <th className="bn-gutter font-normal py-2">#</th>
                 {table.columns.map((col) => (
                   <th
                     key={col.id}
-                    className="text-left font-medium px-3 py-2 border-b whitespace-nowrap"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+                    className="text-left font-medium px-2 py-2 truncate"
+                    style={{ color: 'var(--text-2)' }}
+                    title={`${col.name}${col.required ? ' (required)' : ''} · ${col.type}`}
                   >
                     {col.name}
                     {col.required && <span style={{ color: 'var(--danger)' }}> *</span>}
                     <span className="ml-1 text-[10px]" style={{ color: 'var(--text-3)' }}>
                       {col.type === 'text' ? '' : col.type}
                     </span>
+                    {/* a keyboard can resize too: the arrows nudge, Home resets */}
+                    <span
+                      className="bn-colresize"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${col.name}`}
+                      tabIndex={0}
+                      title="Drag to resize · double-click to reset"
+                      onPointerDown={(e) => startResize(e, col)}
+                      onDoubleClick={() => {
+                        colWidths.reset(col.id)
+                        colWidths.save()
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home')
+                          return
+                        e.preventDefault()
+                        if (e.key === 'Home') colWidths.reset(col.id)
+                        else
+                          colWidths.set(col.id, widthOf(col) + (e.key === 'ArrowRight' ? 16 : -16))
+                        colWidths.save()
+                      }}
+                    />
                   </th>
                 ))}
-                <th className="w-8 border-b" style={{ borderColor: 'var(--border)' }} />
+                <th />
+                <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, index) => (
                 <tr key={row.id} className="group">
+                  <td className="bn-gutter" title={row.source === 'form' ? 'From the form' : ''}>
+                    {index + 1}
+                    {row.source === 'form' && <span className="ml-0.5">✉</span>}
+                  </td>
                   {table.columns.map((col) => (
-                    <td
-                      key={col.id}
-                      className="px-2 py-1 border-b align-top"
-                      style={{ borderColor: 'var(--border)' }}
-                    >
+                    <td key={col.id} className={col.type === 'checkbox' ? 'bn-check' : ''}>
                       <CellEditor
                         type={col.type}
                         choices={col.choices}
@@ -609,35 +763,24 @@ function TableView(props: { table: DbTableView }) {
                       />
                     </td>
                   ))}
-                  <td
-                    className="px-1 border-b text-center whitespace-nowrap"
-                    style={{ borderColor: 'var(--border)' }}
-                  >
-                    {row.source === 'form' && (
-                      <span
-                        className="text-[10px] mr-1"
-                        style={{ color: 'var(--text-3)' }}
-                        title="Submitted through the form"
-                      >
-                        ✉
-                      </span>
-                    )}
+                  <td className="text-center">
                     <button
                       type="button"
                       title="Delete row"
-                      className="opacity-0 group-hover:opacity-100 text-xs px-1"
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-xs px-1"
                       style={{ color: 'var(--danger)' }}
                       onClick={() => removeRow(row.id)}
                     >
                       ✕
                     </button>
                   </td>
+                  <td />
                 </tr>
               ))}
               {rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={table.columns.length + 1}
+                    colSpan={table.columns.length + 3}
                     className="px-3 py-4 text-center"
                     style={{ color: 'var(--text-3)' }}
                   >
@@ -733,16 +876,13 @@ function CellEditor(props: {
   const [draft, setDraft] = useState(cellString(value))
   useEffect(() => setDraft(cellString(value)), [value])
 
-  const inputStyle = {
-    background: 'transparent',
-    borderColor: 'var(--border)',
-  } as const
-  const base = 'w-full min-w-[8rem] rounded border px-2 py-1 text-sm outline-none'
-
+  // no border, no rounding: the table cell is the box, and the input only
+  // shows itself once it has focus (see .bn-cell)
   if (type === 'checkbox') {
     return (
       <input
         type="checkbox"
+        className="my-1.5"
         checked={value === true}
         onChange={(e) => onCommit(e.target.checked)}
       />
@@ -751,8 +891,7 @@ function CellEditor(props: {
   if (type === 'select') {
     return (
       <select
-        className={base}
-        style={inputStyle}
+        className="bn-cell truncate"
         value={cellString(value)}
         onChange={(e) => onCommit(e.target.value || null)}
       >
@@ -768,8 +907,8 @@ function CellEditor(props: {
   if (type === 'longtext') {
     return (
       <textarea
-        className={`${base} min-h-[2.2rem] resize-y`}
-        style={inputStyle}
+        className="bn-cell"
+        rows={1}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => draft !== cellString(value) && onCommit(draft)}
@@ -781,8 +920,7 @@ function CellEditor(props: {
   return (
     <input
       type={htmlType}
-      className={base}
-      style={inputStyle}
+      className="bn-cell"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== cellString(value) && onCommit(draft || null)}
@@ -1066,6 +1204,8 @@ function IconBtn(props: {
 }
 
 const DEFAULT_SUCCESS = 'Thanks — your response was received.'
+/** on · field name · label/text · position · width · move & remove */
+const FIELD_GRID = '2rem minmax(7rem,1fr) minmax(9rem,1.4fr) 4.5rem 4.5rem 4rem'
 
 function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
   const update = trpc.tables.updateForm.useMutation()
@@ -1081,17 +1221,68 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   const [notify, setNotify] = useState(existing?.notify ?? false)
   const [captcha, setCaptcha] = useState<CaptchaMode>(existing?.captcha ?? 'none')
   const [copied, setCopied] = useState(false)
+  const [columns, setColumns] = useState(existing?.columns ?? 1)
+  const [layout, setLayout] = useState<Record<string, FormFieldPlacement>>(existing?.layout ?? {})
+  const [labels, setLabels] = useState<Record<string, string>>(existing?.labels ?? {})
+  const [blocks, setBlocks] = useState<FormBlock[]>(existing?.blocks ?? [])
+  // every row in the builder, ticked or not: the saved order for what is on
+  // the form, then any column it does not mention
+  const [order, setOrder] = useState<string[]>(() =>
+    normalizeFormOrder(
+      [...props.table.columns.map((c) => c.id), ...(existing?.blocks ?? []).map((b) => b.id)],
+      existing?.order,
+    ),
+  )
 
   const embed = `[[form:${props.table.id}]]`
   const toggleField = (id: string) =>
     setFields((prev) => (prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]))
 
+  const blockById = new Map(blocks.map((b) => [b.id, b]))
+  // rows are the whole builder order; what is saved is the part that is on
+  const rows = order.filter(
+    (id) => blockById.has(id) || props.table.columns.some((c) => c.id === id),
+  )
+  const ordered = rows.filter((id) => fields.includes(id))
+  const onForm = rows.filter((id) => blockById.has(id) || fields.includes(id))
+  // the placements actually in force: everything on the form, clamped to the grid
+  const placed = normalizeFormLayout(onForm, columns, layout)
+  const place = (id: string, patch: Partial<FormFieldPlacement>) =>
+    setLayout((prev) => ({
+      ...normalizeFormLayout(onForm, columns, prev),
+      [id]: { ...(placed[id] ?? { col: 1, width: 1 }), ...patch },
+    }))
+
+  const addBlock = (kind: FormBlock['kind']) => {
+    const id = `blk_${Math.random().toString(36).slice(2, 10)}`
+    setBlocks((prev) => [...prev, { id, kind, text: '' }])
+    setOrder((prev) => [...prev, id])
+  }
+  const dropBlock = (id: string) => {
+    setBlocks((prev) => prev.filter((b) => b.id !== id))
+    setOrder((prev) => prev.filter((x) => x !== id))
+  }
+  /** Move a row one step; the grid fills in this order, so this IS the layout. */
+  const move = (id: string, by: -1 | 1) =>
+    setOrder((prev) => {
+      const at = prev.indexOf(id)
+      const to = at + by
+      if (at < 0 || to < 0 || to >= prev.length) return prev
+      const next = [...prev]
+      next[at] = next[to] as string
+      next[to] = id
+      return next
+    })
+
   const { busy, error, onSubmit } = useSubmit(async () => {
-    // persist fields in column order regardless of click order
-    const ordered = props.table.columns.map((c) => c.id).filter((id) => fields.includes(id))
     const form: FormConfig = {
       enabled,
       fields: ordered,
+      columns,
+      layout: placed,
+      labels,
+      blocks,
+      order: onForm,
       title: title.trim(),
       description: description.trim(),
       submitLabel: submitLabel.trim() || 'Submit',
@@ -1119,35 +1310,226 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   }
 
   return (
-    <Modal title={`Form — ${props.table.name}`} onClose={props.onClose} dirty width="lg">
+    <Modal title={`Form — ${props.table.name}`} onClose={props.onClose} dirty width="xl">
       <form onSubmit={onSubmit}>
         <label className="flex items-center gap-2 mb-3 text-sm">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Enable this form (accept public submissions)
         </label>
 
-        <div className="mb-3">
-          <span className="block text-sm font-medium mb-1">Fields to show</span>
+        <label className="block mb-3">
+          <span className="block text-sm font-medium mb-1">Layout</span>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+            value={columns}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              setColumns(next)
+              // narrowing the grid can strand a field — refit everything
+              setLayout((prev) => normalizeFormLayout(ordered, next, prev))
+            }}
+          >
+            {Array.from({ length: FORM_MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? 'Single column' : `${n} columns`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* one table: what is on the form, what it is called, and where it sits
+            are the same decision, and splitting them meant reading three lists
+            to answer it */}
+        <div className="mb-4">
+          <div className="flex items-baseline gap-3 mb-1">
+            <span className="text-sm font-medium">Fields configuration</span>
+            <span className="ml-auto flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--accent)' }}
+                onClick={() => addBlock('divider')}
+              >
+                ＋ separator
+              </button>
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--accent)' }}
+                onClick={() => addBlock('text')}
+              >
+                ＋ text
+              </button>
+            </span>
+          </div>
           {props.table.columns.length === 0 ? (
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
               Add columns first — the form is generated from them.
             </p>
           ) : (
-            props.table.columns.map((col) => (
-              <label key={col.id} className="flex items-center gap-2 text-sm py-0.5">
-                <input
-                  type="checkbox"
-                  checked={fields.includes(col.id)}
-                  onChange={() => toggleField(col.id)}
-                />
-                {col.name}
-                <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                  {col.type}
-                  {col.required ? ' · required' : ''}
-                </span>
-              </label>
-            ))
+            <div
+              className="rounded-lg border overflow-hidden"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div
+                className="grid text-[11px] uppercase tracking-wide px-3 py-1.5"
+                style={{
+                  gridTemplateColumns: FIELD_GRID,
+                  background: 'var(--panel)',
+                  color: 'var(--text-3)',
+                }}
+              >
+                <span>On</span>
+                <span>Field name</span>
+                <span>Label / text</span>
+                <span>Position</span>
+                <span>Width</span>
+                <span />
+              </div>
+              {rows.map((id) => {
+                const block = blockById.get(id)
+                const col = props.table.columns.find((c) => c.id === id)
+                const on = block ? true : fields.includes(id)
+                const at = placed[id] ?? layout[id] ?? { col: 1, width: 1 }
+                // a field that is off the form, or a form with no grid, has
+                // nothing to place — the controls stay visible but inert so
+                // the table does not reflow as boxes are ticked
+                const inert = !on || columns === 1
+                return (
+                  <div
+                    key={id}
+                    className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
+                    style={{ gridTemplateColumns: FIELD_GRID, borderColor: 'var(--border)' }}
+                  >
+                    {block ? (
+                      <span
+                        className="text-xs"
+                        style={{ color: 'var(--text-3)' }}
+                        title="Always shown"
+                      >
+                        —
+                      </span>
+                    ) : (
+                      <input
+                        type="checkbox"
+                        className="justify-self-start"
+                        aria-label={`Show ${col?.name ?? id} on the form`}
+                        checked={on}
+                        onChange={() => toggleField(id)}
+                      />
+                    )}
+                    <span className="truncate" style={{ opacity: on ? 1 : 0.55 }}>
+                      {block ? (
+                        <em style={{ color: 'var(--text-2)' }}>
+                          {block.kind === 'divider' ? 'Separator' : 'Text'}
+                        </em>
+                      ) : (
+                        <>
+                          {col?.name ?? id}{' '}
+                          <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                            {col?.type}
+                            {col?.required ? ' · required' : ''}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                    {block?.kind === 'divider' ? (
+                      <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                        a horizontal rule
+                      </span>
+                    ) : (
+                      <input
+                        className="w-full rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                        disabled={!on}
+                        maxLength={block ? 500 : 200}
+                        placeholder={block ? 'Text — [link](https://…) allowed' : col?.name}
+                        value={block ? block.text : (labels[id] ?? '')}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (block) {
+                            setBlocks((prev) =>
+                              prev.map((b) => (b.id === id ? { ...b, text: value } : b)),
+                            )
+                          } else {
+                            setLabels((prev) => ({ ...prev, [id]: value }))
+                          }
+                        }}
+                      />
+                    )}
+                    <select
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      aria-label="Position"
+                      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                      disabled={inert}
+                      value={at.col}
+                      onChange={(e) => place(id, { col: Number(e.target.value) })}
+                    >
+                      {Array.from({ length: columns }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      aria-label="Width"
+                      style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                      disabled={inert}
+                      value={at.width}
+                      onChange={(e) => place(id, { width: Number(e.target.value) })}
+                    >
+                      {/* a field in the last position can only be one wide */}
+                      {formWidthChoices(at.col, columns).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="flex items-center gap-1 justify-self-end text-xs">
+                      <button
+                        type="button"
+                        title="Move up"
+                        aria-label="Move up"
+                        style={{ color: 'var(--text-3)' }}
+                        onClick={() => move(id, -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        title="Move down"
+                        aria-label="Move down"
+                        style={{ color: 'var(--text-3)' }}
+                        onClick={() => move(id, 1)}
+                      >
+                        ↓
+                      </button>
+                      {block && (
+                        <button
+                          type="button"
+                          title="Remove"
+                          aria-label="Remove"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => dropBlock(id)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           )}
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+            {columns === 1
+              ? 'Everything appears in this order, one per row. Choose a multi-column layout to place items side by side.'
+              : 'Items fill the grid in the order above; a new row starts when the position is already taken. Narrow screens fall back to fewer columns.'}{' '}
+            A label overrides the column name and may carry a link, written as{' '}
+            <code>[terms](https://example.com/terms)</code>.
+          </p>
         </div>
 
         <Field label="Heading (optional)" value={title} onChange={setTitle} />
