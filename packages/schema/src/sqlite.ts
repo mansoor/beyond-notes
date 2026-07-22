@@ -80,6 +80,16 @@ export const spaces = sqliteTable('spaces', {
   })
     .notNull()
     .default('classic'),
+  // opt-in analytics for the published site only — never the app. Provider is
+  // 'none' unless chosen; host lets Plausible/Umami point at a self-hosted
+  // instance instead of the vendor's.
+  analyticsProvider: text('analytics_provider', {
+    enum: ['none', 'plausible', 'umami', 'ga4'],
+  })
+    .notNull()
+    .default('none'),
+  analyticsSiteId: text('analytics_site_id'),
+  analyticsHost: text('analytics_host'),
   // password lock: null = open. 'session' re-asks once per sign-in, 'idle'
   // re-asks after 30 minutes without opening it. A lock hides content behind
   // the account password; it does not encrypt (see DESIGN-NOTES).

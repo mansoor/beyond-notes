@@ -149,7 +149,7 @@ describe('markdownToBlocks', () => {
 })
 
 describe('markdown tables', () => {
-  const md = `| Name | Note |\n| --- | --- |\n| Ann | **bold** |\n| Bo | a \\| pipe |`
+  const md = '| Name | Note |\n| --- | --- |\n| Ann | **bold** |\n| Bo | a \\| pipe |'
 
   it('parses a pipe table into a BlockNote table block', () => {
     const blocks = markdownToBlocks(md) as Array<{

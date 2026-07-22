@@ -210,12 +210,7 @@ function Card(props: { title: string; children: React.ReactNode }) {
 }
 
 function AccountTab() {
-  return (
-    <>
-      <ProfileCard />
-      <ChangePasswordCard />
-    </>
-  )
+  return <ProfileCard />
 }
 
 function ProfileCard() {
@@ -304,10 +299,16 @@ function ChangePasswordCard() {
 }
 
 function SecurityTab() {
+  const status = trpc.auth.status.useQuery()
+  const isAdmin = status.data?.me?.role === 'admin'
   return (
     <>
+      <ChangePasswordCard />
       <TwoFactorCard />
       <SessionsCard />
+      {/* form spam protection is a security control, not a notification channel —
+          it only lived on that tab because reCAPTCHA needed a home */}
+      {isAdmin ? <RecaptchaCard /> : null}
     </>
   )
 }
@@ -520,7 +521,6 @@ function NotificationsTab(props: { isAdmin: boolean }) {
         <>
           <SmtpCard />
           <NtfyCard />
-          <RecaptchaCard />
         </>
       ) : (
         <Card title="Push (ntfy)">

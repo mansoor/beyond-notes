@@ -1,4 +1,4 @@
-import type { PageMeta, SpaceCategory, SpaceView } from '@bn/schema'
+import type { AnalyticsProviderName, PageMeta, SpaceCategory, SpaceView } from '@bn/schema'
 import { pageTypesByCategory, socialPlatform } from '@bn/schema'
 
 const SOCIAL_PLATFORMS = socialPlatform.options
@@ -22,6 +22,21 @@ const CATEGORY_LABEL: Record<SpaceCategory, string> = {
   wiki: 'Wikis',
   notebook: 'Notebooks',
   site: 'Sites',
+}
+
+/**
+ * Where a published space actually lives right now.
+ *
+ * The domain is what you *want* it served at; whether DNS points here yet is
+ * something the browser can't know. So a name that looks routable gets linked
+ * directly, and anything else (a bare word, localhost) falls back to the
+ * always-works /s/<domain>/ path this instance serves itself.
+ */
+export function publicUrlFor(domain: string): { href: string; live: boolean } {
+  const looksRoutable = domain.includes('.') && !/^(localhost|127\.|0\.0\.0\.0)/.test(domain)
+  return looksRoutable
+    ? { href: `https://${domain}`, live: true }
+    : { href: `/s/${domain}/`, live: false }
 }
 
 type PageAction = { kind: 'rename' | 'move' | 'template'; page: PageMeta } | null
@@ -266,7 +281,7 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
             {publishNow ? (
               <div className="pl-6 mb-3">
                 <Field
-                  label="Public host"
+                  label="Public domain"
                   value={host}
                   onChange={setHost}
                   placeholder="docs.example.com"
@@ -288,7 +303,7 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
                 <p className="text-xs mb-2" style={{ color: 'var(--text-3)' }}>
                   Pages still arrive as drafts — the space being public only means a published page
                   can be served. Before DNS exists, read it at{' '}
-                  <code>/s/{host || 'your-host'}/</code>.
+                  <code>/s/{host || 'your-domain'}/</code>.
                 </p>
               </div>
             ) : (
@@ -424,6 +439,22 @@ function SpaceItem(props: { space: SpaceView }) {
           </span>
         )}
         <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center">
+          {props.space.publicEnabled && props.space.publicHost ? (
+            <a
+              href={publicUrlFor(props.space.publicHost).href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs px-1"
+              style={{ color: 'var(--text-3)' }}
+              title={
+                publicUrlFor(props.space.publicHost).live
+                  ? `Open ${props.space.publicHost}`
+                  : `Open the preview at /s/${props.space.publicHost}/ — set that domain up in DNS to serve it directly`
+              }
+            >
+              ↗
+            </a>
+          ) : null}
           <button
             type="button"
             title="New page"
@@ -731,6 +762,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     ...(isSite || isWiki
       ? [{ id: 'branding', label: isSite ? 'Branding' : 'Social', icon: isSite ? '✦' : '🔗' }]
       : []),
+    { id: 'analytics', label: 'Analytics', icon: '📈' },
   ] as const
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('general')
 
@@ -770,7 +802,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                   />
                   {isSite ? 'Publish this space as a website' : 'Publish this space as a docs site'}
                 </label>
-                <Field label="Host (e.g. docs.example.com)" value={host} onChange={setHost} />
+                <Field label="Domain (e.g. docs.example.com)" value={host} onChange={setHost} />
                 <Field
                   label="Site title (defaults to the space name)"
                   value={title}
@@ -779,10 +811,11 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                 <Field label="Footer" value={footer} onChange={setFooter} />
                 <p className="text-xs" style={{ color: 'var(--text-3)' }}>
                   Only pages you explicitly publish appear, and only when every parent is published
-                  too. Preview without DNS at /s/&lt;host&gt;/.
+                  too. Before DNS points at this instance, read it at /s/&lt;domain&gt;/.
                 </p>
               </>
             )}
+            {tab === 'analytics' && <AnalyticsTab space={s} />}
             {tab === 'appearance' && (
               <>
                 <label className="block mb-4">
@@ -856,6 +889,93 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
         </div>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * Analytics for one published site. Nothing is loaded unless a provider is
+ * chosen here, and nothing is ever added to the app itself — this only reaches
+ * the published snapshot's chrome.
+ *
+ * Plausible and Umami lead because both can be self-hosted, which keeps a
+ * self-hosted site's visitors out of a third party's hands entirely.
+ */
+function AnalyticsTab(props: { space: SpaceView }) {
+  const utils = trpc.useUtils()
+  const save = trpc.publish.updateAnalytics.useMutation()
+  const [provider, setProvider] = useState<AnalyticsProviderName>(props.space.analyticsProvider)
+  const [siteId, setSiteId] = useState(props.space.analyticsSiteId ?? '')
+  const [host, setHost] = useState(props.space.analyticsHost ?? '')
+
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync({
+      spaceId: props.space.id,
+      provider,
+      siteId: siteId.trim() || null,
+      host: host.trim() || null,
+    })
+    await utils.spaces.list.invalidate()
+  })
+
+  const idLabel =
+    provider === 'plausible'
+      ? 'Site domain in Plausible (e.g. example.com)'
+      : provider === 'umami'
+        ? 'Website ID'
+        : 'Measurement ID (G-XXXXXXX)'
+
+  return (
+    <div onSubmit={onSubmit}>
+      <label className="block mb-3">
+        <span className="block text-sm font-medium mb-1">Provider</span>
+        <select
+          className="w-full rounded-lg border px-3 py-2 text-sm"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+          value={provider}
+          onChange={(e) => setProvider(e.target.value as AnalyticsProviderName)}
+        >
+          <option value="none">None — no third-party script at all</option>
+          <option value="plausible">Plausible — open source, self-hostable</option>
+          <option value="umami">Umami — open source, self-hostable</option>
+          <option value="ga4">Google Analytics 4</option>
+        </select>
+      </label>
+
+      {provider !== 'none' ? (
+        <>
+          <Field label={idLabel} value={siteId} onChange={setSiteId} />
+          {provider !== 'ga4' ? (
+            <Field
+              label="Your own instance (optional)"
+              value={host}
+              onChange={setHost}
+              placeholder={provider === 'plausible' ? 'plausible.io' : 'cloud.umami.is'}
+            />
+          ) : null}
+          <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+            {provider === 'ga4'
+              ? 'Google Analytics cannot be self-hosted: your visitors’ browsers will talk to Google. It is here because people ask for it.'
+              : 'Leave the instance blank to use the hosted service, or point it at your own server to keep visitor data on your infrastructure.'}
+          </p>
+        </>
+      ) : (
+        <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+          Published pages load no analytics, no fonts and no scripts from anywhere else. Choosing a
+          provider is the one exception, and it applies to this site only.
+        </p>
+      )}
+
+      <ErrorNote message={error} />
+      <button
+        type="button"
+        className="rounded-lg px-4 py-2 text-sm text-white"
+        style={{ background: 'var(--accent)', opacity: busy ? 0.6 : 1 }}
+        disabled={busy}
+        onClick={() => onSubmit({ preventDefault: () => {} } as React.FormEvent)}
+      >
+        {busy ? 'Saving…' : 'Save analytics'}
+      </button>
+    </div>
   )
 }
 

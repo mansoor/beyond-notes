@@ -121,6 +121,9 @@ export type SpaceView = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: SiteHeaderLayoutName
+  analyticsProvider: AnalyticsProviderName
+  analyticsSiteId: string | null
+  analyticsHost: string | null
   createdAt: string
 }
 
@@ -336,6 +339,18 @@ export const socialLinkInput = z.object({
   url: z.string().trim().min(1).max(500),
 })
 export type SocialLinkValue = z.infer<typeof socialLinkInput>
+
+export const analyticsProvider = z.enum(['none', 'plausible', 'umami', 'ga4'])
+export type AnalyticsProviderName = z.infer<typeof analyticsProvider>
+
+/** Ids and hosts are validated again in the renderer before they reach a script
+ *  tag; this is the friendly first pass, not the security boundary. */
+export const updateAnalyticsInput = z.object({
+  spaceId: z.string(),
+  provider: analyticsProvider,
+  siteId: z.string().trim().max(64).nullable().default(null),
+  host: z.string().trim().max(120).nullable().default(null),
+})
 
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
@@ -894,6 +909,10 @@ export type ImportNodePlan = z.infer<typeof importNodePlan>
 export type ImportPlanView = {
   /** what was read, shown above the review list */
   sourceLabel: string
+  /** raw base for resolving relative image paths; null for pasted markdown */
+  imageBase?: string | null
+  /** how many images the source refers to, so the review can offer to fetch them */
+  imageCount?: number
   /** proposed name when the import creates its own space */
   suggestedName: string
   nodes: ImportNodePlan[]
@@ -925,6 +944,10 @@ export const importApplyInput = z
     publish: z.boolean().default(false),
     /** archive whatever the target space already holds, first */
     archiveExisting: z.boolean().default(false),
+    /** fetch the images the markdown refers to and store them here */
+    importImages: z.boolean().default(false),
+    /** raw base the plan came with, for resolving relative image paths */
+    imageBase: z.string().max(400).nullable().default(null),
     nodes: z.array(importNodePlan).min(1).max(500),
   })
   .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
@@ -935,6 +958,10 @@ export type ImportResultView = {
   spaceId: string
   pages: number
   published: number
+  /** images fetched and stored alongside the pages */
+  images: number
+  /** anything skipped along the way, worth showing rather than swallowing */
+  warnings?: string[]
   /** pages that were already in the target space and got archived first */
   archived: number
   firstPageId: string | null

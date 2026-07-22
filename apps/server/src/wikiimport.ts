@@ -11,7 +11,9 @@
 
 import { markdownToBlocks, slugify } from '@bn/renderer'
 import type { ImportApplyInput, ImportNodePlan, ImportPlanView, ImportResultView } from '@bn/schema'
+import type { AttachmentsService } from './attachments'
 import { type Fetcher, fetchRepoDocs, titleCase, titleFromPath } from './github'
+import { collectImageUrls, importImages, rewriteImageUrls } from './importimages'
 import { normalizeLevels, outlineMarkdown, rewriteAnchors } from './importplan'
 import { reconcileLinks } from './links'
 import type { PagesService } from './pages'
@@ -34,6 +36,10 @@ export function planFromMarkdown(markdown: string, filename = ''): ImportPlanVie
   return {
     sourceLabel: filename || 'Pasted markdown',
     suggestedName: outline.title || (filename ? nameFromFilename(filename) : 'Imported wiki'),
+    // pasted markdown has no repo to resolve relative paths against, so only
+    // absolute image urls can be fetched from it
+    imageBase: null,
+    imageCount: collectImageUrls(outline.nodes.map((n) => n.markdown)).length,
     nodes: outline.nodes,
     warnings: outline.warnings,
   }
@@ -139,6 +145,8 @@ export async function planFromGithub(
   return {
     sourceLabel: `github.com/${repo.owner}/${repo.repo} @ ${repo.ref}`,
     suggestedName: titleCase(repo.repo),
+    imageBase: repo.rawBase,
+    imageCount: collectImageUrls(nodes.map((n) => n.markdown)).length,
     nodes,
     warnings,
   }
@@ -148,6 +156,8 @@ export type ImportDeps = {
   repo: Repo
   pages: PagesService
   publishing: PublishingService
+  /** only needed when an import is asked to bring the images too */
+  attachments?: AttachmentsService
   now?: () => Date
 }
 
@@ -208,9 +218,26 @@ export async function applyImportPlan(
     if (anchor) anchors.set(anchor.toLowerCase(), `/p/${pageId}`)
   }
 
+  // images first, so the content pass can point at the stored copies rather
+  // than at raw.githubusercontent (which would break the day the repo moves)
+  let images = 0
+  const warnings: string[] = []
+  let imageRewrites = new Map<string, string>()
+  if (input.importImages && deps.attachments) {
+    const result = await importImages(
+      { attachments: deps.attachments },
+      user,
+      nodes.map((n) => n.markdown),
+      { rawBase: input.imageBase ?? null },
+    )
+    imageRewrites = result.rewrites
+    warnings.push(...result.warnings)
+    images = result.rewrites.size
+  }
+
   // pass 2: content
   for (const { node, pageId } of created) {
-    const markdown = rewriteAnchors(node.markdown, anchors)
+    const markdown = rewriteImageUrls(rewriteAnchors(node.markdown, anchors), imageRewrites)
     const content = JSON.stringify(markdownToBlocks(markdown))
     await deps.repo.updateDocument(pageId, content, now())
     await reconcileTasks(deps.repo, pageId, content, now())
@@ -231,6 +258,8 @@ export async function applyImportPlan(
     pages: created.length,
     published,
     archived,
+    images,
+    warnings,
     firstPageId: created[0]?.pageId ?? null,
   }
 }

@@ -171,6 +171,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: plan.nodes,
     })
 
@@ -192,6 +194,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown('# T\n\n## A\n\ntext\n\n- one\n- two', 'r.md').nodes,
     })
     const page = (await repo.listPagesInSpace(result.spaceId)).find((p) => p.title === 'A')
@@ -209,6 +213,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown(md, 'r.md').nodes,
     })
     const all = await repo.listPagesInSpace(result.spaceId)
@@ -227,6 +233,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: true,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown(README, 'README.md').nodes,
     })
     expect(result.published).toBe(4)
@@ -247,6 +255,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown('# T\n\n## A\n\nx', 'r.md').nodes,
     })
     expect(result.spaceId).toBe(space.id)
@@ -277,6 +287,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: true,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown('# T\n\n## Fresh\n\nnew', 'r.md').nodes,
     })
 
@@ -296,6 +308,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: true,
+      importImages: false,
+      imageBase: null,
       nodes: planFromMarkdown('# T\n\n## A\n\nx', 'r.md').nodes,
     })
     expect(result.archived).toBe(0)
@@ -309,6 +323,8 @@ describe('applyImportPlan', () => {
       personal: false,
       publish: false,
       archiveExisting: false,
+      importImages: false,
+      imageBase: null,
       nodes: [
         { key: 'a', title: 'A', level: 0, kind: 'section', markdown: 'a', excerpt: '' },
         { key: 'b', title: 'B', level: 5, kind: 'section', markdown: 'b', excerpt: '' },

@@ -131,6 +131,8 @@ export type RepoDocs = {
   owner: string
   repo: string
   ref: string
+  /** where a README's relative image paths resolve against */
+  rawBase: string
   readme: RepoDoc | null
   policies: RepoDoc[]
   docs: RepoDoc[]
@@ -303,6 +305,7 @@ export async function fetchRepoDocs(
     owner,
     repo,
     ref,
+    rawBase: `${RAW}/${owner}/${repo}/${encodeURIComponent(ref)}`,
     readme: readmePath ? (byPath.get(readmePath) ?? null) : null,
     policies: policyPaths.map((p) => byPath.get(p)).filter((d): d is RepoDoc => Boolean(d)),
     docs: docPaths.map((p) => byPath.get(p)).filter((d): d is RepoDoc => Boolean(d)),

@@ -87,6 +87,7 @@ import {
   toggleTaskInput,
   totpConfirmInput,
   unlockInput,
+  updateAnalyticsInput,
   updateFormInput,
   updateMemoInput,
   updatePageOptionsInput,
@@ -227,6 +228,9 @@ function toSpaceView(s: SpaceRow): SpaceView {
     publicLogoAttachmentId: s.publicLogoAttachmentId,
     publicTagline: s.publicTagline,
     publicHeaderLayout: s.publicHeaderLayout,
+    analyticsProvider: s.analyticsProvider,
+    analyticsSiteId: s.analyticsSiteId,
+    analyticsHost: s.analyticsHost,
     createdAt: s.createdAt.toISOString(),
   }
 }
@@ -933,6 +937,22 @@ const publishRouter = router({
         rethrow(err)
       }
     }),
+
+  /** Analytics for one published site. Off ('none') clears the id and host too. */
+  updateAnalytics: authedProcedure.input(updateAnalyticsInput).mutation(async ({ ctx, input }) => {
+    const space = await ctx.repo.getSpace(input.spaceId)
+    if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
+    if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
+      throw new TRPCError({ code: 'FORBIDDEN' })
+    }
+    const off = input.provider === 'none'
+    await ctx.repo.setSpaceAnalytics(space.id, {
+      provider: input.provider,
+      siteId: off ? null : input.siteId?.trim() || null,
+      host: off ? null : input.host?.trim() || null,
+    })
+    return { ok: true }
+  }),
 
   updateSpace: authedProcedure.input(updatePublishingInput).mutation(async ({ ctx, input }) => {
     try {
@@ -1722,7 +1742,12 @@ const importsRouter = router({
     .mutation(async ({ ctx, input }): Promise<ImportResultView> => {
       try {
         return await applyImportPlan(
-          { repo: ctx.repo, pages: ctx.pages, publishing: ctx.publishing },
+          {
+            repo: ctx.repo,
+            pages: ctx.pages,
+            publishing: ctx.publishing,
+            attachments: ctx.attachments,
+          },
           ctx.user,
           input,
         )

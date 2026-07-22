@@ -49,6 +49,11 @@ export type SpaceRow = {
   publicLogoAttachmentId: string | null
   publicTagline: string | null
   publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
+  /** opt-in analytics for the published site; 'none' emits no tag at all */
+  analyticsProvider: 'none' | 'plausible' | 'umami' | 'ga4'
+  analyticsSiteId: string | null
+  /** self-hosted Plausible/Umami origin; null uses the vendor's */
+  analyticsHost: string | null
   /** null = open; otherwise how often the account password is re-asked */
   lockPolicy: 'session' | 'idle' | null
   /** for an 'idle' lock: minutes of disuse before it re-asks (null = 30) */
@@ -478,6 +483,24 @@ export function createRepo(appDb: AppDb) {
       await db
         .update(t.spaces)
         .set({ lockPolicy: policy, lockIdleMinutes: policy === 'idle' ? idleMinutes : null })
+        .where(eq(t.spaces.id, id))
+    },
+
+    async setSpaceAnalytics(
+      id: string,
+      a: {
+        provider: 'none' | 'plausible' | 'umami' | 'ga4'
+        siteId: string | null
+        host: string | null
+      },
+    ): Promise<void> {
+      await db
+        .update(t.spaces)
+        .set({
+          analyticsProvider: a.provider,
+          analyticsSiteId: a.siteId,
+          analyticsHost: a.host,
+        })
         .where(eq(t.spaces.id, id))
     },
 

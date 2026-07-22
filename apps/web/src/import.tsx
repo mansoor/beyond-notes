@@ -195,6 +195,7 @@ function ReviewStep(props: {
   const [name, setName] = useState(props.plan.suggestedName)
   const [publish, setPublish] = useState(false)
   const [archiveExisting, setArchiveExisting] = useState(false)
+  const [withImages, setWithImages] = useState((props.plan.imageCount ?? 0) > 0)
   const [targetId, setTargetId] = useState<string>(props.space?.id ?? '')
 
   // what the target space already holds, so "archive first" can say how much
@@ -289,6 +290,8 @@ function ReviewStep(props: {
       personal: false,
       publish,
       archiveExisting: targetId !== '' && archiveExisting,
+      importImages: withImages,
+      imageBase: props.plan.imageBase ?? null,
       nodes: folded.map((n) => ({ ...n, level: Math.min(n.level, 6) })),
     })
     await utils.spaces.list.invalidate()
@@ -456,6 +459,25 @@ function ReviewStep(props: {
             {archiveExisting
               ? 'The old pages move to Archive — nothing is deleted, published versions are kept, and you can restore any of them.'
               : 'The imported pages are added alongside what is already there.'}
+          </p>
+        </>
+      ) : null}
+
+      {(props.plan.imageCount ?? 0) > 0 ? (
+        <>
+          <label className="flex items-center gap-2 mb-1 text-sm">
+            <input
+              type="checkbox"
+              checked={withImages}
+              onChange={(e) => setWithImages(e.target.checked)}
+            />
+            Bring the {props.plan.imageCount} image
+            {props.plan.imageCount === 1 ? '' : 's'} too
+          </label>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+            {withImages
+              ? 'Each one is downloaded and stored here like any other upload, so the pages keep working if the repository moves or goes private. This takes a moment.'
+              : 'Image links are left pointing at the source. Relative paths in a README will not resolve.'}
           </p>
         </>
       ) : null}
