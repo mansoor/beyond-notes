@@ -110,8 +110,9 @@ export function Modal(props: {
    * dismiss — only an explicit action does: save, the ✕ button, or Escape.
    */
   dirty?: boolean
-  /** 'lg' for content-heavy dialogs (tabbed settings); default is a compact card. */
-  width?: 'sm' | 'lg'
+  /** 'lg' for content-heavy dialogs (tabbed settings), 'xl' for wide tables;
+   *  default is a compact card. */
+  width?: 'sm' | 'lg' | 'xl'
   children: ReactNode
 }) {
   // Escape is an explicit cancel and always closes, dirty or not
@@ -143,7 +144,7 @@ export function Modal(props: {
     >
       <dialog
         open
-        className={`w-full ${props.width === 'lg' ? 'max-w-2xl' : 'max-w-sm'} rounded-xl border p-6 relative m-0 max-h-[85vh] overflow-y-auto`}
+        className={`w-full ${props.width === 'xl' ? 'max-w-4xl' : props.width === 'lg' ? 'max-w-2xl' : 'max-w-sm'} rounded-xl border p-6 relative m-0 max-h-[85vh] overflow-y-auto`}
         style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text)' }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === 'Escape' && props.onClose()}

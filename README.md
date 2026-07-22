@@ -320,7 +320,14 @@ lists every column of the table with a tick box, a **position** and a **width**,
 so *Zip* can sit beside *City* while *Message* runs the full width. A field can
 only span as far as the last position, so the width choices change with the
 position you pick. Narrow screens step down — a wide form halves on a tablet,
-and everything falls back to a single column on a phone. Submissions land as rows, tagged with their source. A hidden
+and everything falls back to a single column on a phone.
+
+The same table carries three more things: an optional **label** that replaces
+the column name, **separators** (a horizontal rule between groups of questions)
+and **text blocks** (a line of explanation among the fields). Labels and text
+blocks may carry a link, written as `[terms](https://example.com/terms)` — links
+are the only markup allowed, and anything else is shown as the plain text it is.
+Use ↑ ↓ to order everything, including where a separator falls. Submissions land as rows, tagged with their source. A hidden
 honeypot field and per-IP rate limiting are always on; on top of that you can
 switch on a **built-in math CAPTCHA** (self-hosted, no third party, no network
 calls) or **Google reCAPTCHA v2** if an admin adds keys in Settings →

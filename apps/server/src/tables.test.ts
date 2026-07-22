@@ -254,6 +254,9 @@ for (const dialect of dialects) {
           fields: [nameId, emailId],
           columns: 1,
           layout: {},
+          labels: {},
+          blocks: [],
+          order: [],
           title: 'Say hi',
           description: '',
           submitLabel: 'Send',
@@ -295,6 +298,9 @@ for (const dialect of dialects) {
           fields: [],
           columns: 1,
           layout: {},
+          labels: {},
+          blocks: [],
+          order: [],
           title: '',
           description: '',
           submitLabel: 'Submit',
@@ -322,6 +328,9 @@ for (const dialect of dialects) {
           fields: [realId, 'ghost-column-id'],
           columns: 1,
           layout: {},
+          labels: {},
+          blocks: [],
+          order: [],
           title: '',
           description: '',
           submitLabel: 'Submit',
@@ -331,6 +340,83 @@ for (const dialect of dialects) {
         },
       })
       expect(form?.fields).toEqual([realId])
+    })
+
+    it('keeps blocks and labels in order, and prunes what no longer exists', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [
+          { name: 'Name', type: 'text', required: false, choices: [] },
+          { name: 'Email', type: 'email', required: false, choices: [] },
+        ],
+      })
+      const nameId = req(cols[0]).id
+      const emailId = req(cols[1]).id
+      const form = await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: true,
+          fields: [nameId, emailId],
+          columns: 2,
+          layout: { [nameId]: { col: 1, width: 1 }, blk_rule: { col: 1, width: 2 } },
+          // a label on a field that left, and one that stayed
+          labels: { [nameId]: 'Your name', 'ghost-id': 'ignored' },
+          blocks: [
+            { id: 'blk_rule', kind: 'divider', text: '' },
+            { id: 'blk_note', kind: 'text', text: 'See [terms](https://ex.com/t)' },
+          ],
+          order: ['blk_note', nameId, 'blk_rule', emailId, 'gone'],
+          title: '',
+          description: '',
+          submitLabel: 'Submit',
+          successMessage: 'ok',
+          notify: false,
+          captcha: 'none',
+        },
+      })
+      // the divider stays where it was put, and the dead id is gone
+      expect(form?.order).toEqual(['blk_note', nameId, 'blk_rule', emailId])
+      expect(form?.blocks.map((b) => b.kind)).toEqual(['divider', 'text'])
+      // a label for a field that is not on the form is not carried
+      expect(form?.labels).toEqual({ [nameId]: 'Your name' })
+      // blocks are placed like fields, and the full-width rule survived
+      expect(form?.layout.blk_rule).toEqual({ col: 1, width: 2 })
+      expect(form?.layout.blk_note).toEqual({ col: 1, width: 1 })
+    })
+
+    it('refuses a block that would collide with a column id', async () => {
+      const { tables, admin } = await setup()
+      const database = await tables.createDatabase(admin, { name: 'D', personal: false })
+      const table = await tables.createTable(admin, { databaseId: database.id, name: 'T' })
+      const cols = await tables.updateColumns(admin, {
+        tableId: table.id,
+        columns: [{ name: 'Name', type: 'text', required: false, choices: [] }],
+      })
+      const nameId = req(cols[0]).id
+      const form = await tables.updateForm(admin, {
+        tableId: table.id,
+        form: {
+          enabled: true,
+          fields: [nameId],
+          columns: 1,
+          layout: {},
+          labels: {},
+          // same id as the column: it would fight the field for one slot
+          blocks: [{ id: nameId, kind: 'divider', text: '' }],
+          order: [],
+          title: '',
+          description: '',
+          submitLabel: 'Submit',
+          successMessage: 'ok',
+          notify: false,
+          captcha: 'none',
+        },
+      })
+      expect(form?.blocks).toEqual([])
+      expect(form?.order).toEqual([nameId])
     })
 
     it('duplicates a table with its rows but not its form', async () => {
@@ -350,6 +436,9 @@ for (const dialect of dialects) {
           fields: [x],
           columns: 1,
           layout: {},
+          labels: {},
+          blocks: [],
+          order: [],
           title: '',
           description: '',
           submitLabel: 'Submit',

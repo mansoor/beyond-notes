@@ -174,11 +174,28 @@ rule has to name the dense selector too, or it loses on specificity and a
 4-column form stops at two columns on a phone. That one was found by measuring
 the rendered grid at three widths, not by reading the CSS.
 
-**One table, not two.** Which fields are on the form and where they sit is a
-single decision, so it is a single table: tick box, field name, position, width.
-The controls stay visible but inert for a field that is off (or a form with no
-grid) rather than appearing and disappearing, so the table does not reflow while
-you work down it.
+**One table, not two.** Which fields are on the form, what they are called and
+where they sit is a single decision, so it is a single table: tick box, field
+name, label, position, width, order. The controls stay visible but inert for a
+field that is off (or a form with no grid) rather than appearing and
+disappearing, so the table does not reflow while you work down it.
+
+**Blocks are furniture, not data.** A separator and a text block sit in the same
+order and the same grid as the fields but carry no value, so `fields` still
+means "columns that accept input" and `submitForm` needed no change at all. They
+live in `blocks` with their own ids, and one `order` array interleaves the two —
+a divider's entire meaning is which fields it sits between, so ordering had to
+become explicit (which also, finally, lets fields be reordered independently of
+the table's columns). A block id that collides with a column id is dropped on
+save: two things cannot own one slot.
+
+**Links in labels, and nothing else.** A label or note may carry
+`[text](https://…)` because "I accept the [terms]" is the case that keeps coming
+up. It is not a markdown renderer and not sanitised HTML: the text is escaped
+and anchors are *rebuilt from the parts*, with the href checked against
+`https?:` / `mailto:` / a site-relative path. A `javascript:` href or a pasted
+`<script>` is not stripped — it is simply never a shape this function produces,
+and it renders as the visible text the author typed.
 
 ## Milestone history
 

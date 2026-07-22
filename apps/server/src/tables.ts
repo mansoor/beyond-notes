@@ -6,6 +6,7 @@ import {
   type FormConfig,
   clampFormColumns,
   normalizeFormLayout,
+  normalizeFormOrder,
   validateRowCells,
 } from '@bn/schema'
 import { zipSync } from 'fflate'
@@ -285,13 +286,25 @@ export function createTablesService(repo: Repo, opts: { now?: () => Date } = {})
         const columnIds = new Set(parseColumns(table.columns).map((c) => c.id))
         const fields = input.form.fields.filter((id) => columnIds.has(id))
         const columns = clampFormColumns(input.form.columns)
-        // placements are rebuilt from the surviving fields, so a field that
+        // a block id must not collide with a column id, or the two would fight
+        // over one slot in the order and the layout
+        const blocks = input.form.blocks.filter((b) => !columnIds.has(b.id))
+        const order = normalizeFormOrder([...fields, ...blocks.map((b) => b.id)], input.form.order)
+        // placements and labels are rebuilt from what survived, so a field that
         // just left the form cannot leave a stale (or impossible) slot behind
+        const labels: Record<string, string> = {}
+        for (const id of fields) {
+          const label = input.form.labels[id]?.trim()
+          if (label) labels[id] = label
+        }
         form = {
           ...input.form,
           fields,
           columns,
-          layout: normalizeFormLayout(fields, columns, input.form.layout),
+          blocks,
+          order,
+          labels,
+          layout: normalizeFormLayout(order, columns, input.form.layout),
         }
       }
       await repo.updateDbTable(input.tableId, {

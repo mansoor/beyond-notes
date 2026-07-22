@@ -3,6 +3,7 @@ import {
   clampFormColumns,
   formWidthChoices,
   normalizeFormLayout,
+  normalizeFormOrder,
   placeFormField,
 } from '@bn/schema'
 import { describe, expect, it } from 'vitest'
@@ -63,6 +64,31 @@ describe('clampFormColumns', () => {
     expect(clampFormColumns(0)).toBe(1)
     expect(clampFormColumns(2)).toBe(2)
     expect(clampFormColumns(99)).toBe(FORM_MAX_COLUMNS)
+  })
+})
+
+describe('normalizeFormOrder', () => {
+  it('keeps the saved order and appends anything it does not mention', () => {
+    // a column ticked after the order was saved still has to appear
+    expect(normalizeFormOrder(['a', 'b', 'c'], ['c', 'a'])).toEqual(['c', 'a', 'b'])
+  })
+
+  it('drops ids that no longer exist — a deleted column, a removed block', () => {
+    expect(normalizeFormOrder(['a', 'b'], ['gone', 'b', 'a'])).toEqual(['b', 'a'])
+  })
+
+  it('survives duplicates and a missing order', () => {
+    expect(normalizeFormOrder(['a', 'b'], ['a', 'a', 'b'])).toEqual(['a', 'b'])
+    expect(normalizeFormOrder(['a', 'b'], undefined)).toEqual(['a', 'b'])
+    expect(normalizeFormOrder([], ['a'])).toEqual([])
+  })
+
+  it('keeps a divider between the fields it was put between', () => {
+    // the whole point of a block: its position relative to the fields is the
+    // only thing it has
+    expect(
+      normalizeFormOrder(['name', 'email', 'blk_1', 'city'], ['name', 'blk_1', 'email']),
+    ).toEqual(['name', 'blk_1', 'email', 'city'])
   })
 })
 

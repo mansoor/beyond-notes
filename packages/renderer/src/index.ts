@@ -25,8 +25,14 @@ export {
 export type { SiteNavItem, PostListItem, Crumb, AlbumCard, SiteMeta, BlogLayout } from './site'
 export { themeCss } from './themes'
 export type { ThemeName } from './themes'
-export { formHtml, FORM_CSS, FORM_JS, RECAPTCHA_SCRIPT } from './form'
-export type { FormFieldInput, FormRenderInput, FormCaptchaInput } from './form'
+export { formHtml, richTextHtml, FORM_CSS, FORM_JS, RECAPTCHA_SCRIPT } from './form'
+export type {
+  FormFieldInput,
+  FormBlockInput,
+  FormItemInput,
+  FormRenderInput,
+  FormCaptchaInput,
+} from './form'
 export { tableEmbedHtml, TABLE_EMBED_CSS, TABLE_EMBED_JS } from './tableembed'
 export type { TableEmbedInput } from './tableembed'
 export { analyticsHtml } from './analytics'

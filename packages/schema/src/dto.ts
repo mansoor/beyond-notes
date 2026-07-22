@@ -801,14 +801,53 @@ export function normalizeFormLayout(
   return out
 }
 
+/**
+ * A block is form furniture that is not a column: a rule that separates one
+ * group of questions from the next, or a line of explanatory text. Blocks sit
+ * in the same order and the same grid as the fields, and carry no data — a
+ * submission never mentions them.
+ */
+export const formBlock = z.object({
+  id: z.string().trim().min(1).max(40),
+  kind: z.enum(['divider', 'text']),
+  // markdown-lite: plain text plus [label](https://…) links; see richTextHtml
+  text: z.string().trim().max(500).default(''),
+})
+export type FormBlock = z.infer<typeof formBlock>
+
+/**
+ * Render order for everything on the form — field ids and block ids in one
+ * list. Ids that no longer exist are dropped and anything missing is appended,
+ * so a form still renders after a column is deleted or a new one is ticked.
+ */
+export function normalizeFormOrder(ids: string[], order: string[] | undefined): string[] {
+  const known = new Set(ids)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of order ?? []) {
+    if (known.has(id) && !seen.has(id)) {
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  for (const id of ids) if (!seen.has(id)) out.push(id)
+  return out
+}
+
 export type FormConfig = {
   enabled: boolean
   // ordered column ids exposed as fields (a subset of the table's columns)
   fields: string[]
   // how many columns the fields are laid out in (1 = a plain stack)
   columns: number
-  // fieldId -> where it sits; see normalizeFormLayout
+  // fieldId/blockId -> where it sits; see normalizeFormLayout
   layout: Record<string, FormFieldPlacement>
+  // fieldId -> label shown instead of the column name (blank = use the name)
+  labels: Record<string, string>
+  // dividers and text blocks, keyed into `order` by id
+  blocks: FormBlock[]
+  // fields and blocks interleaved, in render order
+  order: string[]
   title: string
   description: string
   submitLabel: string
@@ -824,6 +863,9 @@ export const formConfigInput = z.object({
   fields: z.array(z.string()).max(50).default([]),
   columns: z.number().int().min(1).max(FORM_MAX_COLUMNS).default(1),
   layout: z.record(z.string(), formFieldPlacement).default({}),
+  labels: z.record(z.string(), z.string().trim().max(200)).default({}),
+  blocks: z.array(formBlock).max(30).default([]),
+  order: z.array(z.string()).max(80).default([]),
   captcha: captchaMode.default('none'),
   title: z.string().trim().max(120).default(''),
   description: z.string().trim().max(500).default(''),

@@ -7,10 +7,16 @@ import type {
   DbColumnType,
   DbRowView,
   DbTableView,
+  FormBlock,
   FormConfig,
   FormFieldPlacement,
 } from '@bn/schema'
-import { FORM_MAX_COLUMNS, formWidthChoices, normalizeFormLayout } from '@bn/schema'
+import {
+  FORM_MAX_COLUMNS,
+  formWidthChoices,
+  normalizeFormLayout,
+  normalizeFormOrder,
+} from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
@@ -1068,8 +1074,8 @@ function IconBtn(props: {
 }
 
 const DEFAULT_SUCCESS = 'Thanks — your response was received.'
-/** on · field name · position · width */
-const FIELD_GRID = '2rem 1fr 5rem 5rem'
+/** on · field name · label/text · position · width · move & remove */
+const FIELD_GRID = '2rem minmax(7rem,1fr) minmax(9rem,1.4fr) 4.5rem 4.5rem 4rem'
 
 function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
   const update = trpc.tables.updateForm.useMutation()
@@ -1087,20 +1093,56 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   const [copied, setCopied] = useState(false)
   const [columns, setColumns] = useState(existing?.columns ?? 1)
   const [layout, setLayout] = useState<Record<string, FormFieldPlacement>>(existing?.layout ?? {})
+  const [labels, setLabels] = useState<Record<string, string>>(existing?.labels ?? {})
+  const [blocks, setBlocks] = useState<FormBlock[]>(existing?.blocks ?? [])
+  // every row in the builder, ticked or not: the saved order for what is on
+  // the form, then any column it does not mention
+  const [order, setOrder] = useState<string[]>(() =>
+    normalizeFormOrder(
+      [...props.table.columns.map((c) => c.id), ...(existing?.blocks ?? []).map((b) => b.id)],
+      existing?.order,
+    ),
+  )
 
   const embed = `[[form:${props.table.id}]]`
   const toggleField = (id: string) =>
     setFields((prev) => (prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]))
 
-  // fields always persist in column order, whatever order they were ticked in
-  const ordered = props.table.columns.map((c) => c.id).filter((id) => fields.includes(id))
-  // the placements actually in force: every enabled field, clamped to the grid
-  const placed = normalizeFormLayout(ordered, columns, layout)
+  const blockById = new Map(blocks.map((b) => [b.id, b]))
+  // rows are the whole builder order; what is saved is the part that is on
+  const rows = order.filter(
+    (id) => blockById.has(id) || props.table.columns.some((c) => c.id === id),
+  )
+  const ordered = rows.filter((id) => fields.includes(id))
+  const onForm = rows.filter((id) => blockById.has(id) || fields.includes(id))
+  // the placements actually in force: everything on the form, clamped to the grid
+  const placed = normalizeFormLayout(onForm, columns, layout)
   const place = (id: string, patch: Partial<FormFieldPlacement>) =>
     setLayout((prev) => ({
-      ...normalizeFormLayout(ordered, columns, prev),
+      ...normalizeFormLayout(onForm, columns, prev),
       [id]: { ...(placed[id] ?? { col: 1, width: 1 }), ...patch },
     }))
+
+  const addBlock = (kind: FormBlock['kind']) => {
+    const id = `blk_${Math.random().toString(36).slice(2, 10)}`
+    setBlocks((prev) => [...prev, { id, kind, text: '' }])
+    setOrder((prev) => [...prev, id])
+  }
+  const dropBlock = (id: string) => {
+    setBlocks((prev) => prev.filter((b) => b.id !== id))
+    setOrder((prev) => prev.filter((x) => x !== id))
+  }
+  /** Move a row one step; the grid fills in this order, so this IS the layout. */
+  const move = (id: string, by: -1 | 1) =>
+    setOrder((prev) => {
+      const at = prev.indexOf(id)
+      const to = at + by
+      if (at < 0 || to < 0 || to >= prev.length) return prev
+      const next = [...prev]
+      next[at] = next[to] as string
+      next[to] = id
+      return next
+    })
 
   const { busy, error, onSubmit } = useSubmit(async () => {
     const form: FormConfig = {
@@ -1108,6 +1150,9 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
       fields: ordered,
       columns,
       layout: placed,
+      labels,
+      blocks,
+      order: onForm,
       title: title.trim(),
       description: description.trim(),
       submitLabel: submitLabel.trim() || 'Submit',
@@ -1135,7 +1180,7 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   }
 
   return (
-    <Modal title={`Form — ${props.table.name}`} onClose={props.onClose} dirty width="lg">
+    <Modal title={`Form — ${props.table.name}`} onClose={props.onClose} dirty width="xl">
       <form onSubmit={onSubmit}>
         <label className="flex items-center gap-2 mb-3 text-sm">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -1163,10 +1208,31 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
           </select>
         </label>
 
-        {/* one table: what is on the form and where it sits are the same
-            decision, and splitting them meant reading two lists to answer it */}
+        {/* one table: what is on the form, what it is called, and where it sits
+            are the same decision, and splitting them meant reading three lists
+            to answer it */}
         <div className="mb-4">
-          <span className="block text-sm font-medium mb-1">Fields configuration</span>
+          <div className="flex items-baseline gap-3 mb-1">
+            <span className="text-sm font-medium">Fields configuration</span>
+            <span className="ml-auto flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--accent)' }}
+                onClick={() => addBlock('divider')}
+              >
+                ＋ separator
+              </button>
+              <button
+                type="button"
+                className="underline"
+                style={{ color: 'var(--accent)' }}
+                onClick={() => addBlock('text')}
+              >
+                ＋ text
+              </button>
+            </span>
+          </div>
           {props.table.columns.length === 0 ? (
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
               Add columns first — the form is generated from them.
@@ -1186,42 +1252,89 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
               >
                 <span>On</span>
                 <span>Field name</span>
+                <span>Label / text</span>
                 <span>Position</span>
                 <span>Width</span>
+                <span />
               </div>
-              {props.table.columns.map((col) => {
-                const on = fields.includes(col.id)
-                const at = placed[col.id] ?? layout[col.id] ?? { col: 1, width: 1 }
+              {rows.map((id) => {
+                const block = blockById.get(id)
+                const col = props.table.columns.find((c) => c.id === id)
+                const on = block ? true : fields.includes(id)
+                const at = placed[id] ?? layout[id] ?? { col: 1, width: 1 }
                 // a field that is off the form, or a form with no grid, has
                 // nothing to place — the controls stay visible but inert so
                 // the table does not reflow as boxes are ticked
                 const inert = !on || columns === 1
                 return (
                   <div
-                    key={col.id}
+                    key={id}
                     className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
                     style={{ gridTemplateColumns: FIELD_GRID, borderColor: 'var(--border)' }}
                   >
-                    <input
-                      type="checkbox"
-                      className="justify-self-start"
-                      aria-label={`Show ${col.name} on the form`}
-                      checked={on}
-                      onChange={() => toggleField(col.id)}
-                    />
-                    <span className="truncate" style={{ opacity: on ? 1 : 0.55 }}>
-                      {col.name}{' '}
-                      <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                        {col.type}
-                        {col.required ? ' · required' : ''}
+                    {block ? (
+                      <span
+                        className="text-xs"
+                        style={{ color: 'var(--text-3)' }}
+                        title="Always shown"
+                      >
+                        —
                       </span>
+                    ) : (
+                      <input
+                        type="checkbox"
+                        className="justify-self-start"
+                        aria-label={`Show ${col?.name ?? id} on the form`}
+                        checked={on}
+                        onChange={() => toggleField(id)}
+                      />
+                    )}
+                    <span className="truncate" style={{ opacity: on ? 1 : 0.55 }}>
+                      {block ? (
+                        <em style={{ color: 'var(--text-2)' }}>
+                          {block.kind === 'divider' ? 'Separator' : 'Text'}
+                        </em>
+                      ) : (
+                        <>
+                          {col?.name ?? id}{' '}
+                          <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                            {col?.type}
+                            {col?.required ? ' · required' : ''}
+                          </span>
+                        </>
+                      )}
                     </span>
+                    {block?.kind === 'divider' ? (
+                      <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                        a horizontal rule
+                      </span>
+                    ) : (
+                      <input
+                        className="w-full rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                        style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                        disabled={!on}
+                        maxLength={block ? 500 : 200}
+                        placeholder={block ? 'Text — [link](https://…) allowed' : col?.name}
+                        value={block ? block.text : (labels[id] ?? '')}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (block) {
+                            setBlocks((prev) =>
+                              prev.map((b) => (b.id === id ? { ...b, text: value } : b)),
+                            )
+                          } else {
+                            setLabels((prev) => ({ ...prev, [id]: value }))
+                          }
+                        }}
+                      />
+                    )}
                     <select
                       className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      aria-label="Position"
                       style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
                       disabled={inert}
                       value={at.col}
-                      onChange={(e) => place(col.id, { col: Number(e.target.value) })}
+                      onChange={(e) => place(id, { col: Number(e.target.value) })}
                     >
                       {Array.from({ length: columns }, (_, i) => i + 1).map((n) => (
                         <option key={n} value={n}>
@@ -1231,10 +1344,11 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                     </select>
                     <select
                       className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
+                      aria-label="Width"
                       style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
                       disabled={inert}
                       value={at.width}
-                      onChange={(e) => place(col.id, { width: Number(e.target.value) })}
+                      onChange={(e) => place(id, { width: Number(e.target.value) })}
                     >
                       {/* a field in the last position can only be one wide */}
                       {formWidthChoices(at.col, columns).map((n) => (
@@ -1243,6 +1357,37 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                         </option>
                       ))}
                     </select>
+                    <span className="flex items-center gap-1 justify-self-end text-xs">
+                      <button
+                        type="button"
+                        title="Move up"
+                        aria-label="Move up"
+                        style={{ color: 'var(--text-3)' }}
+                        onClick={() => move(id, -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        title="Move down"
+                        aria-label="Move down"
+                        style={{ color: 'var(--text-3)' }}
+                        onClick={() => move(id, 1)}
+                      >
+                        ↓
+                      </button>
+                      {block && (
+                        <button
+                          type="button"
+                          title="Remove"
+                          aria-label="Remove"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => dropBlock(id)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
                   </div>
                 )
               })}
@@ -1250,8 +1395,10 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
           )}
           <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
             {columns === 1
-              ? 'Fields appear in this order, one per row. Choose a multi-column layout to place them side by side.'
-              : 'Fields fill the grid in the order above; a new row starts when the position is already taken. Narrow screens fall back to fewer columns.'}
+              ? 'Everything appears in this order, one per row. Choose a multi-column layout to place items side by side.'
+              : 'Items fill the grid in the order above; a new row starts when the position is already taken. Narrow screens fall back to fewer columns.'}{' '}
+            A label overrides the column name and may carry a link, written as{' '}
+            <code>[terms](https://example.com/terms)</code>.
           </p>
         </div>
 

@@ -30,11 +30,12 @@ import type {
   AlbumCard,
   Crumb,
   FormCaptchaInput,
+  FormItemInput,
   SiteMeta,
   SiteNavItem,
   SocialLink,
 } from '@bn/renderer'
-import { clampFormColumns, normalizeFormLayout } from '@bn/schema'
+import { clampFormColumns, normalizeFormLayout, normalizeFormOrder } from '@bn/schema'
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
@@ -804,22 +805,38 @@ async function renderFormById(
     columns = []
   }
   const byId = new Map(columns.map((c) => [c.id, c]))
+  const blockById = new Map((form.blocks ?? []).map((b) => [b.id, b]))
   // forms saved before layouts existed carry neither columns nor placements —
   // normalize rather than trust, and they render as the stack they always were
   const formColumns = clampFormColumns(form.columns)
-  const placements = normalizeFormLayout(form.fields, formColumns, form.layout)
-  const fields = form.fields
-    .map((fid) => byId.get(fid))
-    .filter((c): c is DbColumn => Boolean(c))
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      type: c.type,
-      required: c.required,
-      choices: c.choices,
-      col: placements[c.id]?.col ?? 1,
-      width: placements[c.id]?.width ?? 1,
-    }))
+  const order = normalizeFormOrder(
+    [...form.fields, ...(form.blocks ?? []).map((b) => b.id)],
+    form.order,
+  )
+  const placements = normalizeFormLayout(order, formColumns, form.layout)
+  // one ordered stream: a divider only means anything relative to the fields
+  // it sits between
+  const fields: FormItemInput[] = order.flatMap((itemId): FormItemInput[] => {
+    const at = placements[itemId] ?? { col: 1, width: 1 }
+    const block = blockById.get(itemId)
+    if (block) {
+      return [{ item: block.kind, id: block.id, text: block.text, col: at.col, width: at.width }]
+    }
+    const c = byId.get(itemId)
+    if (!c) return []
+    return [
+      {
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        required: c.required,
+        choices: c.choices,
+        label: form.labels?.[c.id] ?? '',
+        col: at.col,
+        width: at.width,
+      },
+    ]
+  })
 
   const siteKey = security.recaptchaSiteKey()
   const mode = effectiveCaptchaMode(form.captcha ?? 'none', Boolean(siteKey))

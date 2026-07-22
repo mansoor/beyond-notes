@@ -13,7 +13,23 @@ export type FormFieldInput = {
   /** grid position; both default to 1 (a plain single-column stack) */
   col?: number
   width?: number
+  /** shown instead of `name`; may carry [text](https://…) links */
+  label?: string
+  /** discriminator for the item union — absent means an ordinary field */
+  item?: 'field'
 }
+
+/** Furniture between the questions: a rule, or a line of explanatory text. */
+export type FormBlockInput = {
+  item: 'divider' | 'text'
+  id: string
+  /** the copy for a text block; ignored by a divider */
+  text?: string
+  col?: number
+  width?: number
+}
+
+export type FormItemInput = FormFieldInput | FormBlockInput
 
 export type FormCaptchaInput =
   | { mode: 'basic'; question: string; token: string }
@@ -27,7 +43,8 @@ export type FormRenderInput = {
   description: string
   submitLabel: string
   successMessage: string
-  fields: FormFieldInput[]
+  /** fields and blocks, in render order */
+  fields: FormItemInput[]
   captcha?: FormCaptchaInput
   /** columns to lay the fields out in; 1 (the default) emits no grid at all */
   columns?: number
@@ -36,6 +53,31 @@ export type FormRenderInput = {
 /** Widest grid a form may declare. Mirrors FORM_MAX_COLUMNS in @bn/schema —
  *  the renderer clamps again because it also renders configs it did not save. */
 const MAX_COLUMNS = 4
+
+// Labels and notes are author-written, so they may carry a link — and nothing
+// else. The text is escaped first and links are rebuilt from the parts, so a
+// pasted <script>, an onclick=, or a javascript: href cannot survive: they are
+// simply not shapes this produces.
+const LINK = /\[([^\]\n]{1,120})\]\(([^)\s]{1,300})\)/g
+const SAFE_HREF = /^(https?:\/\/|mailto:|\/)[^\s"'<>]*$/i
+
+/** Escaped text with `[label](url)` turned into an anchor. Nothing else. */
+export function richTextHtml(text: string): string {
+  let out = ''
+  let last = 0
+  for (const m of text.matchAll(LINK)) {
+    const at = m.index ?? 0
+    out += escapeHtml(text.slice(last, at))
+    const label = m[1] ?? ''
+    const href = m[2] ?? ''
+    out += SAFE_HREF.test(href)
+      ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
+      : // not a link we will emit — show the author what they typed
+        escapeHtml(m[0])
+    last = at + m[0].length
+  }
+  return out + escapeHtml(text.slice(last))
+}
 
 /** Google's widget loader — appended once by the serve-time expander when any
  *  form on the page uses reCAPTCHA. The single sanctioned CDN load, opt-in. */
@@ -59,15 +101,24 @@ function captchaHtml(captcha: FormCaptchaInput): string {
  * the narrow-screen media query has to be able to force every field back to a
  * single column, and it cannot outrank an inline style.
  */
-function placementStyle(field: FormFieldInput, columns: number): string {
+function placementStyle(field: { col?: number; width?: number }, columns: number): string {
   if (columns < 2) return ''
   const col = Math.min(Math.max(1, Math.round(field.col ?? 1)), columns)
   const width = Math.min(Math.max(1, Math.round(field.width ?? 1)), columns - col + 1)
   return ` style="--c:${col};--w:${width}"`
 }
 
+function blockHtml(block: FormBlockInput, columns: number): string {
+  const place = placementStyle(block, columns)
+  if (block.item === 'divider') return `<hr class="bn-form-sep"${place}>`
+  const text = (block.text ?? '').trim()
+  return text ? `<p class="bn-form-note"${place}>${richTextHtml(text)}</p>` : ''
+}
+
 function fieldHtml(field: FormFieldInput, columns: number): string {
-  const label = escapeHtml(field.name)
+  // an override may carry a link, so it is rich text; a bare column name is
+  // escaped plain text either way
+  const label = field.label?.trim() ? richTextHtml(field.label.trim()) : escapeHtml(field.name)
   const req = field.required ? ' required' : ''
   const reqMark = field.required ? ' <span class="bn-form-req">*</span>' : ''
   const name = escapeHtml(field.id)
@@ -113,7 +164,13 @@ export function formHtml(input: FormRenderInput): string {
   // one column is the old single-stack markup, byte for byte — a form that
   // never asked for a grid does not get one
   const columns = Math.min(Math.max(1, Math.round(input.columns ?? 1)), MAX_COLUMNS)
-  const cells = input.fields.map((f) => fieldHtml(f, columns)).join('')
+  const cells = input.fields
+    .map((f) =>
+      f.item === 'divider' || f.item === 'text'
+        ? blockHtml(f, columns)
+        : fieldHtml(f as FormFieldInput, columns),
+    )
+    .join('')
   // 3- and 4-wide grids are marked so a tablet can fall back to two columns
   // before the phone rule flattens them entirely
   const fields =
@@ -166,6 +223,10 @@ gap:.85rem;align-items:start}
 .bn-form-grid,.bn-form-grid.bn-form-dense{grid-template-columns:1fr}
 .bn-form-grid>*,.bn-form-grid.bn-form-dense>*{grid-column:1/-1}
 }
+/* furniture: a rule between groups, and a line of copy among the questions */
+.bn-form-sep{border:0;border-top:1px solid var(--border,#ddd);margin:.4rem 0;width:100%}
+.bn-form-note{margin:0;font-size:.85rem;color:var(--text-2,#555);line-height:1.5}
+.bn-form-note a,.bn-form-label a{color:var(--accent,#2b6cb0)}
 .bn-form-check{display:flex;align-items:center;gap:.5rem;font-size:.9rem}
 .bn-form-check input{width:auto}
 .bn-form-submit{align-self:flex-start;padding:.55rem 1.1rem;border:0;border-radius:8px;background:var(--accent,#2b6cb0);color:#fff;font:inherit;font-weight:600;cursor:pointer}
