@@ -77,7 +77,7 @@ import {
   restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
-  setComingUpDaysInput,
+  setHorizonsInput,
   setLockInput,
   setPageTypeInput,
   setSidebarHiddenInput,
@@ -135,7 +135,8 @@ function toUserView(u: UserRow): UserView {
     id: u.id,
     email: u.email,
     sidebarHidden,
-    comingUpDays: u.comingUpDays,
+    taskDays: u.taskDays,
+    reminderDays: u.reminderDays,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -353,9 +354,13 @@ const authRouter = router({
       return { ok: true }
     }),
 
-  /** How far ahead the Today page looks for things that have not happened yet. */
-  setComingUpDays: authedProcedure.input(setComingUpDaysInput).mutation(async ({ ctx, input }) => {
-    await ctx.repo.updateUser(ctx.user.id, { comingUpDays: input.days })
+  /** How far ahead the Today page looks for things that have not happened yet.
+   *  Tasks and reminders keep separate horizons; either may be set alone. */
+  setHorizons: authedProcedure.input(setHorizonsInput).mutation(async ({ ctx, input }) => {
+    await ctx.repo.updateUser(ctx.user.id, {
+      ...(input.taskDays !== undefined ? { taskDays: input.taskDays } : {}),
+      ...(input.reminderDays !== undefined ? { reminderDays: input.reminderDays } : {}),
+    })
     return { ok: true }
   }),
 

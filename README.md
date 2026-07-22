@@ -279,7 +279,10 @@ became.
 ### Day, Inbox, Tasks, Reminders
 
 - **Today** — a date-keyed journal page plus everything due today, and a
-  "Coming up" rail for the near horizon.
+  "Coming up" rail for what is nearly here. Tasks and reminders get **separate
+  horizons** (Settings → Appearance): a fortnight of tasks is a working week's
+  worth of warning, while a reminder set for a renewal in two months is the
+  whole reason you wrote it down.
 - **Inbox** — frictionless capture. No title, no filing. Later, promote a memo
   into a note, the journal, or a task.
 - **Tasks** — a global agenda built from **checkbox blocks anywhere in your

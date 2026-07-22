@@ -59,6 +59,26 @@ for (const dialect of dialects) {
       await appDb.close()
     })
 
+    it('keeps the task and reminder horizons apart', async () => {
+      const { auth, repo, appDb } = await makeAuth()
+      const { user } = await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
+      // both start at a week, which is what the single setting used to mean
+      expect(user.taskDays).toBe(7)
+      expect(user.reminderDays).toBe(7)
+
+      // reaching further out for reminders must not drag tasks with it
+      await repo.updateUser(user.id, { reminderDays: 60 })
+      let fresh = await repo.getUserById(user.id)
+      expect(fresh?.reminderDays).toBe(60)
+      expect(fresh?.taskDays).toBe(7)
+
+      await repo.updateUser(user.id, { taskDays: 14 })
+      fresh = await repo.getUserById(user.id)
+      expect(fresh?.taskDays).toBe(14)
+      expect(fresh?.reminderDays).toBe(60)
+      await appDb.close()
+    })
+
     it('login verifies credentials and issues a working session', async () => {
       const { auth, appDb } = await makeAuth()
       await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })

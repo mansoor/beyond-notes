@@ -29,7 +29,7 @@ export function useSidebarPrefs() {
   const save = trpc.auth.setSidebarHidden.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
-  const saveDays = trpc.auth.setComingUpDays.useMutation({
+  const saveDays = trpc.auth.setHorizons.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
 
@@ -49,9 +49,12 @@ export function useSidebarPrefs() {
     isItemHidden: (kind: HideableKind, token: string) =>
       hidden.has(catToken(kind)) || hidden.has(token),
     setHidden,
-    /** How far ahead the Today page's "Coming up" list looks. */
-    comingUpDays: status.data?.me?.comingUpDays ?? 7,
-    setComingUpDays: (days: number) => saveDays.mutateAsync({ days }),
+    /** How far ahead "Coming up" looks — a horizon each, because a task six
+     *  weeks out is noise and a reminder six weeks out is the point. */
+    taskDays: status.data?.me?.taskDays ?? 7,
+    reminderDays: status.data?.me?.reminderDays ?? 7,
+    setHorizons: (horizons: { taskDays?: number; reminderDays?: number }) =>
+      saveDays.mutateAsync(horizons),
     saving: save.isPending || saveDays.isPending,
   }
 }

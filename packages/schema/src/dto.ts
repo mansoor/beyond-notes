@@ -73,8 +73,10 @@ export type UserView = {
   emailNotifications: boolean
   /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
   sidebarHidden: string[]
-  /** how many days ahead the Today page's "Coming up" list reaches */
-  comingUpDays: number
+  /** how many days ahead "Coming up" reaches for tasks */
+  taskDays: number
+  /** …and for reminders, which are usually set much further out */
+  reminderDays: number
   createdAt: string
 }
 
@@ -1160,9 +1162,19 @@ export const setSidebarHiddenInput = z.object({
 
 /** 1 day to 3 months: shorter than a day is just "today", longer stops being
  *  a horizon at all — which is the bug this setting exists to fix. */
-export const comingUpDaysSchema = z.number().int().min(1).max(90)
+export const horizonDaysSchema = z.number().int().min(1).max(90)
 
-export const setComingUpDaysInput = z.object({ days: comingUpDaysSchema })
+/** Either horizon, or both. Tasks and reminders are set apart because a task
+ *  due in six weeks is noise today, while a reminder six weeks out may be the
+ *  whole point of having written it down. */
+export const setHorizonsInput = z
+  .object({
+    taskDays: horizonDaysSchema.optional(),
+    reminderDays: horizonDaysSchema.optional(),
+  })
+  .refine((v) => v.taskDays !== undefined || v.reminderDays !== undefined, {
+    message: 'Set at least one horizon.',
+  })
 
 export const lockPolicy = z.enum(['session', 'idle'])
 export type LockPolicyView = z.infer<typeof lockPolicy>

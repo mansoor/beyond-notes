@@ -108,7 +108,8 @@ export function createAuthService(
         recoveryCodes: null,
         emailNotifications: false,
         sidebarHidden: '[]',
-        comingUpDays: 7,
+        taskDays: 7,
+        reminderDays: 7,
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -332,7 +333,8 @@ export function createAuthService(
         recoveryCodes: null,
         emailNotifications: false,
         sidebarHidden: '[]',
-        comingUpDays: 7,
+        taskDays: 7,
+        reminderDays: 7,
         createdAt: now(),
       }
       await repo.insertUser(user)

@@ -37,9 +37,12 @@ export const users = pgTable('users', {
   // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
   // working, it just stops taking up room in the sidebar.
   sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
-  // how far ahead the Today page looks for "Coming up". Without a horizon a
-  // reminder set for next spring sits on today's page all year.
-  comingUpDays: integer('coming_up_days').notNull().default(7),
+  // How far ahead the Today page looks for "Coming up", per kind: a task list
+  // and a reminder list answer different questions, so they get their own
+  // horizons. (`coming_up_days` is the tasks one — it predates the split and
+  // kept its name so both dialects stay on one migration path.)
+  taskDays: integer('coming_up_days').notNull().default(7),
+  reminderDays: integer('reminder_days').notNull().default(7),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 

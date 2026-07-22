@@ -197,6 +197,13 @@
       "when": 1784707169283,
       "tag": "0027_elite_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1784732271857,
+      "tag": "0028_nappy_trish_tilby",
+      "breakpoints": true
     }
   ]
 }
