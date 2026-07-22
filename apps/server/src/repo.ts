@@ -13,6 +13,8 @@ export type UserRow = {
   emailNotifications: boolean
   /** JSON array of hidden sidebar tokens, e.g. ["cat:site","space:abc"] */
   sidebarHidden: string
+  /** how many days ahead "Coming up" reaches on the Today page */
+  comingUpDays: number
   createdAt: Date
 }
 
@@ -49,6 +51,8 @@ export type SpaceRow = {
   publicHeaderLayout: 'classic' | 'centered' | 'split' | 'minimal'
   /** null = open; otherwise how often the account password is re-asked */
   lockPolicy: 'session' | 'idle' | null
+  /** for an 'idle' lock: minutes of disuse before it re-asks (null = 30) */
+  lockIdleMinutes: number | null
   createdAt: Date
 }
 
@@ -74,6 +78,8 @@ export type PageRow = {
   trashedBy: string | null
   /** null = open; otherwise how often the account password is re-asked */
   lockPolicy: 'session' | 'idle' | null
+  /** for an 'idle' lock: minutes of disuse before it re-asks (null = 30) */
+  lockIdleMinutes: number | null
   createdAt: Date
   updatedAt: Date
 }
@@ -286,6 +292,7 @@ export function createRepo(appDb: AppDb) {
           | 'name'
           | 'email'
           | 'emailNotifications'
+          | 'comingUpDays'
         >
       >,
     ): Promise<void> {
@@ -452,12 +459,26 @@ export function createRepo(appDb: AppDb) {
       return db.select().from(t.pages).where(sqlOp`${t.pages.lockPolicy} is not null`)
     },
 
-    async setPageLock(id: string, policy: 'session' | 'idle' | null): Promise<void> {
-      await db.update(t.pages).set({ lockPolicy: policy }).where(eq(t.pages.id, id))
+    async setPageLock(
+      id: string,
+      policy: 'session' | 'idle' | null,
+      idleMinutes: number | null = null,
+    ): Promise<void> {
+      await db
+        .update(t.pages)
+        .set({ lockPolicy: policy, lockIdleMinutes: policy === 'idle' ? idleMinutes : null })
+        .where(eq(t.pages.id, id))
     },
 
-    async setSpaceLock(id: string, policy: 'session' | 'idle' | null): Promise<void> {
-      await db.update(t.spaces).set({ lockPolicy: policy }).where(eq(t.spaces.id, id))
+    async setSpaceLock(
+      id: string,
+      policy: 'session' | 'idle' | null,
+      idleMinutes: number | null = null,
+    ): Promise<void> {
+      await db
+        .update(t.spaces)
+        .set({ lockPolicy: policy, lockIdleMinutes: policy === 'idle' ? idleMinutes : null })
+        .where(eq(t.spaces.id, id))
     },
 
     async setSidebarHidden(userId: string, hidden: string): Promise<void> {

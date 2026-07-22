@@ -25,6 +25,9 @@ export const users = sqliteTable('users', {
   // 'cat:site' or 'space:<id>'. Hiding is a view preference: the space keeps
   // working, it just stops taking up room in the sidebar.
   sidebarHidden: text('sidebar_hidden').notNull().default('[]'),
+  // how far ahead the Today page looks for "Coming up". Without a horizon a
+  // reminder set for next spring sits on today's page all year.
+  comingUpDays: integer('coming_up_days').notNull().default(7),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -81,6 +84,8 @@ export const spaces = sqliteTable('spaces', {
   // re-asks after 30 minutes without opening it. A lock hides content behind
   // the account password; it does not encrypt (see DESIGN-NOTES).
   lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
+  // minutes of disuse before an 'idle' lock re-asks; null = the 30-minute default
+  lockIdleMinutes: integer('lock_idle_minutes'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -116,6 +121,8 @@ export const pages = sqliteTable('pages', {
   // re-asks after 30 minutes without opening it. A lock hides content behind
   // the account password; it does not encrypt (see DESIGN-NOTES).
   lockPolicy: text('lock_policy', { enum: ['session', 'idle'] }),
+  // minutes of disuse before an 'idle' lock re-asks; null = the 30-minute default
+  lockIdleMinutes: integer('lock_idle_minutes'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

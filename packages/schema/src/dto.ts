@@ -73,6 +73,8 @@ export type UserView = {
   emailNotifications: boolean
   /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
   sidebarHidden: string[]
+  /** how many days ahead the Today page's "Coming up" list reaches */
+  comingUpDays: number
   createdAt: string
 }
 
@@ -1011,6 +1013,12 @@ export const setSidebarHiddenInput = z.object({
   hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),
 })
 
+/** 1 day to 3 months: shorter than a day is just "today", longer stops being
+ *  a horizon at all — which is the bug this setting exists to fix. */
+export const comingUpDaysSchema = z.number().int().min(1).max(90)
+
+export const setComingUpDaysInput = z.object({ days: comingUpDaysSchema })
+
 export const lockPolicy = z.enum(['session', 'idle'])
 export type LockPolicyView = z.infer<typeof lockPolicy>
 
@@ -1019,6 +1027,15 @@ export const setLockInput = z.object({
   id: z.string(),
   /** null unlocks it for good; otherwise how often the password is re-asked */
   policy: lockPolicy.nullable(),
+  /** for 'idle': minutes of disuse before it re-asks. Null uses the 30-minute
+   *  default; the ceiling is a week, past which "locked" stops meaning much. */
+  idleMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 7)
+    .nullable()
+    .default(null),
   /** the account password — required to lock and to unlock permanently */
   password: z.string().min(1).max(200),
 })
@@ -1033,6 +1050,37 @@ export type LockStateView = {
   target: 'space' | 'page'
   id: string
   policy: LockPolicyView
+  /** minutes for an 'idle' lock; null means the 30-minute default */
+  idleMinutes: number | null
   /** true once this session has entered the password and the grant still holds */
   open: boolean
+}
+
+// ---- what belongs on the Today page's "Coming up" list ----
+
+/** Calendar-date arithmetic on a YYYY-MM-DD key. UTC so no zone can shift a day. */
+export function shiftDayKey(key: string, days: number): string {
+  const [y, m, d] = key.split('-').map(Number)
+  const at = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1))
+  at.setUTCDate(at.getUTCDate() + days)
+  return at.toISOString().slice(0, 10)
+}
+
+/**
+ * Should this land in "Coming up"?
+ *
+ * Two rules, and the second is why this is a function rather than a comparison:
+ * anything inside the horizon qualifies, but a reminder carrying a heads-up
+ * window has explicitly asked to be surfaced early — annual life-admin is the
+ * entire reason that field exists — so it also qualifies once its own window
+ * opens, however distant the date. Everything else stays off the page.
+ */
+export function isComingUp(
+  item: { dueDate: string; headsUpDays?: number | null },
+  opts: { today: string; horizonDays: number },
+): boolean {
+  if (item.dueDate <= opts.today) return false // overdue/today live in the column
+  if (item.dueDate <= shiftDayKey(opts.today, opts.horizonDays)) return true
+  const lead = item.headsUpDays
+  return lead != null && shiftDayKey(item.dueDate, -lead) <= opts.today
 }

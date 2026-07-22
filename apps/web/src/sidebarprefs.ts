@@ -29,6 +29,9 @@ export function useSidebarPrefs() {
   const save = trpc.auth.setSidebarHidden.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
+  const saveDays = trpc.auth.setComingUpDays.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
 
   const hidden = new Set(status.data?.me?.sidebarHidden ?? [])
 
@@ -46,6 +49,9 @@ export function useSidebarPrefs() {
     isItemHidden: (kind: HideableKind, token: string) =>
       hidden.has(catToken(kind)) || hidden.has(token),
     setHidden,
-    saving: save.isPending,
+    /** How far ahead the Today page's "Coming up" list looks. */
+    comingUpDays: status.data?.me?.comingUpDays ?? 7,
+    setComingUpDays: (days: number) => saveDays.mutateAsync({ days }),
+    saving: save.isPending || saveDays.isPending,
   }
 }

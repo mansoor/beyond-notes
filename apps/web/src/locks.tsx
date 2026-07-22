@@ -20,7 +20,17 @@ export function useLockState(target: LockTargetKind, id: string | null): LockSta
 
 const POLICY_LABEL: Record<LockPolicyView, string> = {
   session: 'Once per sign-in',
-  idle: 'Again after 30 minutes unused',
+  idle: 'Again after a period of not using it',
+}
+
+/** Presets people actually reach for; the field takes anything else. */
+const MINUTE_PRESETS = [5, 15, 30, 60, 120, 480]
+
+function minutesLabel(m: number): string {
+  if (m < 60) return `${m} minutes`
+  const h = m / 60
+  if (h === 1) return '1 hour'
+  return `${Number.isInteger(h) ? h : h.toFixed(1)} hours`
 }
 
 export function LockModal(props: {
@@ -33,6 +43,7 @@ export function LockModal(props: {
   const utils = trpc.useUtils()
   const set = trpc.locks.set.useMutation()
   const [policy, setPolicy] = useState<LockPolicyView>(props.current?.policy ?? 'session')
+  const [minutes, setMinutes] = useState<number>(props.current?.idleMinutes ?? 30)
   const [password, setPassword] = useState('')
   const locking = !props.current
 
@@ -41,6 +52,7 @@ export function LockModal(props: {
       target: props.target,
       id: props.id,
       policy: locking ? policy : null,
+      idleMinutes: locking && policy === 'idle' ? minutes : null,
       password,
     })
     await utils.locks.list.invalidate()
@@ -72,10 +84,45 @@ export function LockModal(props: {
                 ))}
               </select>
             </label>
+            {policy === 'idle' ? (
+              <label className="block mb-3">
+                <span className="block text-sm font-medium mb-1">After how long?</span>
+                <div className="flex flex-wrap items-center gap-1 mb-2">
+                  {MINUTE_PRESETS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMinutes(m)}
+                      className="px-2 py-1 rounded-lg text-xs border"
+                      style={{
+                        borderColor: minutes === m ? 'var(--accent)' : 'var(--border)',
+                        color: minutes === m ? 'var(--accent)' : 'var(--text-2)',
+                      }}
+                    >
+                      {minutesLabel(m)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10080}
+                    className="w-24 rounded-lg border px-3 py-2 text-sm"
+                    style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                    value={minutes}
+                    onChange={(e) => setMinutes(Number(e.target.value))}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-2)' }}>
+                    minutes
+                  </span>
+                </div>
+              </label>
+            ) : null}
             <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
               {policy === 'session'
                 ? 'You enter your password once after signing in, and it stays open until you sign out.'
-                : 'It closes again after 30 minutes without opening it. Reading it keeps it open.'}
+                : `It closes again after ${minutesLabel(minutes)} without opening it. Reading it keeps it open.`}
             </p>
             <p
               className="text-xs mb-4 rounded-lg border p-2"

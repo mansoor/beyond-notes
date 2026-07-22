@@ -176,6 +176,13 @@
       "when": 1784680577294,
       "tag": "0024_glossy_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1784688457418,
+      "tag": "0025_sparkling_runaways",
+      "breakpoints": true
     }
   ]
 }

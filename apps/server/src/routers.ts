@@ -77,6 +77,7 @@ import {
   restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
+  setComingUpDaysInput,
   setLockInput,
   setPageTypeInput,
   setSidebarHiddenInput,
@@ -133,6 +134,7 @@ function toUserView(u: UserRow): UserView {
     id: u.id,
     email: u.email,
     sidebarHidden,
+    comingUpDays: u.comingUpDays,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -344,6 +346,12 @@ const authRouter = router({
       await ctx.repo.updateUser(ctx.user.id, { emailNotifications: input.enabled })
       return { ok: true }
     }),
+
+  /** How far ahead the Today page looks for things that have not happened yet. */
+  setComingUpDays: authedProcedure.input(setComingUpDaysInput).mutation(async ({ ctx, input }) => {
+    await ctx.repo.updateUser(ctx.user.id, { comingUpDays: input.days })
+    return { ok: true }
+  }),
 
   /** Which sidebar sections and spaces this user keeps out of the way. */
   setSidebarHidden: authedProcedure
@@ -1742,6 +1750,7 @@ const locksRouter = router({
         target: 'space',
         id: space.id,
         policy: space.lockPolicy,
+        idleMinutes: space.lockIdleMinutes,
         open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'space', id: space.id }),
       })
     }
@@ -1751,6 +1760,7 @@ const locksRouter = router({
         target: 'page',
         id: page.id,
         policy: page.lockPolicy,
+        idleMinutes: page.lockIdleMinutes,
         open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'page', id: page.id }),
       })
     }
@@ -1768,7 +1778,7 @@ const locksRouter = router({
       if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
-      await ctx.repo.setSpaceLock(space.id, input.policy)
+      await ctx.repo.setSpaceLock(space.id, input.policy, input.idleMinutes)
     } else {
       const page = await ctx.repo.getPage(input.id)
       if (!page) throw new TRPCError({ code: 'NOT_FOUND' })
@@ -1783,13 +1793,15 @@ const locksRouter = router({
           message: 'Retire this page from the public site before locking it.',
         })
       }
-      await ctx.repo.setPageLock(page.id, input.policy)
+      await ctx.repo.setPageLock(page.id, input.policy, input.idleMinutes)
     }
     const target = { kind: input.target, id: input.id } as const
     // locking now takes effect immediately; unlocking for good needs no grant
     if (ctx.sessionToken) ctx.locks.revoke(ctx.sessionToken, target)
     // having just proved the password, the person who locked it can keep working
-    if (input.policy && ctx.sessionToken) ctx.locks.grant(ctx.sessionToken, target, input.policy)
+    if (input.policy && ctx.sessionToken) {
+      ctx.locks.grant(ctx.sessionToken, target, input.policy, input.idleMinutes)
+    }
     return { ok: true }
   }),
 
@@ -1798,13 +1810,19 @@ const locksRouter = router({
     if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
     }
-    const policy =
+    const row =
       input.target === 'space'
-        ? (await ctx.repo.getSpace(input.id))?.lockPolicy
-        : (await ctx.repo.getPage(input.id))?.lockPolicy
-    if (!policy) throw new TRPCError({ code: 'BAD_REQUEST', message: 'That is not locked.' })
+        ? await ctx.repo.getSpace(input.id)
+        : await ctx.repo.getPage(input.id)
+    if (!row?.lockPolicy)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'That is not locked.' })
     if (ctx.sessionToken) {
-      ctx.locks.grant(ctx.sessionToken, { kind: input.target, id: input.id }, policy)
+      ctx.locks.grant(
+        ctx.sessionToken,
+        { kind: input.target, id: input.id },
+        row.lockPolicy,
+        row.lockIdleMinutes,
+      )
     }
     return { ok: true }
   }),

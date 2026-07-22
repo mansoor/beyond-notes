@@ -22,8 +22,15 @@ import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 export type LockPolicy = 'session' | 'idle'
 export type LockTarget = { kind: 'space' | 'page'; id: string }
 
-/** How long an 'idle' unlock survives without the target being opened. */
-export const IDLE_MS = 30 * 60 * 1000
+/** Default minutes an 'idle' unlock survives unused, when a lock names none. */
+export const DEFAULT_IDLE_MINUTES = 30
+export const IDLE_MS = DEFAULT_IDLE_MINUTES * 60 * 1000
+
+/** Clamp a stored minute count into something sane before trusting it. */
+export function idleMsFor(minutes: number | null | undefined): number {
+  const m = minutes ?? DEFAULT_IDLE_MINUTES
+  return Math.min(Math.max(Math.round(m), 1), 60 * 24 * 7) * 60 * 1000
+}
 
 export class LockedError extends Error {
   constructor(
@@ -34,7 +41,7 @@ export class LockedError extends Error {
   }
 }
 
-type Grant = { policy: LockPolicy; touchedAt: number }
+type Grant = { policy: LockPolicy; touchedAt: number; idleMs: number }
 
 /**
  * Unlocks are held in memory, keyed by session token — so they die with the
@@ -50,14 +57,19 @@ export function createLockService(repo: Repo, opts: { now?: () => number } = {})
   const live = (grant: Grant | undefined): boolean => {
     if (!grant) return false
     if (grant.policy === 'session') return true
-    return now() - grant.touchedAt < IDLE_MS
+    return now() - grant.touchedAt < grant.idleMs
   }
 
   return {
     /** Record a successful password check. The caller verifies the password. */
-    grant(sessionToken: string, target: LockTarget, policy: LockPolicy): void {
+    grant(
+      sessionToken: string,
+      target: LockTarget,
+      policy: LockPolicy,
+      idleMinutes?: number | null,
+    ): void {
       const forSession = grants.get(sessionToken) ?? new Map<string, Grant>()
-      forSession.set(key(target), { policy, touchedAt: now() })
+      forSession.set(key(target), { policy, touchedAt: now(), idleMs: idleMsFor(idleMinutes) })
       grants.set(sessionToken, forSession)
     },
 
@@ -88,10 +100,20 @@ export function createLockService(repo: Repo, opts: { now?: () => number } = {})
     async lockFor(
       page: PageRow,
       space: SpaceRow | null,
-    ): Promise<{ target: LockTarget; policy: LockPolicy } | null> {
-      if (page.lockPolicy) return { target: { kind: 'page', id: page.id }, policy: page.lockPolicy }
+    ): Promise<{ target: LockTarget; policy: LockPolicy; idleMinutes: number | null } | null> {
+      if (page.lockPolicy) {
+        return {
+          target: { kind: 'page', id: page.id },
+          policy: page.lockPolicy,
+          idleMinutes: page.lockIdleMinutes,
+        }
+      }
       if (space?.lockPolicy) {
-        return { target: { kind: 'space', id: space.id }, policy: space.lockPolicy }
+        return {
+          target: { kind: 'space', id: space.id },
+          policy: space.lockPolicy,
+          idleMinutes: space.lockIdleMinutes,
+        }
       }
       return null
     },

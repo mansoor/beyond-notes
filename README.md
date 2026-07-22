@@ -411,7 +411,10 @@ moves them; it is idempotent and safe to re-run.
 
 ### Keeping the sidebar yours
 
-**Settings → Appearance** hides sections you don't use — Notebooks, Sites, Wikis
+**Settings → Appearance** also sets how far ahead the Today page's **"Coming
+up"** list looks (default 7 days) — anything further out stays off the page,
+except a reminder whose own heads-up window has opened. It hides sections you
+don't use — Notebooks, Sites, Wikis
 or Databases — or single spaces inside them. Hiding is only about clutter: a
 hidden space still works, still takes new pages, and comes straight back when you
 untick it. Creating something of a hidden kind is still allowed; the dialog warns
@@ -422,7 +425,8 @@ your account to every device you sign in from.
 
 Lock a whole notebook or one page from its **⋯ menu**, and it asks for your
 account password before opening. Choose when it asks again: **once per sign-in**,
-or **again after 30 minutes unused** (reading it keeps it open). Signing out
+or **after a period of not using it** — 5 minutes, 2 hours, or anything up to a
+week (reading it slides the window forward). Signing out
 re-locks everything, and so does a server restart.
 
 > **What a lock is:** a lock screen for the laptop left open on the kitchen

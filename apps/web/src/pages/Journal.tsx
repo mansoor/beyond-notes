@@ -1,3 +1,4 @@
+import { isComingUp } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import { fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
@@ -39,6 +40,7 @@ export function JournalPage() {
   const agenda = trpc.tasks.agenda.useQuery()
   const memos = trpc.memos.list.useQuery()
   const reminders = trpc.reminders.list.useQuery()
+  const status = trpc.auth.status.useQuery()
   const [state, setState] = useState<SaveState>('saved')
   const utils = trpc.useUtils()
   const createNote = trpc.journal.createNote.useMutation({
@@ -66,10 +68,15 @@ export function JournalPage() {
     (m) => toDateKey(new Date(m.createdAt)) === date,
   )
 
-  // "Coming up" is real-world upcoming (relative to today, not the viewed
-  // day): tasks due within the next 7 days plus every future reminder, one
-  // list sorted by date. Overdue/today items live in the column, not here.
-  const horizon = shiftDateKey(today, 7)
+  // "Coming up" is real-world upcoming (relative to today, not the viewed day):
+  // tasks and reminders landing inside the horizon, one list sorted by date.
+  // Overdue/today items live in the column, not here.
+  //
+  // The horizon is a setting (Settings › Appearance) because it used to be seven
+  // hard-coded days for tasks and *nothing at all* for reminders — so a reminder
+  // set for next spring sat on the Today page all year.
+  const horizonDays = status.data?.me?.comingUpDays ?? 7
+  const horizon = { today, horizonDays }
   type ComingUp =
     | { kind: 'reminder'; key: string; icon: string; title: string; date: string; hint: string }
     | {
@@ -86,7 +93,7 @@ export function JournalPage() {
       }
   const comingUp: ComingUp[] = [
     ...(reminders.data ?? [])
-      .filter((r) => !r.completed && r.dueDate > today)
+      .filter((r) => !r.completed && isComingUp(r, horizon))
       .map(
         (r): ComingUp => ({
           kind: 'reminder',
@@ -98,7 +105,7 @@ export function JournalPage() {
         }),
       ),
     ...(agenda.data ?? [])
-      .filter((t) => !t.checked && t.due !== null && t.due > today && (t.due as string) <= horizon)
+      .filter((t) => !t.checked && t.due !== null && isComingUp({ dueDate: t.due }, horizon))
       .map(
         (t): ComingUp => ({
           kind: 'task',

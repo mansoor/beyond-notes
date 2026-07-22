@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
 import { createDb } from './db'
-import { IDLE_MS, LockedError, createLockService } from './locks'
+import { DEFAULT_IDLE_MINUTES, IDLE_MS, LockedError, createLockService, idleMsFor } from './locks'
 import { createPagesService } from './pages'
 import { createRepo } from './repo'
 
@@ -80,6 +80,28 @@ describe('lock grants', () => {
     clock += IDLE_MS + 1000 // now genuinely idle
     await expect(locks.assertPageOpen('sess-1', fresh)).rejects.toThrow(LockedError)
     await db.close()
+  })
+
+  it('honours a per-lock timeout instead of the 30-minute default', async () => {
+    let clock = 1_000_000
+    const { db, repo, locks, page } = await setup({ now: () => clock })
+    await repo.setPageLock(page.id, 'idle', 5) // five minutes, not thirty
+    const fresh = req(await repo.getPage(page.id))
+
+    locks.grant('sess-1', { kind: 'page', id: page.id }, 'idle', 5)
+    clock += 4 * 60 * 1000
+    await expect(locks.assertPageOpen('sess-1', fresh)).resolves.toBeUndefined()
+    clock += 6 * 60 * 1000 // past five idle minutes, far short of thirty
+    await expect(locks.assertPageOpen('sess-1', fresh)).rejects.toThrow(LockedError)
+    await db.close()
+  })
+
+  it('clamps a nonsense timeout rather than trusting the row', () => {
+    expect(idleMsFor(null)).toBe(DEFAULT_IDLE_MINUTES * 60 * 1000)
+    expect(idleMsFor(0)).toBe(60 * 1000) // never zero: that would lock instantly
+    expect(idleMsFor(-5)).toBe(60 * 1000)
+    expect(idleMsFor(120)).toBe(120 * 60 * 1000)
+    expect(idleMsFor(999_999)).toBe(7 * 24 * 60 * 60 * 1000) // a week is the ceiling
   })
 
   it('a session grant does not expire with time', async () => {
