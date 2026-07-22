@@ -79,7 +79,7 @@ linux/arm64 — so Intel/AMD servers *and* Apple Silicon / Raspberry Pi 4+ / ARM
 VPSes) to GitHub Container Registry:
 
 ```
-ghcr.io/mansoor/beyond-notes:v0.8.0   # pinned version (recommended)
+ghcr.io/mansoor/beyond-notes:v0.8.1   # pinned version (recommended)
 ghcr.io/mansoor/beyond-notes:latest   # moving tag
 ```
 
@@ -671,7 +671,7 @@ docker compose up -d
 
 Migrations run on boot, forward-only and additive, so an older database against
 a newer image is the supported path. Take a backup first anyway. Pinning
-`:v0.8.0` instead of `:latest` means upgrades happen when *you* decide.
+`:v0.8.1` instead of `:latest` means upgrades happen when *you* decide.
 
 ---
 
