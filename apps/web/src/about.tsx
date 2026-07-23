@@ -7,8 +7,8 @@ const version = (pkg as { version: string }).version
 
 const LINKS = {
   github: 'https://github.com/mansoor/beyond-notes',
-  // Your project's public site. Left blank the row is hidden — set it here.
-  website: '',
+  // Your project's public site. Left blank the row is hidden.
+  website: 'https://beyondnotes.app',
 }
 
 const BUILT_WITH = [
