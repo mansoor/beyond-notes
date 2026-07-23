@@ -1,7 +1,7 @@
 import { isComingUp } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
-import { fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
+import { RightDrawer, fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
 import {
   DocumentEditor,
   SaveBadge,
@@ -42,6 +42,7 @@ export function JournalPage() {
   const reminders = trpc.reminders.list.useQuery()
   const status = trpc.auth.status.useQuery()
   const [state, setState] = useState<SaveState>('saved')
+  const [railOpen, setRailOpen] = useState(false)
   const utils = trpc.useUtils()
   const createNote = trpc.journal.createNote.useMutation({
     onSuccess: () => utils.journal.notes.invalidate({ date }),
@@ -126,6 +127,77 @@ export function JournalPage() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 12)
 
+  // one definition of the rail, shown as the desktop right column and — on
+  // narrow screens, where it's the only way to reach the calendar and jump
+  // dates — inside a drawer behind the header button
+  const rail = (
+    <>
+      <Calendar
+        selected={date}
+        onPick={(d) => navigate({ to: '/day/$date', params: { date: d } })}
+      />
+      {comingUp.length > 0 && (
+        <div
+          className="rounded-xl border p-4 mt-4 text-sm"
+          style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+        >
+          <h4
+            className="text-xs uppercase tracking-wide font-semibold mb-2"
+            style={{ color: 'var(--text-3)' }}
+          >
+            Coming up
+          </h4>
+          {comingUp.map((item) => {
+            const timeSuffix = item.kind === 'task' && item.time ? ` ${fmtTime12(item.time)}` : ''
+            const dateLabel = (item.date === today ? 'today' : item.date.slice(5)) + timeSuffix
+            const body = (
+              <>
+                <span className="truncate">
+                  {item.icon} {item.title}
+                </span>
+                <span
+                  className="text-xs whitespace-nowrap"
+                  style={{ color: 'var(--text-3)' }}
+                  title={item.hint}
+                >
+                  {dateLabel}
+                </span>
+              </>
+            )
+            if (item.kind === 'task') {
+              const isDayPage = item.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(item.pageTitle)
+              // quick-added tasks share one "Tasks inbox" page; sending you to
+              // the raw page dumps every checkbox at once — the agenda is the
+              // real home for them. Journal-day tasks open their day; note
+              // tasks open their note.
+              const go = () => {
+                if (item.pageTitle === 'Tasks inbox') navigate({ to: '/tasks' })
+                else if (isDayPage) navigate({ to: '/day/$date', params: { date: item.pageTitle } })
+                else navigate({ to: '/p/$pageId', params: { pageId: item.pageId } })
+              }
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className="flex w-full justify-between gap-2 py-1 text-left"
+                  onClick={go}
+                >
+                  {body}
+                </button>
+              )
+            }
+            return (
+              <div key={item.key} className="flex justify-between gap-2 py-1">
+                {body}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <RecentlyEdited />
+    </>
+  )
+
   return (
     <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen relative">
       {/* outside the shrinking wrapper, or it would shrink along with it */}
@@ -140,8 +212,22 @@ export function JournalPage() {
         }`}
       >
         <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-3xl font-bold flex-1">{prettyDate(date)}</h1>
+          <h1 className="text-3xl font-bold flex-1 min-w-0">{prettyDate(date)}</h1>
           <SaveBadge state={state} />
+          {/* the calendar (and coming-up) live in the right rail, hidden below
+              lg — this opens them in a drawer so the date is still changeable */}
+          <button
+            type="button"
+            title="Calendar & coming up"
+            aria-label="Calendar & coming up"
+            onClick={() => setRailOpen(true)}
+            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-md border shrink-0"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          >
+            <span className="msym" style={{ fontSize: 20 }}>
+              calendar_month
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-2 mb-4 text-sm" style={{ color: 'var(--text-2)' }}>
           <button
@@ -296,71 +382,13 @@ export function JournalPage() {
         className="w-72 shrink-0 border-l px-5 py-8 hidden lg:block"
         style={{ borderColor: 'var(--border)' }}
       >
-        <Calendar
-          selected={date}
-          onPick={(d) => navigate({ to: '/day/$date', params: { date: d } })}
-        />
-        {comingUp.length > 0 && (
-          <div
-            className="rounded-xl border p-4 mt-4 text-sm"
-            style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
-          >
-            <h4
-              className="text-xs uppercase tracking-wide font-semibold mb-2"
-              style={{ color: 'var(--text-3)' }}
-            >
-              Coming up
-            </h4>
-            {comingUp.map((item) => {
-              const timeSuffix = item.kind === 'task' && item.time ? ` ${fmtTime12(item.time)}` : ''
-              const dateLabel = (item.date === today ? 'today' : item.date.slice(5)) + timeSuffix
-              const body = (
-                <>
-                  <span className="truncate">
-                    {item.icon} {item.title}
-                  </span>
-                  <span
-                    className="text-xs whitespace-nowrap"
-                    style={{ color: 'var(--text-3)' }}
-                    title={item.hint}
-                  >
-                    {dateLabel}
-                  </span>
-                </>
-              )
-              if (item.kind === 'task') {
-                const isDayPage = item.isJournal && /^\d{4}-\d{2}-\d{2}$/.test(item.pageTitle)
-                // quick-added tasks share one "Tasks inbox" page; sending you to
-                // the raw page dumps every checkbox at once — the agenda is the
-                // real home for them. Journal-day tasks open their day; note
-                // tasks open their note.
-                const go = () => {
-                  if (item.pageTitle === 'Tasks inbox') navigate({ to: '/tasks' })
-                  else if (isDayPage)
-                    navigate({ to: '/day/$date', params: { date: item.pageTitle } })
-                  else navigate({ to: '/p/$pageId', params: { pageId: item.pageId } })
-                }
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="flex w-full justify-between gap-2 py-1 text-left"
-                    onClick={go}
-                  >
-                    {body}
-                  </button>
-                )
-              }
-              return (
-                <div key={item.key} className="flex justify-between gap-2 py-1">
-                  {body}
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <RecentlyEdited />
+        {rail}
       </aside>
+      {railOpen && (
+        <RightDrawer title={prettyDate(date)} onClose={() => setRailOpen(false)}>
+          {rail}
+        </RightDrawer>
+      )}
     </div>
   )
 }

@@ -2,8 +2,7 @@ import type { PageMeta, PublishingView, SpaceCategory } from '@bn/schema'
 import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { IconPicker, Modal, TimeField } from '../components'
+import { IconPicker, Modal, RightDrawer, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { UnlockModal, useLockState } from '../locks'
 import { spaceLabel } from '../sidebarprefs'
@@ -211,64 +210,6 @@ function ContextDrawerButton(props: { page: PageMeta; publishing: PublishingView
         </RightDrawer>
       )}
     </span>
-  )
-}
-
-/**
- * A panel that slides in from the right over a dimmed backdrop, its surface the
- * app background so the rail's cards read exactly as they do on desktop.
- * Portaled to <body> for the same reason as Modal — an editor ancestor's
- * stacking context would otherwise trap it. Closes on backdrop tap and Escape.
- */
-function RightDrawer(props: { title: string; onClose: () => void; children: React.ReactNode }) {
-  const closeRef = useRef(props.onClose)
-  closeRef.current = props.onClose
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        closeRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = ''
-    }
-  }, [])
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* real button, not an onClick div: keyboard-accessible and it lets the
-          panel skip stopPropagation since it isn't an ancestor of the panel */}
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={() => props.onClose()}
-        className="absolute inset-0"
-        style={{ background: 'rgba(0,0,0,0.4)' }}
-      />
-      <aside
-        className="bn-drawer-panel relative h-full w-[86vw] max-w-sm border-l overflow-y-auto px-5 py-6"
-        style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">{props.title}</h2>
-          <button
-            type="button"
-            onClick={() => props.onClose()}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/5"
-            style={{ color: 'var(--text-2)' }}
-          >
-            ✕
-          </button>
-        </div>
-        {props.children}
-      </aside>
-    </div>,
-    document.body,
   )
 }
 

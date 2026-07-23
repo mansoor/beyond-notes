@@ -211,7 +211,11 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <DatabasesNav />
         </div>
 
-        <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
+        {/* the account menu is reachable from the mobile top bar's avatar, so
+            the drawer only carries it on desktop */}
+        {!isMobile && (
+          <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
+        )}
       </aside>
 
       {/* drag to resize the sidebar — desktop only */}
