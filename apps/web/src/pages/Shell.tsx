@@ -2,8 +2,10 @@ import type { UserView } from '@bn/schema'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { AboutModal } from '../about'
 import { BrandMark, Modal } from '../components'
 import { todayKey } from '../editor'
+import { useInstallPrompt } from '../pwa'
 import { SpacesNav } from '../spaces'
 import {
   type AppTheme,
@@ -365,6 +367,8 @@ function UserMenu(props: {
   compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const { canInstall, install } = useInstallPrompt()
   const rootRef = useRef<HTMLDivElement>(null)
   const down = props.placement === 'down'
 
@@ -414,6 +418,29 @@ function UserMenu(props: {
             ⏳ Needs a look
           </Link>
           <div className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />
+          {canInstall && (
+            <button
+              type="button"
+              className={itemClass}
+              onClick={() => {
+                setOpen(false)
+                install()
+              }}
+            >
+              ⤓ Install app
+            </button>
+          )}
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => {
+              setOpen(false)
+              setAboutOpen(true)
+            }}
+          >
+            ⓘ About
+          </button>
+          <div className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />
           <button
             type="button"
             className={itemClass}
@@ -424,6 +451,7 @@ function UserMenu(props: {
           </button>
         </div>
       )}
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {props.compact ? (
         <button
           type="button"
