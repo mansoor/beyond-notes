@@ -127,7 +127,7 @@ export function JournalPage() {
     .slice(0, 12)
 
   return (
-    <div className="flex min-h-screen relative">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen relative">
       {/* outside the shrinking wrapper, or it would shrink along with it */}
       {roll !== 'idle' ? (
         <div className="day-roll-calendar" aria-hidden="true">
@@ -135,7 +135,7 @@ export function JournalPage() {
         </div>
       ) : null}
       <div
-        className={`flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8 ${
+        className={`flex-1 min-w-0 max-w-5xl mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8 ${
           roll === 'out' ? 'day-roll-out' : roll === 'in' ? 'day-roll-in' : ''
         }`}
       >

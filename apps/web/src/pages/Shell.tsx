@@ -174,24 +174,28 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <ThemePicker theme={theme} onPick={setTheme} className="ml-auto" />
         </div>
 
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left"
-          style={{
-            background: 'var(--panel)',
-            borderColor: 'var(--border)',
-            color: 'var(--text-3)',
-          }}
-        >
-          ⌕ Search
-          <kbd
-            className="ml-auto text-[10px] rounded border px-1"
-            style={{ borderColor: 'var(--border)' }}
+        {/* on mobile the header already carries a search icon — no need to
+            spend drawer space on a second entry point */}
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left"
+            style={{
+              background: 'var(--panel)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-3)',
+            }}
           >
-            Ctrl K
-          </kbd>
-        </button>
+            ⌕ Search
+            <kbd
+              className="ml-auto text-[10px] rounded border px-1"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              Ctrl K
+            </kbd>
+          </button>
+        )}
 
         {/* only this region scrolls; logo, search, and the user menu stay put */}
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">

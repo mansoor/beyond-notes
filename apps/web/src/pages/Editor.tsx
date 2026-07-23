@@ -139,11 +139,15 @@ function PageView(props: {
   // same skeleton as the Today page: content centered in the remaining
   // space, rail as a full-height right column behind a vertical separator
   return (
-    <div className="flex min-h-screen">
-      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-10 py-8">
+    // min-height leaves room for the fixed mobile header (3.5rem) so a blank
+    // page doesn't spill 56px past the viewport into a phantom scrollbar
+    <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen">
+      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
         <div className="flex items-center gap-3 mb-2">
           <input
-            className="flex-1 bg-transparent text-3xl font-bold outline-none"
+            // min-w-0 lets the title shrink instead of forcing the row (and the
+            // context button) past the screen edge on a phone
+            className="flex-1 min-w-0 bg-transparent text-3xl font-bold outline-none"
             value={title}
             placeholder="Untitled"
             onChange={(e) => setTitle(e.target.value)}
