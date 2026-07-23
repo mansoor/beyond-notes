@@ -38,16 +38,18 @@ export function SettingsPage() {
   const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
-    <div className="max-w-4xl mx-auto px-10 py-8">
+    <div className="max-w-4xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
-      <div className="flex gap-8 items-start">
-        <nav className="w-44 shrink-0 flex flex-col gap-0.5 sticky top-8">
+      {/* stacks on mobile — the tab list wraps above the panel instead of
+          squeezing the content into a sliver beside a fixed-width rail */}
+      <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-stretch md:items-start">
+        <nav className="flex flex-wrap md:flex-col gap-1 md:gap-0.5 md:w-44 md:shrink-0 md:sticky md:top-8">
           {tabs.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
+              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg shrink-0"
               style={{
                 color: tab === t ? 'var(--accent)' : 'var(--text-2)',
                 background: tab === t ? 'var(--accent-soft)' : undefined,
