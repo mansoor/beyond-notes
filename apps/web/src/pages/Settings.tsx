@@ -40,16 +40,29 @@ export function SettingsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
-      {/* stacks on mobile — the tab list wraps above the panel instead of
-          squeezing the content into a sliver beside a fixed-width rail */}
+      {/* stacks on mobile — a dropdown picks the section (a wrapping tab row
+          spilled onto more lines with each added section) while md+ keeps the
+          fixed-width vertical rail */}
       <div className="flex flex-col md:flex-row gap-4 md:gap-8 items-stretch md:items-start">
-        <nav className="flex flex-wrap md:flex-col gap-1 md:gap-0.5 md:w-44 md:shrink-0 md:sticky md:top-8">
+        <select
+          className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
+          style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
+          value={tab}
+          onChange={(e) => setTab(e.target.value as Tab)}
+        >
+          {tabs.map((t) => (
+            <option key={t} value={t}>
+              {TAB_ICONS[t]} {t}
+            </option>
+          ))}
+        </select>
+        <nav className="hidden md:flex md:flex-col md:gap-0.5 md:w-44 md:shrink-0 md:sticky md:top-8">
           {tabs.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg shrink-0"
+              className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
               style={{
                 color: tab === t ? 'var(--accent)' : 'var(--text-2)',
                 background: tab === t ? 'var(--accent-soft)' : undefined,
