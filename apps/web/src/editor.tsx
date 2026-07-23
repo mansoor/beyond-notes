@@ -1,4 +1,5 @@
 import '@blocknote/core/fonts/inter.css'
+import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import {
@@ -13,6 +14,35 @@ import type { DocumentView } from '@bn/schema'
 import { useEffect, useRef, useState } from 'react'
 import { isDarkTheme } from './theme'
 import { trpc } from './trpc'
+
+// The stock code block ships with no `supportedLanguages`, so BlockNote draws
+// no language selector at all — leaving no way to tag a block as `mermaid`,
+// which is the one flag the publish renderer and the diagram preview both key
+// off. Give it a curated list (mermaid + the languages highlight.ts actually
+// colours). No `createHighlighter`: editor-side Shiki would be a heavy bundle,
+// and published pages get their own lightweight highlighting at render time.
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    codeBlock: createCodeBlockSpec({
+      defaultLanguage: 'text',
+      supportedLanguages: {
+        text: { name: 'Plain Text', aliases: ['text', 'plain'] },
+        mermaid: { name: 'Mermaid', aliases: ['mermaid'] },
+        javascript: { name: 'JavaScript', aliases: ['js'] },
+        typescript: { name: 'TypeScript', aliases: ['ts'] },
+        python: { name: 'Python', aliases: ['py'] },
+        bash: { name: 'Shell', aliases: ['sh', 'shell', 'zsh', 'console'] },
+        json: { name: 'JSON' },
+        yaml: { name: 'YAML', aliases: ['yml'] },
+        sql: { name: 'SQL' },
+        html: { name: 'HTML', aliases: ['xml'] },
+        css: { name: 'CSS' },
+        markdown: { name: 'Markdown', aliases: ['md'] },
+      },
+    }),
+  },
+})
 
 export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
 
@@ -62,7 +92,7 @@ export function DocumentEditor(props: {
     }
   })()
 
-  const editor = useCreateBlockNote({ initialContent: parsed, uploadFile })
+  const editor = useCreateBlockNote({ schema, initialContent: parsed, uploadFile })
 
   // clear any pending save only on unmount — an empty deps array is load-bearing
   // (without it, every render clears the debounce timer and saves never fire)
