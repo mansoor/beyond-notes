@@ -82,6 +82,37 @@ describe('lock grants', () => {
     await db.close()
   })
 
+  it('peeking at an idle grant does not renew it, so a poll cannot keep it open', async () => {
+    let clock = 1_000_000
+    const { db, repo, locks, page } = await setup({ now: () => clock })
+    await repo.setPageLock(page.id, 'idle')
+    const target = { kind: 'page', id: page.id } as const
+
+    locks.grant('sess-1', target, 'idle')
+
+    // the status poll runs every so often, but reading it must not slide the
+    // window — otherwise an idle lock could never fire while the app is open
+    for (let elapsed = 0; elapsed < IDLE_MS + 2000; elapsed += 5000) {
+      clock += 5000
+      locks.isOpenPeek('sess-1', target)
+    }
+    expect(locks.isOpenPeek('sess-1', target)).toBe(false) // it expired on schedule
+
+    // and for contrast: isOpen (real content access) would have kept it alive
+    let liveClock = 2_000_000
+    const live = await setup({ now: () => liveClock })
+    await live.repo.setPageLock(live.page.id, 'idle')
+    const t2 = { kind: 'page', id: live.page.id } as const
+    live.locks.grant('sess-1', t2, 'idle')
+    for (let elapsed = 0; elapsed < IDLE_MS + 2000; elapsed += 5000) {
+      liveClock += 5000
+      live.locks.isOpen('sess-1', t2) // using it slides the window
+    }
+    expect(live.locks.isOpen('sess-1', t2)).toBe(true) // still open, because it was used
+    await live.db.close()
+    await db.close()
+  })
+
   it('honours a per-lock timeout instead of the 30-minute default', async () => {
     let clock = 1_000_000
     const { db, repo, locks, page } = await setup({ now: () => clock })

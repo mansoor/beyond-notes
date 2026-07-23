@@ -94,6 +94,17 @@ export function createLockService(repo: Repo, opts: { now?: () => number } = {})
     },
 
     /**
+     * Read the open state WITHOUT counting as use — the idle window does not
+     * slide. This is what the status list (`locks.list`) needs: the client
+     * polls it to notice an idle lock has fired, and if the poll itself renewed
+     * the grant, an idle lock could never fire while the app was open.
+     */
+    isOpenPeek(sessionToken: string | null, target: LockTarget): boolean {
+      if (!sessionToken) return false
+      return live(grants.get(sessionToken)?.get(key(target)))
+    },
+
+    /**
      * The lock covering a page: its own, or the space it lives in. A page
      * inside a locked notebook is locked even if the page itself is not.
      */

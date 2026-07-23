@@ -8,6 +8,7 @@
  */
 
 import type { SpaceCategory } from '@bn/schema'
+import { useCallback, useEffect, useState } from 'react'
 import { trpc } from './trpc'
 
 export type HideableKind = SpaceCategory | 'database'
@@ -15,6 +16,53 @@ export type HideableKind = SpaceCategory | 'database'
 export const catToken = (kind: HideableKind) => `cat:${kind}`
 export const spaceToken = (id: string) => `space:${id}`
 export const dbToken = (id: string) => `db:${id}`
+
+/**
+ * Which sidebar groups (spaces and databases both) are shown collapsed,
+ * remembered in this browser only. We store the *collapsed* set, not the
+ * expanded one, so a brand-new group defaults to open without needing an
+ * entry — and a wiped/absent key simply means "everything expanded", the old
+ * behaviour.
+ */
+const COLLAPSED_KEY = 'bn-collapsed-spaces'
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? (arr as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Per-group expand state, persisted to localStorage. Returns [expanded, toggle].
+ * Keyed by any stable id — a space id or a database id — since the two never
+ * collide.
+ */
+export function useCollapsibleGroup(id: string): [boolean, () => void] {
+  const [expanded, setExpanded] = useState(() => !readCollapsed().has(id))
+  // reconcile once on mount in case another item wrote the key first
+  useEffect(() => {
+    setExpanded(!readCollapsed().has(id))
+  }, [id])
+  const toggle = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev
+      const set = readCollapsed()
+      if (next) set.delete(id)
+      else set.add(id)
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
+      } catch {
+        // private mode or a full quota: the toggle still works this session
+      }
+      return next
+    })
+  }, [id])
+  return [expanded, toggle]
+}
 
 export const KIND_LABEL: Record<HideableKind, string> = {
   notebook: 'Notebooks',

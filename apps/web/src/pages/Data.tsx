@@ -20,7 +20,7 @@ import {
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
-import { catToken, dbToken, useSidebarPrefs } from '../sidebarprefs'
+import { catToken, dbToken, useCollapsibleGroup, useSidebarPrefs } from '../sidebarprefs'
 import { NewSpaceModal } from '../spaces'
 import { trpc } from '../trpc'
 
@@ -171,7 +171,7 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
   const { database } = props
   const utils = trpc.useUtils()
   const navigate = useNavigate()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, toggleExpanded] = useCollapsibleGroup(database.id)
   const [menuOpen, setMenuOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(menuOpen, btnRef, 144)
@@ -195,10 +195,16 @@ function DatabaseItem(props: { database: DatabaseView; tables: DbTableView[] }) 
         className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
         style={{ color: 'var(--text-2)' }}
       >
-        <button type="button" onClick={() => setExpanded(!expanded)} className="w-4 text-xs">
+        <button type="button" onClick={toggleExpanded} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
-        <span className="truncate">{database.name}</span>
+        <span
+          className="truncate select-none cursor-default"
+          onDoubleClick={toggleExpanded}
+          title="Double-click to expand or collapse"
+        >
+          {database.name}
+        </span>
         {database.personal && (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal">
             ⛭

@@ -1805,7 +1805,7 @@ const locksRouter = router({
         id: space.id,
         policy: space.lockPolicy,
         idleMinutes: space.lockIdleMinutes,
-        open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'space', id: space.id }),
+        open: ctx.locks.isOpenPeek(ctx.sessionToken, { kind: 'space', id: space.id }),
       })
     }
     for (const page of pages) {
@@ -1815,7 +1815,7 @@ const locksRouter = router({
         id: page.id,
         policy: page.lockPolicy,
         idleMinutes: page.lockIdleMinutes,
-        open: ctx.locks.isOpen(ctx.sessionToken, { kind: 'page', id: page.id }),
+        open: ctx.locks.isOpenPeek(ctx.sessionToken, { kind: 'page', id: page.id }),
       })
     }
     return out

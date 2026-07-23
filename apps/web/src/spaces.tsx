@@ -18,7 +18,7 @@ import {
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   ErrorNote,
   Field,
@@ -30,7 +30,13 @@ import {
 } from './components'
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
-import { KIND_LABEL, catToken, spaceToken, useSidebarPrefs } from './sidebarprefs'
+import {
+  KIND_LABEL,
+  catToken,
+  spaceToken,
+  useCollapsibleGroup,
+  useSidebarPrefs,
+} from './sidebarprefs'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -366,51 +372,20 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
   )
 }
 
-/**
- * Which spaces the sidebar is showing collapsed, remembered in this browser
- * only. We store the *collapsed* set, not the expanded one, so a brand-new
- * space defaults to open without needing an entry — and a wiped/absent key
- * simply means "everything expanded", the old behaviour.
- */
-const COLLAPSED_KEY = 'bn-collapsed-spaces'
-
-function readCollapsed(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_KEY)
-    const arr = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(arr) ? (arr as string[]) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-/** Per-space expand state, persisted to localStorage. Returns [expanded, toggle]. */
-function useSpaceExpanded(spaceId: string): [boolean, () => void] {
-  const [expanded, setExpanded] = useState(() => !readCollapsed().has(spaceId))
-  // reconcile once on mount in case another SpaceItem wrote the key first
-  useEffect(() => {
-    setExpanded(!readCollapsed().has(spaceId))
-  }, [spaceId])
-  const toggle = useCallback(() => {
-    setExpanded((prev) => {
-      const next = !prev
-      const set = readCollapsed()
-      if (next) set.delete(spaceId)
-      else set.add(spaceId)
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
-      } catch {
-        // private mode or a full quota: the toggle still works this session
-      }
-      return next
-    })
-  }, [spaceId])
-  return [expanded, toggle]
-}
-
 function SpaceItem(props: { space: SpaceView }) {
   const utils = trpc.useUtils()
-  const [expanded, toggleExpanded] = useSpaceExpanded(props.space.id)
+  const [savedExpanded, toggleExpanded] = useCollapsibleGroup(props.space.id)
+  const spaceLock = useLockState('space', props.space.id)
+  /** locked and not opened this session: every write inside will be refused */
+  const shut = Boolean(spaceLock && !spaceLock.open)
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  // a shut space always shows collapsed — its structure is part of what the
+  // lock hides — and the only way past the caret is the password.
+  const expanded = savedExpanded && !shut
+  const onToggle = () => {
+    if (shut) setUnlockOpen(true)
+    else toggleExpanded()
+  }
   const tree = trpc.pages.tree.useQuery({ spaceId: props.space.id }, { enabled: expanded })
   const createPage = trpc.pages.create.useMutation()
   const navigate = useNavigate()
@@ -476,10 +451,6 @@ function SpaceItem(props: { space: SpaceView }) {
   }
 
   const roots = (tree.data ?? []).filter((p) => p.parentId === null)
-  const spaceLock = useLockState('space', props.space.id)
-  /** locked and not opened this session: every write inside will be refused */
-  const shut = Boolean(spaceLock && !spaceLock.open)
-  const [unlockOpen, setUnlockOpen] = useState(false)
 
   return (
     <div className="mb-1">
@@ -487,13 +458,13 @@ function SpaceItem(props: { space: SpaceView }) {
         className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
         style={{ color: 'var(--text-2)' }}
       >
-        <button type="button" onClick={toggleExpanded} className="w-4 text-xs">
+        <button type="button" onClick={onToggle} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
         <span
           className="truncate select-none cursor-default"
-          onDoubleClick={toggleExpanded}
-          title="Double-click to expand or collapse"
+          onDoubleClick={onToggle}
+          title={shut ? 'Locked — double-click to unlock' : 'Double-click to expand or collapse'}
         >
           {props.space.name}
         </span>
