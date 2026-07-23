@@ -8,43 +8,92 @@ permissions:
   contents: write
   packages: write
 
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    # a hung QEMU build must fail fast, not burn six hours (v0.1.1 hung twice)
-    timeout-minutes: 60
+  # Build each architecture on a runner that runs it natively — no QEMU, so the
+  # better-sqlite3 compile that used to wedge under emulation just... compiles.
+  # Each leg pushes an untagged, digest-only image; the merge job below stitches
+  # the two digests into one multi-arch tag.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    # native builds are minutes, not hours — fail fast if one wedges
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-        with:
-          # pinned: binfmt:latest picked up a QEMU version that hangs node-gyp
-          # compiles under arm64 emulation (pnpm install never returns)
-          image: tonistiigi/binfmt:qemu-v8.1.5
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push multi-arch image
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
-          # Reuse layers across releases so the slow arm64 native-module compile
-          # (better-sqlite3 under emulation) only reruns when deps change.
-          # Registry cache, not type=gha: tag builds each run on their own ref
-          # and do NOT share the Actions cache scope, so a GHCR cache image —
-          # readable by every run — is the only cache that actually hits.
-          # mode=max keeps the intermediate build stages, which is where the
-          # compile lives; without it only the final layer is cached.
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # a cache per arch — their layers differ, so one ref would clobber the
+          # other. mode=max keeps the intermediate compile stages.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Combine the per-arch digests into one multi-arch manifest and tag it.
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push multi-arch tags
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE }}:${{ github.ref_name }} \
+            -t ${{ env.IMAGE }}:latest \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}
+
+  release:
+    needs: merge
+    runs-on: ubuntu-latest
+    steps:
       - name: Draft GitHub release with changelog
         uses: softprops/action-gh-release@v2
         with:
