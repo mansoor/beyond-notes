@@ -103,7 +103,9 @@ describe('locked things reject writes', () => {
     for (const [path, input] of attempts) {
       const res = await call(path, input)
       expect(`${path}: ${res.statusCode}`).toBe(`${path}: 403`)
-      expect(`${path}: ${errorOf(res)}`).toBe(`${path}: LOCKED`)
+      // everything here names the locked space (or a page the space's lock
+      // covers), so the message names the space
+      expect(`${path}: ${errorOf(res)}`).toBe(`${path}: That space is locked — unlock it first.`)
     }
 
     // and nothing actually changed
@@ -157,7 +159,8 @@ describe('locked things reject writes', () => {
 
     const blocked = await call('pages.rename', { pageId: secret.id, title: 'Nope' })
     expect(blocked.statusCode).toBe(403)
-    expect(errorOf(blocked)).toBe('LOCKED')
+    // this lock is on the page itself, so the message names the page
+    expect(errorOf(blocked)).toBe('That page is locked — unlock it first.')
     // a locked page does not freeze the notebook around it
     expect(
       (await call('pages.rename', { pageId: sibling.id, title: 'Groceries' })).statusCode,
