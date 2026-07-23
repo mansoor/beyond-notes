@@ -142,7 +142,7 @@ function PageView(props: {
     // min-height leaves room for the fixed mobile header (3.5rem) so a blank
     // page doesn't spill 56px past the viewport into a phantom scrollbar
     <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen">
-      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
+      <div className="flex-1 min-w-0 max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
         <div className="flex items-center gap-3 mb-2">
           <input
             // min-w-0 lets the title shrink instead of forcing the row (and the

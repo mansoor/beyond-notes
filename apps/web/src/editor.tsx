@@ -140,7 +140,13 @@ export function DocumentEditor(props: {
           </button>
         </div>
       )}
-      <div className="-mx-[54px]">
+      {/* BlockNote pads its editor 54px inline for the block side-menu; the
+          negative margin pulls the text back to the page edge. On desktop
+          (lg+, container px-10) that's -54; below lg the gutter shrinks to
+          16px (see .bn-editor override in styles.css) and the margin only
+          cancels the container's px-4, so the editor is exactly viewport-wide
+          instead of overflowing 108px and forcing a horizontal scroll. */}
+      <div className="-mx-4 lg:-mx-[54px]">
         <BlockNoteView
           editor={editor}
           onChange={scheduleSave}

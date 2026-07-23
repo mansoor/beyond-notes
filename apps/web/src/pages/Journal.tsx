@@ -135,7 +135,7 @@ export function JournalPage() {
         </div>
       ) : null}
       <div
-        className={`flex-1 min-w-0 max-w-5xl mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8 ${
+        className={`flex-1 min-w-0 max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8 ${
           roll === 'out' ? 'day-roll-out' : roll === 'in' ? 'day-roll-in' : ''
         }`}
       >
