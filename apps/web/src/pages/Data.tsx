@@ -38,6 +38,63 @@ const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
 
 const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : String(v))
 
+/**
+ * Row reordering by drag. Only the grip handle is draggable — the row itself is
+ * just a drop target — so dragging never fights with selecting text in the
+ * inputs a row holds. `onMove(from, to)` gets indices into the visible list.
+ * The ↑/↓ buttons stay for keyboard and precision.
+ */
+function useDragReorder(onMove: (from: number, to: number) => void) {
+  const from = useRef<number | null>(null)
+  const [over, setOver] = useState<number | null>(null)
+  const handleProps = (index: number) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      from.current = index
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', String(index)) // Firefox needs data set
+    },
+    onDragEnd: () => {
+      from.current = null
+      setOver(null)
+    },
+    style: { cursor: 'grab' as const },
+  })
+  const rowProps = (index: number) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (from.current === null) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (over !== index) setOver(index)
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      const f = from.current
+      if (f !== null && f !== index) onMove(f, index)
+      from.current = null
+      setOver(null)
+    },
+  })
+  /** true when a drag is hovering this row and would drop onto it */
+  const isOver = (index: number) => over === index && from.current !== null && from.current !== index
+  return { handleProps, rowProps, isOver }
+}
+
+/** A drag grip; spread the hook's handleProps onto it. */
+function DragGrip(props: React.HTMLAttributes<HTMLSpanElement> & { draggable?: boolean }) {
+  return (
+    <span
+      {...props}
+      title="Drag to reorder"
+      aria-label="Drag to reorder"
+      className="select-none px-0.5 text-xs"
+      style={{ ...props.style, color: 'var(--text-3)' }}
+    >
+      ⠿
+    </span>
+  )
+}
+
 // ---- grid geometry ----
 
 const GUTTER_WIDTH = 44
@@ -1036,6 +1093,14 @@ function ColumnsModal(props: { table: DbTableView; onClose: () => void; onSaved:
       ;[next[i], next[j]] = [next[j] as ColDraft, next[i] as ColDraft]
       return next
     })
+  const dnd = useDragReorder((from, to) =>
+    setCols((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      if (moved) next.splice(to, 0, moved)
+      return next
+    }),
+  )
   const remove = (i: number) => setCols((prev) => prev.filter((_, j) => j !== i))
   const add = () =>
     setCols((prev) => [
@@ -1101,9 +1166,14 @@ function ColumnsModal(props: { table: DbTableView; onClose: () => void; onSaved:
             <div
               // biome-ignore lint/suspicious/noArrayIndexKey: order is the identity here
               key={i}
+              {...dnd.rowProps(i)}
               className="flex flex-wrap items-center gap-2 py-2 border-b"
-              style={{ borderColor: 'var(--border)' }}
+              style={{
+                borderColor: 'var(--border)',
+                borderTop: dnd.isOver(i) ? '2px solid var(--accent)' : undefined,
+              }}
             >
+              <DragGrip {...dnd.handleProps(i)} />
               <input
                 className="rounded-lg border px-2 py-1.5 text-sm flex-1 min-w-[8rem]"
                 style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
@@ -1251,7 +1321,7 @@ function IconBtn(props: {
 
 const DEFAULT_SUCCESS = 'Thanks — your response was received.'
 /** on · field name · label/text · position · width · move & remove */
-const FIELD_GRID = '2rem minmax(7rem,1fr) minmax(9rem,1.4fr) 4.5rem 4.5rem 4rem'
+const FIELD_GRID = '1.1rem 2rem minmax(7rem,1fr) minmax(9rem,1.4fr) 4.5rem 4.5rem 4rem'
 
 function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: () => void }) {
   const update = trpc.tables.updateForm.useMutation()
@@ -1291,6 +1361,15 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
   )
   const ordered = rows.filter((id) => fields.includes(id))
   const onForm = rows.filter((id) => blockById.has(id) || fields.includes(id))
+
+  // drag a row to a new spot in the visible list, then rebuild the saved order
+  // (visible ids in the new order; anything not shown stays at the end)
+  const dnd = useDragReorder((from, to) => {
+    const ids = [...rows]
+    const [moved] = ids.splice(from, 1)
+    if (moved) ids.splice(to, 0, moved)
+    setOrder((prev) => [...ids, ...prev.filter((id) => !rows.includes(id))])
+  })
   // the placements actually in force: everything on the form, clamped to the grid
   const placed = normalizeFormLayout(onForm, columns, layout)
   const place = (id: string, patch: Partial<FormFieldPlacement>) =>
@@ -1426,6 +1505,7 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                   color: 'var(--text-3)',
                 }}
               >
+                <span />
                 <span>On</span>
                 <span>Field name</span>
                 <span>Label / text</span>
@@ -1433,7 +1513,7 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                 <span>Width</span>
                 <span />
               </div>
-              {rows.map((id) => {
+              {rows.map((id, rowIndex) => {
                 const block = blockById.get(id)
                 const col = props.table.columns.find((c) => c.id === id)
                 const on = block ? true : fields.includes(id)
@@ -1445,9 +1525,15 @@ function FormModal(props: { table: DbTableView; onClose: () => void; onSaved: ()
                 return (
                   <div
                     key={id}
+                    {...dnd.rowProps(rowIndex)}
                     className="grid items-center gap-2 px-3 py-1.5 border-t text-sm"
-                    style={{ gridTemplateColumns: FIELD_GRID, borderColor: 'var(--border)' }}
+                    style={{
+                      gridTemplateColumns: FIELD_GRID,
+                      borderColor: 'var(--border)',
+                      borderTop: dnd.isOver(rowIndex) ? '2px solid var(--accent)' : undefined,
+                    }}
                   >
+                    <DragGrip {...dnd.handleProps(rowIndex)} />
                     {block ? (
                       <span
                         className="text-xs"
