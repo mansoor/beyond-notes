@@ -582,5 +582,49 @@ for (const dialect of dialects) {
 
       await pagesSvc.updatePageOptions(user, { pageId: blogId, blogLayout: 'list' })
     })
+
+    it('maintenance mode serves a 503 holding page and hides the content', async () => {
+      const base = {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink' as const,
+      }
+      // sanity: the content is live before we start
+      expect((await get('/')).body).toContain('Welcome to my corner of the web')
+
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        maintenance: true,
+        social: [{ platform: 'github', url: 'https://github.com/mansoor' }],
+      })
+
+      const home = await get('/')
+      expect(home.statusCode).toBe(503)
+      expect(home.headers['retry-after']).toBe('3600')
+      expect(home.body).toContain('Back soon')
+      // the configured social links still show under the name
+      expect(home.body).toContain('<div class="socials">')
+      expect(home.body).toContain('href="https://github.com/mansoor"')
+      // none of the real content leaks while it is closed — not the page, not the nav
+      expect(home.body).not.toContain('Welcome to my corner of the web')
+      expect(home.body).not.toContain('>Blog<')
+      // it still looks like the site (its theme), and asks crawlers to stay away
+      expect(home.body).toContain('--bg:#15161a')
+      expect(home.body).toContain('name="robots" content="noindex"')
+
+      // every path answers the holding page, not just the root
+      const deep = await get('/blog')
+      expect(deep.statusCode).toBe(503)
+      expect(deep.body).toContain('Back soon')
+
+      // turning it off restores the site exactly
+      await publishing.updateSpacePublishing(user, { ...base, maintenance: false })
+      const back = await get('/')
+      expect(back.statusCode).toBe(200)
+      expect(back.body).toContain('Welcome to my corner of the web')
+    })
   })
 }

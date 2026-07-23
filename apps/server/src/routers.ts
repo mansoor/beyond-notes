@@ -221,6 +221,7 @@ function toSpaceView(s: SpaceRow): SpaceView {
     category: s.category,
     personal: s.ownerId !== null,
     publicEnabled: s.publicEnabled,
+    publicMaintenance: s.publicMaintenance,
     publicHost: s.publicHost,
     publicTitle: s.publicTitle,
     publicFooter: s.publicFooter,

@@ -62,6 +62,7 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         kind: 'tree',
         ownerId: input.personal ? user.id : null,
         publicEnabled: false,
+        publicMaintenance: false,
         publicHost: null,
         publicTitle: null,
         publicFooter: null,

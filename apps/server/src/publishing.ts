@@ -157,6 +157,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       input: {
         spaceId: string
         enabled: boolean
+        maintenance?: boolean
         host: string | null
         title: string | null
         footer: string | null
@@ -186,6 +187,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       }
       await repo.updateSpacePublishing(input.spaceId, {
         publicEnabled: input.enabled,
+        publicMaintenance: input.maintenance ?? false,
         publicHost: input.host,
         publicTitle: input.title,
         publicFooter: input.footer,

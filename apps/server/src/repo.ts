@@ -43,6 +43,7 @@ export type SpaceRow = {
   kind: 'tree' | 'journal'
   ownerId: string | null
   publicEnabled: boolean
+  publicMaintenance: boolean
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
@@ -722,6 +723,7 @@ export function createRepo(appDb: AppDb) {
         Pick<
           SpaceRow,
           | 'publicEnabled'
+          | 'publicMaintenance'
           | 'publicHost'
           | 'publicTitle'
           | 'publicFooter'

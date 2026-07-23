@@ -772,6 +772,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const update = trpc.publish.updateSpace.useMutation()
   const s = props.space
   const [enabled, setEnabled] = useState(s.publicEnabled)
+  const [maintenance, setMaintenance] = useState(s.publicMaintenance)
   const [host, setHost] = useState(s.publicHost ?? '')
   const [title, setTitle] = useState(s.publicTitle ?? '')
   const [footer, setFooter] = useState(s.publicFooter ?? '')
@@ -814,6 +815,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     await update.mutateAsync({
       spaceId: s.id,
       enabled,
+      maintenance: enabled && maintenance,
       host: host.trim() || null,
       title: title.trim() || null,
       footer: footer.trim() || null,
@@ -832,6 +834,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   })
   const dirty =
     enabled !== s.publicEnabled ||
+    maintenance !== s.publicMaintenance ||
     host !== (s.publicHost ?? '') ||
     title !== (s.publicTitle ?? '') ||
     footer !== (s.publicFooter ?? '') ||
@@ -887,7 +890,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
           <div className="flex-1 min-w-0 min-h-[320px]">
             {tab === 'general' && (
               <>
-                <label className="flex items-center gap-2 mb-4 text-sm">
+                <label className="flex items-center gap-2 mb-3 text-sm">
                   <input
                     type="checkbox"
                     checked={enabled}
@@ -895,6 +898,22 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                   />
                   {isSite ? 'Publish this space as a website' : 'Publish this space as a docs site'}
                 </label>
+                <label
+                  className="flex items-center gap-2 mb-1 text-sm"
+                  style={{ opacity: enabled ? 1 : 0.5 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={maintenance}
+                    disabled={!enabled}
+                    onChange={(e) => setMaintenance(e.target.checked)}
+                  />
+                  Maintenance mode
+                </label>
+                <p className="text-xs mb-4 pl-6" style={{ color: 'var(--text-3)' }}>
+                  Keeps the site online but serves a “back soon” page instead of the content — so the
+                  address still works while you take it down for a while.
+                </p>
                 <Field label="Domain (e.g. docs.example.com)" value={host} onChange={setHost} />
                 <Field
                   label="Site title (defaults to the space name)"

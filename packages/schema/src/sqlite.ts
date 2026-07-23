@@ -67,6 +67,8 @@ export const spaces = sqliteTable('spaces', {
     .default('tree'),
   ownerId: text('owner_id').references(() => users.id),
   publicEnabled: integer('public_enabled', { mode: 'boolean' }).notNull().default(false),
+  // published, but showing a holding page instead of the content
+  publicMaintenance: integer('public_maintenance', { mode: 'boolean' }).notNull().default(false),
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),

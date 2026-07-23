@@ -116,6 +116,8 @@ export type SpaceView = {
   category: SpaceCategory
   personal: boolean
   publicEnabled: boolean
+  /** published, but serving a holding page instead of the content */
+  publicMaintenance: boolean
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
@@ -456,6 +458,8 @@ export const updateAnalyticsInput = z.object({
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
   enabled: z.boolean(),
+  /** keep the site published but serve a holding page instead of the content */
+  maintenance: z.boolean().default(false),
   host: hostSchema.nullable(),
   title: z.string().trim().max(120).nullable(),
   footer: z.string().trim().max(300).nullable(),

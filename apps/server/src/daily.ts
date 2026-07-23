@@ -21,6 +21,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       kind: 'journal',
       ownerId: user.id,
       publicEnabled: false,
+      publicMaintenance: false,
       publicHost: null,
       publicTitle: null,
       publicFooter: null,

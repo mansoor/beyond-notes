@@ -16,6 +16,7 @@ import {
   docsTagPage,
   extractHeadings,
   formHtml,
+  maintenancePage,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -118,6 +119,25 @@ export function createPublicServer(
   ): Promise<boolean> {
     const space = await resolveSpace(host)
     if (!space) return false
+
+    // Maintenance mode: the site is still published (so the host resolves and
+    // no raw 404 leaks), but every path answers a holding page. Short-circuit
+    // before analytics and any content read — nothing of the site is served
+    // while it is closed. 503 tells crawlers to come back, not drop the URL.
+    if (space.publicMaintenance) {
+      reply.code(503)
+      reply.header('Retry-After', '3600')
+      reply.type('text/html; charset=utf-8')
+      reply.send(
+        maintenancePage({
+          siteTitle: space.publicTitle || space.name,
+          theme: space.publicTheme,
+          appearance: space.publicAppearance,
+          socials: parseSocialLinks(space.publicSocial),
+        }),
+      )
+      return true
+    }
 
     // Analytics is added once, here, rather than threaded through a dozen
     // shell calls: every published page leaves through this function, and each
