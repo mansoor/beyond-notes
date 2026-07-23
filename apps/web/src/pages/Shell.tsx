@@ -121,6 +121,17 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <BrandMark size={24} />
           <span className="font-semibold text-sm">Beyond Notes</span>
           <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search"
+              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--text-2)' }}
+            >
+              <span className="msym" style={{ fontSize: 22 }}>
+                search
+              </span>
+            </button>
             <ThemePicker theme={theme} onPick={setTheme} />
             <UserMenu
               me={props.me}

@@ -307,10 +307,23 @@ select.bn-cell {
   }
 }
 
+@keyframes bn-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.bn-drawer-panel {
+  animation: bn-drawer-in 0.2s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .day-roll-out,
   .day-roll-in,
-  .day-roll-calendar {
+  .day-roll-calendar,
+  .bn-drawer-panel {
     animation: none;
   }
 }
