@@ -71,6 +71,17 @@ export const KIND_LABEL: Record<HideableKind, string> = {
   database: 'Databases',
 }
 
+/** Singular type word for one space, e.g. for a dialog title. */
+const SPACE_TYPE_LABEL: Record<SpaceCategory, string> = {
+  notebook: 'Notebook',
+  site: 'Site',
+  wiki: 'Wiki',
+}
+
+/** "mansoorhussain.com · Site", "Rigger · Wiki" — name plus what it is. */
+export const spaceLabel = (s: { name: string; category: SpaceCategory }) =>
+  `${s.name} · ${SPACE_TYPE_LABEL[s.category]}`
+
 export function useSidebarPrefs() {
   const utils = trpc.useUtils()
   const status = trpc.auth.status.useQuery()

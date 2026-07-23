@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPicker, Modal, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { UnlockModal, useLockState } from '../locks'
+import { spaceLabel } from '../sidebarprefs'
 import { isDarkTheme } from '../theme'
 import { trpc } from '../trpc'
 
@@ -61,6 +62,7 @@ export function EditorPage() {
  */
 function LockedPage(props: { pageId: string; spaceId?: string | null; onOpened: () => void }) {
   const locks = trpc.locks.list.useQuery()
+  const spaces = trpc.spaces.list.useQuery()
   const [asking, setAsking] = useState(true)
 
   const pageLock = (locks.data ?? []).find((l) => l.target === 'page' && l.id === props.pageId)
@@ -71,6 +73,9 @@ function LockedPage(props: { pageId: string; spaceId?: string | null; onOpened: 
     (l) => l.target === 'space' && !l.open && (props.spaceId ? l.id === props.spaceId : true),
   )
   const lock = pageLock ?? spaceLock
+  // name the actual thing being unlocked — "Rigger · Wiki", not "this notebook"
+  const lockedSpace = spaceLock && (spaces.data ?? []).find((s) => s.id === spaceLock.id)
+  const lockName = pageLock ? 'this page' : lockedSpace ? spaceLabel(lockedSpace) : 'this space'
 
   return (
     <div className="p-10">
@@ -95,7 +100,7 @@ function LockedPage(props: { pageId: string; spaceId?: string | null; onOpened: 
         <UnlockModal
           target={lock.target}
           id={lock.id}
-          name={lock.target === 'page' ? 'this page' : 'this notebook'}
+          name={lockName}
           policy={lock.policy}
           onClose={() => setAsking(false)}
           onOpened={() => {

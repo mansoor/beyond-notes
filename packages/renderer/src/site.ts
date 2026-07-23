@@ -348,6 +348,8 @@ function shell(input: {
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
+  /** a full-width bar rendered above the header (e.g. the draft-preview notice) */
+  banner?: string
 }): string {
   const nav = navHtml(input.nav, input.basePath)
   const socials = socialLinksHtml(input.socials ?? [])
@@ -384,6 +386,7 @@ ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${esc
 ${(input.appearance ?? 'auto') === 'toggle' ? `<script>${APPEARANCE_RESTORE_JS}</script>` : ''}
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
+${input.banner ?? ''}
 ${header}
 <main>
 ${input.body}
@@ -414,6 +417,7 @@ export function sitePage(input: {
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
+  banner?: string
 }): string {
   return shell({
     ...input,

@@ -658,6 +658,10 @@ for (const dialect of dialects) {
       expect(draft.body).toContain('Sandbox')
       // the pages published in beforeAll are part of the same draft nav
       expect(draft.body).toContain('Home')
+      // the banner is a bar above the header, not buried in the page content
+      expect(draft.body.indexOf('Draft preview')).toBeLessThan(draft.body.indexOf('<header'))
+      // and the real site header renders (the draft uses the site chrome)
+      expect(draft.body).toContain('<header')
 
       // the root lands on the first page rather than dead-ending
       expect((await getDraft('')).statusCode).toBe(200)

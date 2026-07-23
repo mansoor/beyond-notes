@@ -821,27 +821,31 @@ export function createPublicServer(
       nodes.map((n) => ({ ...n, active: n.path === landing, children: markActive(n.children) }))
     const nav = markActive(site.nav)
 
+    // a full-width bar above the header — a browser-chrome sort of notice, not
+    // page content — so it reads the same on every page and does not shove the
+    // real content down inside <main>
     const banner =
-      '<p class="meta" style="border:1px dashed currentColor;border-radius:8px;padding:8px 14px;margin-bottom:18px">' +
-      'Draft preview — the current unpublished working copy. Publish when it looks right.</p>'
+      '<div style="background:var(--accent);color:#fff;font-size:13px;font-weight:500;' +
+      'text-align:center;padding:7px 16px">' +
+      'Draft preview — the current unpublished working copy. Publish when it looks right.</div>'
 
     const hit = landing ? site.byPath.get(landing) : undefined
     let title = siteTitle
-    let contentHtml = banner
+    let contentHtml = '<p>This space has no pages yet.</p>'
     if (hit) {
       const rendered = await publishing.renderPreview(hit.page)
       title = rendered.title
-      const linked = rewriteInternalLinks(
+      contentHtml = rewriteInternalLinks(
         rendered.html,
         { flat: site.flat.map((f) => ({ path: f.path, entry: { page: { id: f.page.id } } })) },
         basePath,
       )
-      contentHtml = banner + linked
-    } else {
-      contentHtml = `${banner}<p>This space has no pages yet.</p>`
     }
 
     if (space.category === 'site') {
+      // the same branding the live site uses, so the draft header looks right:
+      // header layout, logo, tagline, and the wordmark/logo sizes
+      const faviconId = space.publicFaviconAttachmentId ?? space.publicLogoAttachmentId
       reply.send(
         sitePage({
           siteTitle,
@@ -849,10 +853,19 @@ export function createPublicServer(
           theme,
           appearance,
           socials,
+          logoUrl: space.publicLogoAttachmentId
+            ? `/api/files/${space.publicLogoAttachmentId}`
+            : null,
+          tagline: space.publicTagline,
+          headerLayout: space.publicHeaderLayout,
+          titlePx: SITE_TITLE_PX[space.publicTitleSize],
+          logoPx: SITE_LOGO_PX[space.publicLogoSize],
+          faviconUrl: faviconId ? `/api/files/${faviconId}/thumb` : null,
           nav,
           basePath,
           title,
           contentHtml,
+          banner,
           meta: { noindex: true },
         }),
       )
@@ -866,6 +879,7 @@ export function createPublicServer(
         contentHtml,
         nav,
         basePath,
+        banner,
         noindex: true,
         theme,
         appearance,

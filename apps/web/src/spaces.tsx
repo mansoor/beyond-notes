@@ -33,6 +33,7 @@ import { LockModal, UnlockModal, useLockState } from './locks'
 import {
   KIND_LABEL,
   catToken,
+  spaceLabel,
   spaceToken,
   useCollapsibleGroup,
   useSidebarPrefs,
@@ -544,7 +545,7 @@ function SpaceItem(props: { space: SpaceView }) {
         <UnlockModal
           target="space"
           id={props.space.id}
-          name={props.space.name}
+          name={spaceLabel(props.space)}
           policy={spaceLock.policy}
           onClose={() => setUnlockOpen(false)}
           onOpened={() => setUnlockOpen(false)}
@@ -628,6 +629,8 @@ function SpaceMenu(props: {
 }) {
   const [open, setOpen] = useState(false)
   const lock = useLockState('space', props.space.id)
+  const utils = trpc.useUtils()
+  const lockNow = trpc.locks.lockNow.useMutation({ onSuccess: () => utils.locks.list.invalidate() })
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 220)
 
@@ -685,6 +688,10 @@ function SpaceMenu(props: {
               : 'Ask for your account password before opening this space',
             props.onLock,
           )}
+          {lock?.open &&
+            item('Lock now', 'Close it now, until the password is entered again', () =>
+              lockNow.mutate({ target: 'space', id: props.space.id }),
+            )}
           {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
           {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
           {item('Import pages…', 'From markdown or a GitHub repository', props.onImport)}
