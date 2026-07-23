@@ -44,6 +44,7 @@ for (const dialect of dialects) {
     let publishing: ReturnType<typeof createPublishingService>
 
     const HOST = 'site.example.test'
+    let sessionToken: string
     let siteSpaceId: string
     let blogId: string
     let notebookSpaceId: string
@@ -88,6 +89,7 @@ for (const dialect of dialects) {
       publishing = createPublishingService(repo)
       const res = await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
       user = res.user
+      sessionToken = res.session.token
 
       // site: Home, About, Blog(blog type) with two posts + one draft post
       const site = await pagesSvc.createSpace(user, {
@@ -581,6 +583,93 @@ for (const dialect of dialects) {
       expect(grid.body).toContain('/api/files/coverpick111111111111/thumb')
 
       await pagesSvc.updatePageOptions(user, { pageId: blogId, blogLayout: 'list' })
+    })
+
+    it('maintenance mode serves a 503 holding page and hides the content', async () => {
+      const base = {
+        spaceId: siteSpaceId,
+        enabled: true,
+        host: HOST,
+        title: 'Mansoor',
+        footer: '(c) 2026',
+        theme: 'ink' as const,
+      }
+      // sanity: the content is live before we start
+      expect((await get('/')).body).toContain('Welcome to my corner of the web')
+
+      await publishing.updateSpacePublishing(user, {
+        ...base,
+        maintenance: true,
+        social: [{ platform: 'github', url: 'https://github.com/mansoor' }],
+      })
+
+      const home = await get('/')
+      expect(home.statusCode).toBe(503)
+      expect(home.headers['retry-after']).toBe('3600')
+      expect(home.body).toContain('Back soon')
+      // the configured social links still show under the name
+      expect(home.body).toContain('<div class="socials">')
+      expect(home.body).toContain('href="https://github.com/mansoor"')
+      // none of the real content leaks while it is closed — not the page, not the nav
+      expect(home.body).not.toContain('Welcome to my corner of the web')
+      expect(home.body).not.toContain('>Blog<')
+      // it still looks like the site (its theme), and asks crawlers to stay away
+      expect(home.body).toContain('--bg:#15161a')
+      expect(home.body).toContain('name="robots" content="noindex"')
+
+      // every path answers the holding page, not just the root
+      const deep = await get('/blog')
+      expect(deep.statusCode).toBe(503)
+      expect(deep.body).toContain('Back soon')
+
+      // turning it off restores the site exactly
+      await publishing.updateSpacePublishing(user, { ...base, maintenance: false })
+      const back = await get('/')
+      expect(back.statusCode).toBe(200)
+      expect(back.body).toContain('Welcome to my corner of the web')
+    })
+
+    it('draft preview shows the working copy to the owner; the live site does not', async () => {
+      // a brand-new page, edited but never published
+      await makePage(siteSpaceId, null, 'Sandbox', 'SANDBOX DRAFT BODY')
+
+      const getDraft = (path = '', authed = true) =>
+        server.inject({
+          method: 'GET',
+          url: `/s/draft/${siteSpaceId}${path}`,
+          headers: {
+            host: 'app.example.test',
+            ...(authed ? { cookie: `bn_session=${sessionToken}` } : {}),
+          },
+        })
+
+      // the live site has never heard of it — publishing is still the only way out
+      const live = await get('/')
+      expect(live.body).not.toContain('SANDBOX DRAFT BODY')
+      expect(live.body).not.toContain('Sandbox')
+
+      // the owner's draft preview renders the current working copy, in the site
+      // chrome, with a banner and noindex, and lists the unpublished page in nav
+      const draft = await getDraft('/sandbox')
+      expect(draft.statusCode).toBe(200)
+      expect(draft.body).toContain('SANDBOX DRAFT BODY')
+      expect(draft.body).toContain('Draft preview')
+      expect(draft.body).toContain('content="noindex"')
+      expect(draft.body).toContain('Sandbox')
+      // the pages published in beforeAll are part of the same draft nav
+      expect(draft.body).toContain('Home')
+      // the banner is a bar above the header, not buried in the page content
+      expect(draft.body.indexOf('Draft preview')).toBeLessThan(draft.body.indexOf('<header'))
+      // and the real site header renders (the draft uses the site chrome)
+      expect(draft.body).toContain('<header')
+
+      // the root lands on the first page rather than dead-ending
+      expect((await getDraft('')).statusCode).toBe(200)
+
+      // a signed-out visitor is bounced to the app, never shown the draft
+      const anon = await getDraft('/sandbox', false)
+      expect(anon.statusCode).toBe(302)
+      expect(anon.body).not.toContain('SANDBOX DRAFT BODY')
     })
   })
 }

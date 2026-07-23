@@ -14,6 +14,7 @@ export {
   siteSearchResults,
   siteTagPage,
   site404,
+  maintenancePage,
   buildRss,
   buildSitemap,
   crumbsHtml,

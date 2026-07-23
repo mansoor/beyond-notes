@@ -49,6 +49,8 @@ export type ShellInput = {
   meta?: SiteMeta
   /** tags frozen into the snapshot, linked to /tags/<tag> */
   tags?: string[]
+  /** a full-width bar rendered above the header (e.g. the draft-preview notice) */
+  banner?: string
 }
 
 const CSS = `
@@ -485,7 +487,8 @@ export function docsShell(input: ShellInput): string {
         .map((t) => `<a href="${escapeHtml(`${input.basePath}/tags/${t}`)}">#${escapeHtml(t)}</a>`)
         .join('')}</div>`
     : ''
-  const body = `${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
+  const body = `${input.banner ?? ''}
+${headerHtml(input.siteTitle, input.basePath, '', input.social, input.appearance)}
 <div class="layout">
 <nav class="side">${navHtml(input.nav, input.basePath)}</nav>
 <div class="dragbar" title="Drag to resize"></div>

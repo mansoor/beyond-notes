@@ -4,13 +4,22 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPicker, Modal, TimeField } from '../components'
 import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
-import { UnlockModal } from '../locks'
+import { UnlockModal, useLockState } from '../locks'
+import { spaceLabel } from '../sidebarprefs'
 import { isDarkTheme } from '../theme'
 import { trpc } from '../trpc'
 
 export function EditorPage() {
   const { pageId } = useParams({ from: '/app/p/$pageId' })
   const q = trpc.pages.get.useQuery({ pageId })
+  // Watch the lock covering this page — its own, and the space it lives in —
+  // reactively. Navigating to a locked page trips q.error below, but a lock
+  // that *fires after* the page is already open (an idle timeout) never
+  // re-errors the cached query; the poll flips `open` to false and this swaps
+  // in the locked screen. Unlocking refetches and lands you back on the page.
+  const pageLock = useLockState('page', pageId)
+  const spaceLock = useLockState('space', q.data?.page.spaceId ?? null)
+  const shutNow = Boolean((pageLock && !pageLock.open) || (spaceLock && !spaceLock.open))
 
   if (q.isLoading) {
     return (
@@ -21,8 +30,14 @@ export function EditorPage() {
   }
   // the server answers LOCKED instead of the document; the content never
   // reached the browser, so there is nothing here to hide
-  if (q.error?.message === 'LOCKED')
-    return <LockedPage pageId={pageId} onOpened={() => q.refetch()} />
+  if (q.error?.message === 'LOCKED' || shutNow)
+    return (
+      <LockedPage
+        pageId={pageId}
+        spaceId={q.data?.page.spaceId ?? null}
+        onOpened={() => q.refetch()}
+      />
+    )
   if (q.error || !q.data) {
     return (
       <div className="p-10 text-sm" style={{ color: 'var(--danger)' }}>
@@ -45,14 +60,22 @@ export function EditorPage() {
  * already in the sidebar — you have to be able to find the thing to unlock it —
  * but nothing of the content is here until the password lands.
  */
-function LockedPage(props: { pageId: string; onOpened: () => void }) {
+function LockedPage(props: { pageId: string; spaceId?: string | null; onOpened: () => void }) {
   const locks = trpc.locks.list.useQuery()
+  const spaces = trpc.spaces.list.useQuery()
   const [asking, setAsking] = useState(true)
 
   const pageLock = (locks.data ?? []).find((l) => l.target === 'page' && l.id === props.pageId)
-  // if it is not the page itself, the notebook it sits in is what is locked
-  const spaceLock = (locks.data ?? []).find((l) => l.target === 'space' && !l.open)
+  // if it is not the page itself, the notebook it sits in is what is locked —
+  // prefer this page's own space when we know it, so the right lock is unlocked
+  // when several are locked at once
+  const spaceLock = (locks.data ?? []).find(
+    (l) => l.target === 'space' && !l.open && (props.spaceId ? l.id === props.spaceId : true),
+  )
   const lock = pageLock ?? spaceLock
+  // name the actual thing being unlocked — "Rigger · Wiki", not "this notebook"
+  const lockedSpace = spaceLock && (spaces.data ?? []).find((s) => s.id === spaceLock.id)
+  const lockName = pageLock ? 'this page' : lockedSpace ? spaceLabel(lockedSpace) : 'this space'
 
   return (
     <div className="p-10">
@@ -77,7 +100,7 @@ function LockedPage(props: { pageId: string; onOpened: () => void }) {
         <UnlockModal
           target={lock.target}
           id={lock.id}
-          name={lock.target === 'page' ? 'this page' : 'this notebook'}
+          name={lockName}
           policy={lock.policy}
           onClose={() => setAsking(false)}
           onOpened={() => {

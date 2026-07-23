@@ -85,6 +85,8 @@ export const spaces = pgTable('spaces', {
   ownerId: text('owner_id').references(() => users.id),
   // publishing config: space-level "can this appear on the web"
   publicEnabled: boolean('public_enabled').notNull().default(false),
+  // published, but showing a holding page instead of the content
+  publicMaintenance: boolean('public_maintenance').notNull().default(false),
   publicHost: text('public_host').unique(),
   publicTitle: text('public_title'),
   publicFooter: text('public_footer'),

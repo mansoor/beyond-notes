@@ -1,0 +1,1 @@
+ALTER TABLE `spaces` ADD `public_maintenance` integer DEFAULT false NOT NULL;

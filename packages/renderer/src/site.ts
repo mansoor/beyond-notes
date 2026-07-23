@@ -348,6 +348,8 @@ function shell(input: {
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
+  /** a full-width bar rendered above the header (e.g. the draft-preview notice) */
+  banner?: string
 }): string {
   const nav = navHtml(input.nav, input.basePath)
   const socials = socialLinksHtml(input.socials ?? [])
@@ -384,6 +386,7 @@ ${input.rssPath ? `<link rel="alternate" type="application/rss+xml" title="${esc
 ${(input.appearance ?? 'auto') === 'toggle' ? `<script>${APPEARANCE_RESTORE_JS}</script>` : ''}
 </head>
 <body data-appearance="${input.appearance ?? 'auto'}">
+${input.banner ?? ''}
 ${header}
 <main>
 ${input.body}
@@ -414,6 +417,7 @@ export function sitePage(input: {
   rssPath?: string
   meta?: SiteMeta
   faviconUrl?: string | null
+  banner?: string
 }): string {
   return shell({
     ...input,
@@ -638,6 +642,62 @@ export function site404(input: {
     title: 'Not found',
     body: '<h1>Not found</h1><p>This page does not exist or is not published.</p>',
   })
+}
+
+/**
+ * The holding page a published site shows while it is in maintenance mode.
+ * Deliberately standalone — no header, no nav, no links — so it leaks none of
+ * the site's structure while it is closed. Themed with the site's own palette
+ * so it still looks like the site, and served with a 503 so crawlers know to
+ * come back rather than drop the URL.
+ */
+export function maintenancePage(input: {
+  siteTitle: string
+  message?: string | null
+  theme: ThemeName
+  appearance?: ThemeAppearance
+  faviconUrl?: string | null
+  socials?: SocialLink[]
+}): string {
+  const message =
+    input.message?.trim() ||
+    'This site is undergoing maintenance and will be back shortly. Please check back later.'
+  // the same social row the site header uses; its .socials CSS is inlined below
+  // because this page is standalone and does not pull in the site stylesheet
+  const socials = socialLinksHtml(input.socials ?? [])
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(input.siteTitle)} — under maintenance</title>${
+    input.faviconUrl ? `\n<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
+  }
+<style>${themeCss(input.theme, input.appearance ?? 'auto')}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+background:var(--bg);color:var(--text);margin:0;min-height:100vh;
+display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
+.card{max-width:30rem;text-align:center}
+.icon{font-size:44px;line-height:1;margin-bottom:14px}
+h1{font-size:22px;margin:0 0 10px}
+p{font-size:16px;line-height:1.7;color:var(--text2);margin:0}
+.site{font-size:13px;color:var(--text3);margin-top:22px}
+.socials{display:flex;gap:14px;align-items:center;justify-content:center;margin-top:16px}
+.socials a{display:flex;color:var(--text3)}
+.socials a:hover{color:var(--accent)}
+.socials svg{width:19px;height:19px;fill:currentColor}</style>
+</head>
+<body>
+<div class="card">
+<div class="icon">🛠️</div>
+<h1>Back soon</h1>
+<p>${escapeHtml(message)}</p>
+<div class="site">${escapeHtml(input.siteTitle)}</div>
+${socials}
+</div>
+</body>
+</html>`
 }
 
 // ---- feeds ----

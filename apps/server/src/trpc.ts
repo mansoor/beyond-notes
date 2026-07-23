@@ -113,9 +113,19 @@ export const authedProcedure = signedIn.use(async ({ ctx, type, getRawInput, nex
       }
     }
   } catch (err) {
-    // the resolvers' rethrow() is downstream of here, so translate it ourselves
-    // — the UI switches on this exact message to raise the password prompt
-    if (err instanceof LockedError) throw new TRPCError({ code: 'FORBIDDEN', message: 'LOCKED' })
+    // the resolvers' rethrow() is downstream of here, so translate it ourselves.
+    // Unlike the read path — where pages.get answers the bare sentinel 'LOCKED'
+    // and the editor swaps in its own unlock prompt — a blocked mutation shows
+    // its message verbatim (e.g. in the Move dialog), so it must read as a
+    // sentence. Name what is locked: moving into a locked space and editing a
+    // locked page are the two ways in, and they want different nouns.
+    if (err instanceof LockedError) {
+      const noun = err.target.kind === 'space' ? 'space' : 'page'
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `That ${noun} is locked — unlock it first.`,
+      })
+    }
     throw err
   }
   return next()

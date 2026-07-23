@@ -18,7 +18,7 @@ import {
 
 const SOCIAL_PLATFORMS = socialPlatform.options
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   ErrorNote,
   Field,
@@ -30,7 +30,14 @@ import {
 } from './components'
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
-import { KIND_LABEL, catToken, spaceToken, useSidebarPrefs } from './sidebarprefs'
+import {
+  KIND_LABEL,
+  catToken,
+  spaceLabel,
+  spaceToken,
+  useCollapsibleGroup,
+  useSidebarPrefs,
+} from './sidebarprefs'
 import { trpc } from './trpc'
 
 const CATEGORY_LABEL: Record<SpaceCategory, string> = {
@@ -366,51 +373,20 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
   )
 }
 
-/**
- * Which spaces the sidebar is showing collapsed, remembered in this browser
- * only. We store the *collapsed* set, not the expanded one, so a brand-new
- * space defaults to open without needing an entry — and a wiped/absent key
- * simply means "everything expanded", the old behaviour.
- */
-const COLLAPSED_KEY = 'bn-collapsed-spaces'
-
-function readCollapsed(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_KEY)
-    const arr = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(arr) ? (arr as string[]) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-/** Per-space expand state, persisted to localStorage. Returns [expanded, toggle]. */
-function useSpaceExpanded(spaceId: string): [boolean, () => void] {
-  const [expanded, setExpanded] = useState(() => !readCollapsed().has(spaceId))
-  // reconcile once on mount in case another SpaceItem wrote the key first
-  useEffect(() => {
-    setExpanded(!readCollapsed().has(spaceId))
-  }, [spaceId])
-  const toggle = useCallback(() => {
-    setExpanded((prev) => {
-      const next = !prev
-      const set = readCollapsed()
-      if (next) set.delete(spaceId)
-      else set.add(spaceId)
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
-      } catch {
-        // private mode or a full quota: the toggle still works this session
-      }
-      return next
-    })
-  }, [spaceId])
-  return [expanded, toggle]
-}
-
 function SpaceItem(props: { space: SpaceView }) {
   const utils = trpc.useUtils()
-  const [expanded, toggleExpanded] = useSpaceExpanded(props.space.id)
+  const [savedExpanded, toggleExpanded] = useCollapsibleGroup(props.space.id)
+  const spaceLock = useLockState('space', props.space.id)
+  /** locked and not opened this session: every write inside will be refused */
+  const shut = Boolean(spaceLock && !spaceLock.open)
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  // a shut space always shows collapsed — its structure is part of what the
+  // lock hides — and the only way past the caret is the password.
+  const expanded = savedExpanded && !shut
+  const onToggle = () => {
+    if (shut) setUnlockOpen(true)
+    else toggleExpanded()
+  }
   const tree = trpc.pages.tree.useQuery({ spaceId: props.space.id }, { enabled: expanded })
   const createPage = trpc.pages.create.useMutation()
   const navigate = useNavigate()
@@ -476,10 +452,6 @@ function SpaceItem(props: { space: SpaceView }) {
   }
 
   const roots = (tree.data ?? []).filter((p) => p.parentId === null)
-  const spaceLock = useLockState('space', props.space.id)
-  /** locked and not opened this session: every write inside will be refused */
-  const shut = Boolean(spaceLock && !spaceLock.open)
-  const [unlockOpen, setUnlockOpen] = useState(false)
 
   return (
     <div className="mb-1">
@@ -487,13 +459,13 @@ function SpaceItem(props: { space: SpaceView }) {
         className="group flex items-center gap-1 px-2 py-1 rounded text-sm font-medium"
         style={{ color: 'var(--text-2)' }}
       >
-        <button type="button" onClick={toggleExpanded} className="w-4 text-xs">
+        <button type="button" onClick={onToggle} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
         <span
           className="truncate select-none cursor-default"
-          onDoubleClick={toggleExpanded}
-          title="Double-click to expand or collapse"
+          onDoubleClick={onToggle}
+          title={shut ? 'Locked — double-click to unlock' : 'Double-click to expand or collapse'}
         >
           {props.space.name}
         </span>
@@ -573,7 +545,7 @@ function SpaceItem(props: { space: SpaceView }) {
         <UnlockModal
           target="space"
           id={props.space.id}
-          name={props.space.name}
+          name={spaceLabel(props.space)}
           policy={spaceLock.policy}
           onClose={() => setUnlockOpen(false)}
           onOpened={() => setUnlockOpen(false)}
@@ -657,6 +629,8 @@ function SpaceMenu(props: {
 }) {
   const [open, setOpen] = useState(false)
   const lock = useLockState('space', props.space.id)
+  const utils = trpc.useUtils()
+  const lockNow = trpc.locks.lockNow.useMutation({ onSuccess: () => utils.locks.list.invalidate() })
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuStyle = useMenuAnchor(open, btnRef, 220)
 
@@ -693,6 +667,19 @@ function SpaceMenu(props: {
           style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
+          {(props.space.category === 'site' || props.space.category === 'wiki') && (
+            <a
+              href={`/s/draft/${props.space.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--text)' }}
+              title="Browse the current unpublished draft in its site theme, before publishing"
+              onClick={() => setOpen(false)}
+            >
+              Preview draft ↗
+            </a>
+          )}
           {item('Rename', 'Rename this space', props.onRename)}
           {item(
             lock ? 'Remove the lock…' : 'Lock with my password…',
@@ -701,6 +688,10 @@ function SpaceMenu(props: {
               : 'Ask for your account password before opening this space',
             props.onLock,
           )}
+          {lock?.open &&
+            item('Lock now', 'Close it now, until the password is entered again', () =>
+              lockNow.mutate({ target: 'space', id: props.space.id }),
+            )}
           {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
           {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
           {item('Import pages…', 'From markdown or a GitHub repository', props.onImport)}
@@ -801,6 +792,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const update = trpc.publish.updateSpace.useMutation()
   const s = props.space
   const [enabled, setEnabled] = useState(s.publicEnabled)
+  const [maintenance, setMaintenance] = useState(s.publicMaintenance)
   const [host, setHost] = useState(s.publicHost ?? '')
   const [title, setTitle] = useState(s.publicTitle ?? '')
   const [footer, setFooter] = useState(s.publicFooter ?? '')
@@ -843,6 +835,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
     await update.mutateAsync({
       spaceId: s.id,
       enabled,
+      maintenance: enabled && maintenance,
       host: host.trim() || null,
       title: title.trim() || null,
       footer: footer.trim() || null,
@@ -861,6 +854,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   })
   const dirty =
     enabled !== s.publicEnabled ||
+    maintenance !== s.publicMaintenance ||
     host !== (s.publicHost ?? '') ||
     title !== (s.publicTitle ?? '') ||
     footer !== (s.publicFooter ?? '') ||
@@ -916,7 +910,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
           <div className="flex-1 min-w-0 min-h-[320px]">
             {tab === 'general' && (
               <>
-                <label className="flex items-center gap-2 mb-4 text-sm">
+                <label className="flex items-center gap-2 mb-3 text-sm">
                   <input
                     type="checkbox"
                     checked={enabled}
@@ -924,6 +918,22 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                   />
                   {isSite ? 'Publish this space as a website' : 'Publish this space as a docs site'}
                 </label>
+                <label
+                  className="flex items-center gap-2 mb-1 text-sm"
+                  style={{ opacity: enabled ? 1 : 0.5 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={maintenance}
+                    disabled={!enabled}
+                    onChange={(e) => setMaintenance(e.target.checked)}
+                  />
+                  Maintenance mode
+                </label>
+                <p className="text-xs mb-4 pl-6" style={{ color: 'var(--text-3)' }}>
+                  Keeps the site online but serves a “back soon” page instead of the content — so the
+                  address still works while you take it down for a while.
+                </p>
                 <Field label="Domain (e.g. docs.example.com)" value={host} onChange={setHost} />
                 <Field
                   label="Site title (defaults to the space name)"

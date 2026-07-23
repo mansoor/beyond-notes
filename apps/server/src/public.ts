@@ -16,6 +16,7 @@ import {
   docsTagPage,
   extractHeadings,
   formHtml,
+  maintenancePage,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -118,6 +119,25 @@ export function createPublicServer(
   ): Promise<boolean> {
     const space = await resolveSpace(host)
     if (!space) return false
+
+    // Maintenance mode: the site is still published (so the host resolves and
+    // no raw 404 leaks), but every path answers a holding page. Short-circuit
+    // before analytics and any content read — nothing of the site is served
+    // while it is closed. 503 tells crawlers to come back, not drop the URL.
+    if (space.publicMaintenance) {
+      reply.code(503)
+      reply.header('Retry-After', '3600')
+      reply.type('text/html; charset=utf-8')
+      reply.send(
+        maintenancePage({
+          siteTitle: space.publicTitle || space.name,
+          theme: space.publicTheme,
+          appearance: space.publicAppearance,
+          socials: parseSocialLinks(space.publicSocial),
+        }),
+      )
+      return true
+    }
 
     // Analytics is added once, here, rather than threaded through a dozen
     // shell calls: every published page leaves through this function, and each
@@ -771,7 +791,104 @@ export function createPublicServer(
     )
   }
 
-  return { serve, resolveSpace }
+  /**
+   * Browse a space's *working copy* — the current, unpublished draft — in the
+   * real site/wiki chrome, so the owner can proofread the whole thing before
+   * publishing. Served on the app host and gated to a signed-in owner by the
+   * caller, so the session cookie authorizes draft images through /api/files
+   * with no per-page token. Nothing here is public: every page is marked
+   * noindex and carries a "draft — not published" banner.
+   */
+  async function serveDraft(
+    space: SpaceRow,
+    rawPath: string,
+    basePath: string,
+    reply: FastifyReply,
+  ): Promise<void> {
+    reply.type('text/html; charset=utf-8')
+    const requested = rawPath === '' || rawPath === '/' ? '' : rawPath
+    const site = await publishing.draftSite(space, null)
+    const theme = space.publicTheme
+    const appearance = space.publicAppearance
+    const socials = parseSocialLinks(space.publicSocial)
+    const siteTitle = space.publicTitle || space.name
+    const footer = space.publicFooter || ''
+
+    // root lands on the first page; an unknown path is treated the same, so a
+    // stale link inside the draft never dead-ends
+    const landing = requested && site.byPath.has(requested) ? requested : (site.flat[0]?.path ?? '')
+    const markActive = (nodes: typeof site.nav): typeof site.nav =>
+      nodes.map((n) => ({ ...n, active: n.path === landing, children: markActive(n.children) }))
+    const nav = markActive(site.nav)
+
+    // a full-width bar above the header — a browser-chrome sort of notice, not
+    // page content — so it reads the same on every page and does not shove the
+    // real content down inside <main>
+    const banner =
+      '<div style="background:var(--accent);color:#fff;font-size:13px;font-weight:500;' +
+      'text-align:center;padding:7px 16px">' +
+      'Draft preview — the current unpublished working copy. Publish when it looks right.</div>'
+
+    const hit = landing ? site.byPath.get(landing) : undefined
+    let title = siteTitle
+    let contentHtml = '<p>This space has no pages yet.</p>'
+    if (hit) {
+      const rendered = await publishing.renderPreview(hit.page)
+      title = rendered.title
+      contentHtml = rewriteInternalLinks(
+        rendered.html,
+        { flat: site.flat.map((f) => ({ path: f.path, entry: { page: { id: f.page.id } } })) },
+        basePath,
+      )
+    }
+
+    if (space.category === 'site') {
+      // the same branding the live site uses, so the draft header looks right:
+      // header layout, logo, tagline, and the wordmark/logo sizes
+      const faviconId = space.publicFaviconAttachmentId ?? space.publicLogoAttachmentId
+      reply.send(
+        sitePage({
+          siteTitle,
+          footer,
+          theme,
+          appearance,
+          socials,
+          logoUrl: space.publicLogoAttachmentId
+            ? `/api/files/${space.publicLogoAttachmentId}`
+            : null,
+          tagline: space.publicTagline,
+          headerLayout: space.publicHeaderLayout,
+          titlePx: SITE_TITLE_PX[space.publicTitleSize],
+          logoPx: SITE_LOGO_PX[space.publicLogoSize],
+          faviconUrl: faviconId ? `/api/files/${faviconId}/thumb` : null,
+          nav,
+          basePath,
+          title,
+          contentHtml,
+          banner,
+          meta: { noindex: true },
+        }),
+      )
+      return
+    }
+    reply.send(
+      docsShell({
+        siteTitle,
+        footer,
+        pageTitle: title,
+        contentHtml,
+        nav,
+        basePath,
+        banner,
+        noindex: true,
+        theme,
+        appearance,
+        social: socials,
+      }),
+    )
+  }
+
+  return { serve, resolveSpace, serveDraft }
 }
 
 /**
@@ -887,6 +1004,9 @@ function parseEmbedAttrs(inner: string): Record<string, string> {
 function cellDisplay(v: DbCellValue | undefined, type: string): string {
   if (v === null || v === undefined) return ''
   if (type === 'checkbox') return v === true || v === 'true' ? 'Yes' : 'No'
+  // "2026-07-23T14:30" → "2026-07-23 14:30" — readable and timezone-neutral
+  // (no Date parsing, so the server's zone can't shift the value)
+  if (type === 'datetime') return String(v).replace('T', ' ').slice(0, 16)
   return String(v)
 }
 
@@ -971,6 +1091,7 @@ async function renderTableEmbed(repo: Repo, token: string): Promise<string | nul
   })
   return tableEmbedHtml({
     columns: columns.map((c) => c.name),
+    columnTypes: columns.map((c) => c.type),
     rows: displayRows,
     layout,
     pageSize,

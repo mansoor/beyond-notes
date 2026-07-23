@@ -116,6 +116,8 @@ export type SpaceView = {
   category: SpaceCategory
   personal: boolean
   publicEnabled: boolean
+  /** published, but serving a holding page instead of the content */
+  publicMaintenance: boolean
   publicHost: string | null
   publicTitle: string | null
   publicFooter: string | null
@@ -456,6 +458,8 @@ export const updateAnalyticsInput = z.object({
 export const updatePublishingInput = z.object({
   spaceId: z.string(),
   enabled: z.boolean(),
+  /** keep the site published but serve a holding page instead of the content */
+  maintenance: z.boolean().default(false),
   host: hostSchema.nullable(),
   title: z.string().trim().max(120).nullable(),
   footer: z.string().trim().max(300).nullable(),
@@ -704,8 +708,10 @@ export const dbColumnType = z.enum([
   'number',
   'checkbox',
   'date',
+  'datetime',
   'select',
   'email',
+  'url',
 ])
 export type DbColumnType = z.infer<typeof dbColumnType>
 
@@ -1030,6 +1036,25 @@ export function validateRowCells(
         const s = String(raw).trim()
         if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
           return fail(col, `"${col.name}" must be a date (YYYY-MM-DD).`)
+        out[col.id] = s
+        break
+      }
+      case 'datetime': {
+        // what <input type="datetime-local"> emits; seconds optional
+        const s = String(raw).trim()
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s))
+          return fail(col, `"${col.name}" must be a date and time.`)
+        out[col.id] = s
+        break
+      }
+      case 'url': {
+        // a bare "example.com" is treated as https; the stored value is always
+        // an http(s) URL so it can be linked as-is in the grid and on the site.
+        // Regex, not new URL(): this file is isomorphic and has no DOM lib.
+        let s = String(raw).trim()
+        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `https://${s}`
+        if (!/^https?:\/\/[^\s/$.?#][^\s]*$/i.test(s))
+          return fail(col, `"${col.name}" must be a valid URL.`)
         out[col.id] = s
         break
       }

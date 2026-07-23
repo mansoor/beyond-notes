@@ -13,7 +13,15 @@ export type LockTargetKind = 'space' | 'page'
 
 /** The lock covering this thing, if this session knows about one. */
 export function useLockState(target: LockTargetKind, id: string | null): LockStateView | null {
-  const locks = trpc.locks.list.useQuery(undefined, { staleTime: 10_000 })
+  // Poll so an idle lock that fires while the app sits open is noticed within
+  // ~30s — the server reads this without sliding the idle window (isOpenPeek),
+  // so the poll itself cannot keep a lock alive. staleTime under the interval
+  // keeps navigations cheap between polls.
+  const locks = trpc.locks.list.useQuery(undefined, {
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  })
   if (!id) return null
   return (locks.data ?? []).find((l) => l.target === target && l.id === id) ?? null
 }
