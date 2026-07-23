@@ -664,6 +664,19 @@ function SpaceMenu(props: {
           style={{ ...menuStyle, background: 'var(--panel)', borderColor: 'var(--border)' }}
           onMouseLeave={() => setOpen(false)}
         >
+          {(props.space.category === 'site' || props.space.category === 'wiki') && (
+            <a
+              href={`/s/draft/${props.space.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block w-full text-left px-3 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--text)' }}
+              title="Browse the current unpublished draft in its site theme, before publishing"
+              onClick={() => setOpen(false)}
+            >
+              Preview draft ↗
+            </a>
+          )}
           {item('Rename', 'Rename this space', props.onRename)}
           {item(
             lock ? 'Remove the lock…' : 'Lock with my password…',

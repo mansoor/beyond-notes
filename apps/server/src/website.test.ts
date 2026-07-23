@@ -44,6 +44,7 @@ for (const dialect of dialects) {
     let publishing: ReturnType<typeof createPublishingService>
 
     const HOST = 'site.example.test'
+    let sessionToken: string
     let siteSpaceId: string
     let blogId: string
     let notebookSpaceId: string
@@ -88,6 +89,7 @@ for (const dialect of dialects) {
       publishing = createPublishingService(repo)
       const res = await auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
       user = res.user
+      sessionToken = res.session.token
 
       // site: Home, About, Blog(blog type) with two posts + one draft post
       const site = await pagesSvc.createSpace(user, {
@@ -625,6 +627,45 @@ for (const dialect of dialects) {
       const back = await get('/')
       expect(back.statusCode).toBe(200)
       expect(back.body).toContain('Welcome to my corner of the web')
+    })
+
+    it('draft preview shows the working copy to the owner; the live site does not', async () => {
+      // a brand-new page, edited but never published
+      await makePage(siteSpaceId, null, 'Sandbox', 'SANDBOX DRAFT BODY')
+
+      const getDraft = (path = '', authed = true) =>
+        server.inject({
+          method: 'GET',
+          url: `/s/draft/${siteSpaceId}${path}`,
+          headers: {
+            host: 'app.example.test',
+            ...(authed ? { cookie: `bn_session=${sessionToken}` } : {}),
+          },
+        })
+
+      // the live site has never heard of it — publishing is still the only way out
+      const live = await get('/')
+      expect(live.body).not.toContain('SANDBOX DRAFT BODY')
+      expect(live.body).not.toContain('Sandbox')
+
+      // the owner's draft preview renders the current working copy, in the site
+      // chrome, with a banner and noindex, and lists the unpublished page in nav
+      const draft = await getDraft('/sandbox')
+      expect(draft.statusCode).toBe(200)
+      expect(draft.body).toContain('SANDBOX DRAFT BODY')
+      expect(draft.body).toContain('Draft preview')
+      expect(draft.body).toContain('content="noindex"')
+      expect(draft.body).toContain('Sandbox')
+      // the pages published in beforeAll are part of the same draft nav
+      expect(draft.body).toContain('Home')
+
+      // the root lands on the first page rather than dead-ending
+      expect((await getDraft('')).statusCode).toBe(200)
+
+      // a signed-out visitor is bounced to the app, never shown the draft
+      const anon = await getDraft('/sandbox', false)
+      expect(anon.statusCode).toBe(302)
+      expect(anon.body).not.toContain('SANDBOX DRAFT BODY')
     })
   })
 }

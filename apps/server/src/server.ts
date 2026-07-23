@@ -404,6 +404,31 @@ export async function buildServer(config: Config, appDb: AppDb) {
     )
     if (!handled) reply.code(404).send({ error: 'no published site for this host' })
   }
+
+  // Draft preview: the working copy of a whole space, in its real chrome, on
+  // the app host — so the owner can proofread before publishing, without a
+  // domain and without cutting a published version. Signed-in owner only; the
+  // session cookie also authorizes the draft's images through /api/files.
+  // Registered before /s/:host so the static "draft" segment wins over :host.
+  const serveDraftByPath = async (req: any, reply: any) => {
+    const spaceId = String(req.params.spaceId ?? '')
+    const rest = `/${String(req.params['*'] ?? '')}`
+    const viewer = await userFromRequest(req)
+    if (!viewer) {
+      // not the site's 404 — send them to the app to sign in
+      return reply.redirect(config.BASE_URL)
+    }
+    const space = await repo.getSpace(spaceId)
+    // same visibility rule as the app: household spaces open to any member,
+    // a personal space only to its owner
+    if (!space || (space.ownerId !== null && space.ownerId !== viewer.id)) {
+      return reply.code(404).send({ error: 'not found' })
+    }
+    await publicSrv.serveDraft(space, decodeURIComponent(rest), `/s/draft/${spaceId}`, reply)
+  }
+  server.get('/s/draft/:spaceId', serveDraftByPath)
+  server.get('/s/draft/:spaceId/*', serveDraftByPath)
+
   server.get('/s/:host', serveByPath)
   server.get('/s/:host/*', serveByPath)
 

@@ -448,6 +448,79 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
         footer: space.publicFooter || '',
       }
     },
+
+    /**
+     * The draft counterpart of publicSite: the same nav + reading order, but
+     * built from the *working copy* — every current, non-hidden page, whatever
+     * its publish state — so the owner can proofread the whole space before
+     * ever publishing. Paths use slugs derived from the live titles (deduped
+     * per sibling group), because working copies have no frozen slug.
+     */
+    async draftSite(space: SpaceRow, activePath: string | null) {
+      const pages = (await repo.listPagesInSpace(space.id))
+        .filter((p) => !p.trashedAt && !p.archivedAt)
+        .sort((a, b) => a.position - b.position)
+      const byId = new Map(pages.map((p) => [p.id, p]))
+      // a page whose parent was filtered out (archived/trashed ancestor)
+      // surfaces at the root rather than vanishing
+      const parentOf = (p: PageRow): string | null =>
+        p.parentId && byId.has(p.parentId) ? p.parentId : null
+
+      const slugByPage = new Map<string, string>()
+      const usedByParent = new Map<string | null, Set<string>>()
+      for (const p of pages) {
+        const parent = parentOf(p)
+        const used = usedByParent.get(parent) ?? new Set<string>()
+        const base = slugify(p.title) || 'untitled'
+        let slug = base
+        for (let i = 2; used.has(slug); i++) slug = `${base}-${i}`
+        used.add(slug)
+        usedByParent.set(parent, used)
+        slugByPage.set(p.id, slug)
+      }
+
+      const pathOf = (pageId: string): string => {
+        const segments: string[] = []
+        let cursor: PageRow | undefined = byId.get(pageId)
+        while (cursor) {
+          segments.unshift(slugByPage.get(cursor.id) as string)
+          const parent = parentOf(cursor)
+          cursor = parent ? byId.get(parent) : undefined
+        }
+        return `/${segments.join('/')}`
+      }
+
+      const buildNav = (parentId: string | null): NavNode[] =>
+        pages
+          .filter((p) => parentOf(p) === parentId)
+          .map((p) => {
+            const path = pathOf(p.id)
+            return {
+              title: p.title,
+              path,
+              active: path === activePath,
+              icon: p.icon,
+              children: buildNav(p.id),
+            }
+          })
+
+      const flat: Array<{ title: string; path: string; page: PageRow }> = []
+      const walk = (parentId: string | null) => {
+        for (const p of pages.filter((x) => parentOf(x) === parentId)) {
+          flat.push({ title: p.title, path: pathOf(p.id), page: p })
+          walk(p.id)
+        }
+      }
+      walk(null)
+
+      return {
+        nav: buildNav(null),
+        flat,
+        byPath: new Map(flat.map((f) => [f.path, f])),
+        siteTitle: space.publicTitle || space.name,
+        footer: space.publicFooter || '',
+      }
+    },
   }
 }
 

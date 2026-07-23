@@ -791,7 +791,90 @@ export function createPublicServer(
     )
   }
 
-  return { serve, resolveSpace }
+  /**
+   * Browse a space's *working copy* — the current, unpublished draft — in the
+   * real site/wiki chrome, so the owner can proofread the whole thing before
+   * publishing. Served on the app host and gated to a signed-in owner by the
+   * caller, so the session cookie authorizes draft images through /api/files
+   * with no per-page token. Nothing here is public: every page is marked
+   * noindex and carries a "draft — not published" banner.
+   */
+  async function serveDraft(
+    space: SpaceRow,
+    rawPath: string,
+    basePath: string,
+    reply: FastifyReply,
+  ): Promise<void> {
+    reply.type('text/html; charset=utf-8')
+    const requested = rawPath === '' || rawPath === '/' ? '' : rawPath
+    const site = await publishing.draftSite(space, null)
+    const theme = space.publicTheme
+    const appearance = space.publicAppearance
+    const socials = parseSocialLinks(space.publicSocial)
+    const siteTitle = space.publicTitle || space.name
+    const footer = space.publicFooter || ''
+
+    // root lands on the first page; an unknown path is treated the same, so a
+    // stale link inside the draft never dead-ends
+    const landing = requested && site.byPath.has(requested) ? requested : (site.flat[0]?.path ?? '')
+    const markActive = (nodes: typeof site.nav): typeof site.nav =>
+      nodes.map((n) => ({ ...n, active: n.path === landing, children: markActive(n.children) }))
+    const nav = markActive(site.nav)
+
+    const banner =
+      '<p class="meta" style="border:1px dashed currentColor;border-radius:8px;padding:8px 14px;margin-bottom:18px">' +
+      'Draft preview — the current unpublished working copy. Publish when it looks right.</p>'
+
+    const hit = landing ? site.byPath.get(landing) : undefined
+    let title = siteTitle
+    let contentHtml = banner
+    if (hit) {
+      const rendered = await publishing.renderPreview(hit.page)
+      title = rendered.title
+      const linked = rewriteInternalLinks(
+        rendered.html,
+        { flat: site.flat.map((f) => ({ path: f.path, entry: { page: { id: f.page.id } } })) },
+        basePath,
+      )
+      contentHtml = banner + linked
+    } else {
+      contentHtml = `${banner}<p>This space has no pages yet.</p>`
+    }
+
+    if (space.category === 'site') {
+      reply.send(
+        sitePage({
+          siteTitle,
+          footer,
+          theme,
+          appearance,
+          socials,
+          nav,
+          basePath,
+          title,
+          contentHtml,
+          meta: { noindex: true },
+        }),
+      )
+      return
+    }
+    reply.send(
+      docsShell({
+        siteTitle,
+        footer,
+        pageTitle: title,
+        contentHtml,
+        nav,
+        basePath,
+        noindex: true,
+        theme,
+        appearance,
+        social: socials,
+      }),
+    )
+  }
+
+  return { serve, resolveSpace, serveDraft }
 }
 
 /**
