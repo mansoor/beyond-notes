@@ -317,6 +317,21 @@ select.bn-cell {
   }
 }
 
+/* Row action buttons (＋ / ⋯ menus, edit/delete) reveal on group-hover, which a
+   touch device can never trigger — leaving them unreachable in the sidebar,
+   Inbox, Tasks, and Data. Where there's no hover, show them always. */
+@media (hover: none) {
+  .group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+  .group-hover\:flex {
+    display: flex !important;
+  }
+  .group-hover\:block {
+    display: block !important;
+  }
+}
+
 @keyframes bn-drawer-in {
   from {
     transform: translateX(100%);
