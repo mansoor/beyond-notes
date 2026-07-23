@@ -1004,6 +1004,9 @@ function parseEmbedAttrs(inner: string): Record<string, string> {
 function cellDisplay(v: DbCellValue | undefined, type: string): string {
   if (v === null || v === undefined) return ''
   if (type === 'checkbox') return v === true || v === 'true' ? 'Yes' : 'No'
+  // "2026-07-23T14:30" → "2026-07-23 14:30" — readable and timezone-neutral
+  // (no Date parsing, so the server's zone can't shift the value)
+  if (type === 'datetime') return String(v).replace('T', ' ').slice(0, 16)
   return String(v)
 }
 
@@ -1088,6 +1091,7 @@ async function renderTableEmbed(repo: Repo, token: string): Promise<string | nul
   })
   return tableEmbedHtml({
     columns: columns.map((c) => c.name),
+    columnTypes: columns.map((c) => c.type),
     rows: displayRows,
     layout,
     pageSize,

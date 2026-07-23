@@ -16,6 +16,33 @@ describe('tableEmbedHtml', () => {
     expect(html).not.toContain('data-pagesize')
   })
 
+  it('links url cells and never linkifies a non-http value', () => {
+    const html = tableEmbedHtml({
+      columns: ['Home', 'Note'],
+      columnTypes: ['url', 'text'],
+      rows: [['https://example.com/x', 'javascript:alert(1)']],
+      layout: 'table',
+      pageSize: 0,
+    })
+    expect(html).toContain(
+      '<a href="https://example.com/x" target="_blank" rel="noopener nofollow">https://example.com/x</a>',
+    )
+    // a non-url column with a javascript: value stays inert, escaped text
+    expect(html).not.toContain('<a href="javascript')
+    expect(html).toContain('javascript:alert(1)'.replace(/"/g, '&quot;'))
+  })
+
+  it('does not linkify a url column whose value is not http(s)', () => {
+    const html = tableEmbedHtml({
+      columns: ['Link'],
+      columnTypes: ['url'],
+      rows: [['javascript:alert(1)']],
+      layout: 'table',
+      pageSize: 0,
+    })
+    expect(html).not.toContain('<a href')
+  })
+
   it('honours pagesize and the cards / list layouts', () => {
     expect(
       tableEmbedHtml({ columns: ['A'], rows: [['1']], layout: 'table', pageSize: 5 }),

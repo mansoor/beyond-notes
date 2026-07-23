@@ -69,6 +69,27 @@ describe('validateRowCells (pure)', () => {
     expect(validateRowCells(cols, { c_name: 'x', c_prio: 'Mid' }).ok).toBe(false)
   })
 
+  it('validates and normalizes url and datetime columns', () => {
+    const c: DbColumn[] = [
+      { id: 'c_site', name: 'Site', type: 'url', required: false, choices: [] },
+      { id: 'c_appt', name: 'Appointment', type: 'datetime', required: false, choices: [] },
+    ]
+    // a bare host is promoted to https so it links cleanly everywhere
+    const bare = validateRowCells(c, { c_site: 'example.com' })
+    expect(bare.ok && bare.cells.c_site).toBe('https://example.com')
+    // a full url is kept verbatim
+    const full = validateRowCells(c, { c_site: 'http://sub.example.com/path?q=1' })
+    expect(full.ok && full.cells.c_site).toBe('http://sub.example.com/path?q=1')
+    // a non-url is rejected
+    expect(validateRowCells(c, { c_site: 'not a url' }).ok).toBe(false)
+
+    // datetime accepts what <input type="datetime-local"> emits
+    const dt = validateRowCells(c, { c_appt: '2026-07-23T14:30' })
+    expect(dt.ok && dt.cells.c_appt).toBe('2026-07-23T14:30')
+    // a date without a time is not a datetime
+    expect(validateRowCells(c, { c_appt: '2026-07-23' }).ok).toBe(false)
+  })
+
   it('drops orphan keys from removed columns', () => {
     const r = validateRowCells(cols, { c_name: 'x', c_gone: 'stale' })
     expect(r.ok).toBe(true)

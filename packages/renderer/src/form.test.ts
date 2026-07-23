@@ -30,6 +30,18 @@ describe('formHtml', () => {
     expect(html).toContain('Send</button>')
   })
 
+  it('maps url and datetime fields to the right native inputs', () => {
+    const html = formHtml({
+      ...base,
+      fields: [
+        { id: 'c_site', name: 'Website', type: 'url', required: false, choices: [] },
+        { id: 'c_appt', name: 'Preferred time', type: 'datetime', required: true, choices: [] },
+      ],
+    })
+    expect(html).toContain('<input type="url" name="c_site">')
+    expect(html).toContain('<input type="datetime-local" name="c_appt" required>')
+  })
+
   it('escapes user-authored labels and choices', () => {
     const html = formHtml({
       ...base,

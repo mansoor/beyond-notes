@@ -7,7 +7,7 @@ import { escapeHtml } from './render'
 export type FormFieldInput = {
   id: string
   name: string
-  type: 'text' | 'longtext' | 'number' | 'checkbox' | 'date' | 'select' | 'email'
+  type: 'text' | 'longtext' | 'number' | 'checkbox' | 'date' | 'datetime' | 'select' | 'email' | 'url'
   required: boolean
   choices: string[]
   /** grid position; both default to 1 (a plain single-column stack) */
@@ -144,9 +144,13 @@ function fieldHtml(field: FormFieldInput, columns: number): string {
         ? 'number'
         : field.type === 'date'
           ? 'date'
-          : field.type === 'email'
-            ? 'email'
-            : 'text'
+          : field.type === 'datetime'
+            ? 'datetime-local'
+            : field.type === 'email'
+              ? 'email'
+              : field.type === 'url'
+                ? 'url'
+                : 'text'
     control = `<input type="${inputType}" name="${name}"${req}>`
   }
   return `<label class="bn-form-field"${place}><span class="bn-form-label">${label}${reqMark}</span>${control}</label>`

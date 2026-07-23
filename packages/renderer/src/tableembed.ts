@@ -10,10 +10,25 @@ export type TableEmbedInput = {
   layout: 'table' | 'cards' | 'list'
   // client-side pagination page size; 0 = show everything on one page
   pageSize: number
+  /** column types, aligned to `columns`; a 'url' cell becomes a link */
+  columnTypes?: string[]
+}
+
+/** Only http(s) — anything else (javascript:, data:) renders as plain text. */
+const SAFE_URL = /^https?:\/\/[^\s"'<>]+$/i
+
+/** One cell: a url column with a safe value becomes a link; all else is text. */
+function cell(value: string, type: string | undefined): string {
+  const v = value ?? ''
+  if (type === 'url' && SAFE_URL.test(v)) {
+    return `<a href="${escapeHtml(v)}" target="_blank" rel="noopener nofollow">${escapeHtml(v)}</a>`
+  }
+  return escapeHtml(v)
 }
 
 export function tableEmbedHtml(input: TableEmbedInput): string {
   const { columns, rows, layout } = input
+  const typeOf = (i: number) => input.columnTypes?.[i]
   const pageAttr = input.pageSize > 0 ? ` data-pagesize="${Math.floor(input.pageSize)}"` : ''
   const pager = input.pageSize > 0 ? '<div class="bn-embed-pager"></div>' : ''
 
@@ -28,8 +43,9 @@ export function tableEmbedHtml(input: TableEmbedInput): string {
         const kvs = columns
           .map(
             (c, i) =>
-              `<div class="bn-embed-kv"><span class="k">${escapeHtml(c)}</span><span class="v">${escapeHtml(
+              `<div class="bn-embed-kv"><span class="k">${escapeHtml(c)}</span><span class="v">${cell(
                 row[i] ?? '',
+                typeOf(i),
               )}</span></div>`,
           )
           .join('')
@@ -45,7 +61,7 @@ export function tableEmbedHtml(input: TableEmbedInput): string {
         const cells = columns
           .map(
             (c, i) =>
-              `<span class="bn-embed-cell"><b>${escapeHtml(c)}:</b> ${escapeHtml(row[i] ?? '')}</span>`,
+              `<span class="bn-embed-cell"><b>${escapeHtml(c)}:</b> ${cell(row[i] ?? '', typeOf(i))}</span>`,
           )
           .join('')
         return `<div class="bn-embed-item bn-embed-line">${cells}</div>`
@@ -58,7 +74,7 @@ export function tableEmbedHtml(input: TableEmbedInput): string {
   const head = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('')
   body = rows
     .map((row) => {
-      const tds = columns.map((_, i) => `<td>${escapeHtml(row[i] ?? '')}</td>`).join('')
+      const tds = columns.map((_, i) => `<td>${cell(row[i] ?? '', typeOf(i))}</td>`).join('')
       return `<tr class="bn-embed-item">${tds}</tr>`
     })
     .join('')

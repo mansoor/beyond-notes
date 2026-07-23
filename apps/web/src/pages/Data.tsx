@@ -30,8 +30,10 @@ const COLUMN_TYPES: { value: DbColumnType; label: string }[] = [
   { value: 'number', label: 'Number' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'date', label: 'Date' },
+  { value: 'datetime', label: 'Date & time' },
   { value: 'select', label: 'Select' },
   { value: 'email', label: 'Email' },
+  { value: 'url', label: 'URL' },
 ]
 
 const cellString = (v: DbCellValue | undefined): string => (v == null ? '' : String(v))
@@ -49,8 +51,10 @@ const TYPE_WIDTH: Record<DbColumnType, number> = {
   number: 120,
   checkbox: 90,
   date: 140,
+  datetime: 200,
   select: 170,
   email: 220,
+  url: 240,
 }
 
 /** A column opens wide enough for its own heading, then the user owns it. */
@@ -921,8 +925,44 @@ function CellEditor(props: {
       />
     )
   }
+  // a URL stays editable, but gets an "open" affordance when it holds a link —
+  // a plain spreadsheet cell has no read mode to click through from
+  if (type === 'url') {
+    const openable = /^https?:\/\//i.test(draft.trim())
+    return (
+      <span className="flex items-center gap-1">
+        <input
+          type="url"
+          className="bn-cell"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => draft !== cellString(value) && onCommit(draft || null)}
+        />
+        {openable && (
+          <a
+            href={draft.trim()}
+            target="_blank"
+            rel="noreferrer"
+            title="Open link"
+            className="shrink-0 text-xs px-0.5"
+            style={{ color: 'var(--accent)' }}
+          >
+            ↗
+          </a>
+        )}
+      </span>
+    )
+  }
   const htmlType =
-    type === 'number' ? 'number' : type === 'date' ? 'date' : type === 'email' ? 'email' : 'text'
+    type === 'number'
+      ? 'number'
+      : type === 'date'
+        ? 'date'
+        : type === 'datetime'
+          ? 'datetime-local'
+          : type === 'email'
+            ? 'email'
+            : 'text'
   return (
     <input
       type={htmlType}
