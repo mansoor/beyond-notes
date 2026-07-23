@@ -109,10 +109,11 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
         >
           <button
             type="button"
-            onClick={() => setNavOpen(true)}
-            aria-label="Open navigation"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label={navOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={navOpen}
             className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
-            style={{ color: 'var(--text-2)' }}
+            style={{ color: navOpen ? 'var(--accent)' : 'var(--text-2)' }}
           >
             <span className="msym" style={{ fontSize: 24 }}>
               menu
@@ -144,23 +145,24 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
         </header>
       )}
 
-      {/* backdrop dims the page behind the open drawer and closes it on tap */}
+      {/* backdrop sits below the header (top-14) so the hamburger, brand, and
+          controls stay visible and usable while the drawer is open */}
       {isMobile && navOpen && (
         <button
           type="button"
           aria-label="Close navigation"
           onClick={() => setNavOpen(false)}
-          className="fixed inset-0 z-40 bg-black/40"
+          className="fixed top-14 inset-x-0 bottom-0 z-30 bg-black/40"
         />
       )}
 
       <aside
-        className={`border-r p-3 flex flex-col gap-4 h-screen top-0 ${
+        className={`border-r p-3 flex flex-col gap-4 ${
           isMobile
-            ? `fixed inset-y-0 left-0 z-50 w-[82vw] max-w-[300px] transition-transform duration-200 ${
+            ? `fixed top-14 bottom-0 left-0 z-40 w-[82vw] max-w-[300px] transition-transform duration-200 ${
                 navOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
               }`
-            : 'shrink-0 sticky'
+            : 'h-screen top-0 shrink-0 sticky'
         }`}
         style={{
           width: isMobile ? undefined : sidebarW,
@@ -168,11 +170,15 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           borderColor: 'var(--border)',
         }}
       >
-        <div className="flex items-center gap-2 px-1">
-          <BrandMark />
-          <span className="font-semibold">Beyond Notes</span>
-          <ThemePicker theme={theme} onPick={setTheme} className="ml-auto" />
-        </div>
+        {/* the brand + theme live in the mobile top bar already — only show
+            them inside the drawer on desktop */}
+        {!isMobile && (
+          <div className="flex items-center gap-2 px-1">
+            <BrandMark />
+            <span className="font-semibold">Beyond Notes</span>
+            <ThemePicker theme={theme} onPick={setTheme} className="ml-auto" />
+          </div>
+        )}
 
         {/* on mobile the header already carries a search icon — no need to
             spend drawer space on a second entry point */}
