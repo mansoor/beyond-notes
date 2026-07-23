@@ -1,5 +1,5 @@
 import type { UserView } from '@bn/schema'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { BrandMark, Modal } from '../components'
@@ -25,12 +25,35 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   const [theme, setTheme] = useState(currentTheme)
   const [searchOpen, setSearchOpen] = useState(false)
 
+  // On a phone the sidebar can't sit alongside the page — it becomes an
+  // off-canvas drawer behind a hamburger, with the persistent controls (brand,
+  // theme, account) lifted into a fixed top bar. Driven by a JS media query
+  // rather than `md:` classes so the two layouts stay readable as one branch
+  // each, and the resize handle / drawer machinery simply don't mount on mobile.
+  const isMobile = useIsMobile()
+  const [navOpen, setNavOpen] = useState(false)
+
+  // any navigation closes the drawer — covers every link inside it without each
+  // nav component needing to know the drawer exists
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is an intentional trigger — fire on every route change to close the drawer
+  useEffect(() => setNavOpen(false), [pathname])
+
+  useEffect(() => {
+    if (!isMobile || !navOpen) return
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isMobile, navOpen])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setSearchOpen(true)
       }
+      if (e.key === 'Escape') setNavOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -78,34 +101,107 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 
   return (
     <div className="min-h-screen flex">
-      <aside
-        className="shrink-0 border-r p-3 flex flex-col gap-4 h-screen sticky top-0"
-        style={{ width: sidebarW, background: 'var(--sidebar)', borderColor: 'var(--border)' }}
-      >
-        <div className="flex items-center gap-2 px-1">
-          <BrandMark />
-          <span className="font-semibold">Beyond Notes</span>
-          <ThemePicker theme={theme} onPick={setTheme} />
-        </div>
+      {/* Mobile-only top bar: hamburger, brand, and the persistent controls */}
+      {isMobile && (
+        <header
+          className="fixed top-0 inset-x-0 h-14 z-30 flex items-center gap-2 px-3 border-b"
+          style={{ background: 'var(--sidebar)', borderColor: 'var(--border)' }}
+        >
+          <button
+            type="button"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label={navOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={navOpen}
+            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+            style={{ color: navOpen ? 'var(--accent)' : 'var(--text-2)' }}
+          >
+            <span className="msym" style={{ fontSize: 24 }}>
+              menu
+            </span>
+          </button>
+          <BrandMark size={24} />
+          <span className="font-semibold text-sm">Beyond Notes</span>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search"
+              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+              style={{ color: 'var(--text-2)' }}
+            >
+              <span className="msym" style={{ fontSize: 22 }}>
+                search
+              </span>
+            </button>
+            <ThemePicker theme={theme} onPick={setTheme} />
+            <UserMenu
+              me={props.me}
+              onSignOut={() => logout.mutate()}
+              signingOut={logout.isPending}
+              placement="down"
+              compact
+            />
+          </div>
+        </header>
+      )}
 
+      {/* backdrop sits below the header (top-14) so the hamburger, brand, and
+          controls stay visible and usable while the drawer is open */}
+      {isMobile && navOpen && (
         <button
           type="button"
-          onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left"
-          style={{
-            background: 'var(--panel)',
-            borderColor: 'var(--border)',
-            color: 'var(--text-3)',
-          }}
-        >
-          ⌕ Search
-          <kbd
-            className="ml-auto text-[10px] rounded border px-1"
-            style={{ borderColor: 'var(--border)' }}
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+          className="fixed top-14 inset-x-0 bottom-0 z-30 bg-black/40"
+        />
+      )}
+
+      <aside
+        className={`border-r p-3 flex flex-col gap-4 ${
+          isMobile
+            ? `fixed top-14 bottom-0 left-0 z-40 w-[82vw] max-w-[300px] transition-transform duration-200 ${
+                navOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+              }`
+            : 'h-screen top-0 shrink-0 sticky'
+        }`}
+        style={{
+          width: isMobile ? undefined : sidebarW,
+          background: 'var(--sidebar)',
+          borderColor: 'var(--border)',
+        }}
+      >
+        {/* the brand + theme live in the mobile top bar already — only show
+            them inside the drawer on desktop */}
+        {!isMobile && (
+          <div className="flex items-center gap-2 px-1">
+            <BrandMark />
+            <span className="font-semibold">Beyond Notes</span>
+            <ThemePicker theme={theme} onPick={setTheme} className="ml-auto" />
+          </div>
+        )}
+
+        {/* on mobile the header already carries a search icon — no need to
+            spend drawer space on a second entry point */}
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left"
+            style={{
+              background: 'var(--panel)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-3)',
+            }}
           >
-            Ctrl K
-          </kbd>
-        </button>
+            ⌕ Search
+            <kbd
+              className="ml-auto text-[10px] rounded border px-1"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              Ctrl K
+            </kbd>
+          </button>
+        )}
 
         {/* only this region scrolls; logo, search, and the user menu stay put */}
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
@@ -115,21 +211,42 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
           <DatabasesNav />
         </div>
 
-        <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
+        {/* the account menu is reachable from the mobile top bar's avatar, so
+            the drawer only carries it on desktop */}
+        {!isMobile && (
+          <UserMenu me={props.me} onSignOut={() => logout.mutate()} signingOut={logout.isPending} />
+        )}
       </aside>
 
-      {/* drag to resize the sidebar */}
-      <div
-        onPointerDown={startResize}
-        title="Drag to resize the sidebar"
-        className="shrink-0 sticky top-0 h-screen z-10 hover:bg-[var(--accent-soft)]"
-        style={{ width: 5, marginLeft: -3, cursor: 'col-resize' }}
-      />
+      {/* drag to resize the sidebar — desktop only */}
+      {!isMobile && (
+        <div
+          onPointerDown={startResize}
+          title="Drag to resize the sidebar"
+          className="shrink-0 sticky top-0 h-screen z-10 hover:bg-[var(--accent-soft)]"
+          style={{ width: 5, marginLeft: -3, cursor: 'col-resize' }}
+        />
+      )}
 
-      <main className="flex-1 min-w-0">{props.children}</main>
+      <main className={`flex-1 min-w-0 ${isMobile ? 'pt-14' : ''}`}>{props.children}</main>
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
     </div>
   )
+}
+
+/** True below Tailwind's `md` breakpoint (768px). Synchronous first read (this
+ *  is a client-only SPA), so the correct layout paints on the first frame. */
+function useIsMobile() {
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const on = () => setMobile(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return mobile
 }
 
 const THEME_CELL = 26 // px per swatch
@@ -142,7 +259,7 @@ const THEME_OPEN_MS = 160
  * dimmer with your setting in the middle. Hovering wears a theme for real;
  * leaving puts yours back.
  */
-function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) {
+function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void; className?: string }) {
   const [open, setOpen] = useState(false)
   // Hover previews stay off until the strip has finished unfolding. While it
   // slides, swatches travel *under* a stationary cursor — each one it passes
@@ -175,7 +292,10 @@ function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) 
 
   return (
     // fixed-size anchor so the header never reflows; the strip overlays it
-    <div className="ml-auto relative" style={{ width: THEME_CELL, height: THEME_CELL }}>
+    <div
+      className={`relative ${props.className ?? ''}`}
+      style={{ width: THEME_CELL, height: THEME_CELL }}
+    >
       <div
         className="absolute top-0 flex items-center rounded border overflow-hidden"
         style={{
@@ -232,9 +352,21 @@ function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void }) 
   )
 }
 
-function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: boolean }) {
+/**
+ * The account menu. Two shapes from one definition so both entry points open
+ * the same items: the sidebar's full-width row that opens upward, and the
+ * mobile header's bare avatar that opens downward (`compact` + `placement`).
+ */
+function UserMenu(props: {
+  me: UserView
+  onSignOut: () => void
+  signingOut: boolean
+  placement?: 'up' | 'down'
+  compact?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const down = props.placement === 'down'
 
   // click-away and Escape both close; the menu is small enough that a
   // full-screen backdrop would be heavier than the interaction deserves
@@ -257,10 +389,16 @@ function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: bool
   const itemClass = 'block w-full text-left px-3 py-1.5 text-sm rounded hover:bg-black/5'
 
   return (
-    <div ref={rootRef} className="relative pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+    <div
+      ref={rootRef}
+      className={`relative ${props.compact ? '' : 'pt-2 border-t'}`}
+      style={props.compact ? undefined : { borderColor: 'var(--border)' }}
+    >
       {open && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border py-1 shadow-lg z-40"
+          className={`absolute rounded-lg border py-1 shadow-lg z-50 ${
+            down ? 'top-full mt-1' : 'bottom-full mb-1'
+          } ${props.compact ? 'right-0 w-52' : 'left-0 right-0'}`}
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
           <Link to="/settings" className={itemClass} onClick={() => setOpen(false)}>
@@ -286,28 +424,46 @@ function UserMenu(props: { me: UserView; onSignOut: () => void; signingOut: bool
           </button>
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-black/5"
-        style={{ color: 'var(--text-2)' }}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        <span
-          className="w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-semibold shrink-0"
-          style={{ background: 'var(--accent)' }}
+      {props.compact ? (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="w-9 h-9 flex items-center justify-center rounded-full"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Account menu"
         >
-          {props.me.name.slice(0, 1).toUpperCase()}
-        </span>
-        <span className="truncate">
-          {props.me.name}
-          {props.me.role === 'admin' ? ' · admin' : ''}
-        </span>
-        <span className="ml-auto text-xs" style={{ color: 'var(--text-3)' }}>
-          {open ? '▾' : '▴'}
-        </span>
-      </button>
+          <span
+            className="w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-semibold"
+            style={{ background: 'var(--accent)' }}
+          >
+            {props.me.name.slice(0, 1).toUpperCase()}
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-black/5"
+          style={{ color: 'var(--text-2)' }}
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          <span
+            className="w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-semibold shrink-0"
+            style={{ background: 'var(--accent)' }}
+          >
+            {props.me.name.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="truncate">
+            {props.me.name}
+            {props.me.role === 'admin' ? ' · admin' : ''}
+          </span>
+          <span className="ml-auto text-xs" style={{ color: 'var(--text-3)' }}>
+            {open ? '▾' : '▴'}
+          </span>
+        </button>
+      )}
     </div>
   )
 }

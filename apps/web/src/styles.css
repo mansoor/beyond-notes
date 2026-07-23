@@ -307,10 +307,33 @@ select.bn-cell {
   }
 }
 
+/* Below lg the editor wrapper only cancels the container's px-4 (see the
+   -mx-4 in editor.tsx), so BlockNote's default 54px inline gutter must shrink
+   to match or the text would sit indented. 16px keeps it aligned with the page
+   title while leaving room for the block side-menu on touch. */
+@media (max-width: 1023.98px) {
+  .bn-editor {
+    padding-inline: 16px;
+  }
+}
+
+@keyframes bn-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.bn-drawer-panel {
+  animation: bn-drawer-in 0.2s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .day-roll-out,
   .day-roll-in,
-  .day-roll-calendar {
+  .day-roll-calendar,
+  .bn-drawer-panel {
     animation: none;
   }
 }

@@ -1,4 +1,5 @@
 import '@blocknote/core/fonts/inter.css'
+import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import {
@@ -13,6 +14,35 @@ import type { DocumentView } from '@bn/schema'
 import { useEffect, useRef, useState } from 'react'
 import { isDarkTheme } from './theme'
 import { trpc } from './trpc'
+
+// The stock code block ships with no `supportedLanguages`, so BlockNote draws
+// no language selector at all — leaving no way to tag a block as `mermaid`,
+// which is the one flag the publish renderer and the diagram preview both key
+// off. Give it a curated list (mermaid + the languages highlight.ts actually
+// colours). No `createHighlighter`: editor-side Shiki would be a heavy bundle,
+// and published pages get their own lightweight highlighting at render time.
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    codeBlock: createCodeBlockSpec({
+      defaultLanguage: 'text',
+      supportedLanguages: {
+        text: { name: 'Plain Text', aliases: ['text', 'plain'] },
+        mermaid: { name: 'Mermaid', aliases: ['mermaid'] },
+        javascript: { name: 'JavaScript', aliases: ['js'] },
+        typescript: { name: 'TypeScript', aliases: ['ts'] },
+        python: { name: 'Python', aliases: ['py'] },
+        bash: { name: 'Shell', aliases: ['sh', 'shell', 'zsh', 'console'] },
+        json: { name: 'JSON' },
+        yaml: { name: 'YAML', aliases: ['yml'] },
+        sql: { name: 'SQL' },
+        html: { name: 'HTML', aliases: ['xml'] },
+        css: { name: 'CSS' },
+        markdown: { name: 'Markdown', aliases: ['md'] },
+      },
+    }),
+  },
+})
 
 export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
 
@@ -62,7 +92,7 @@ export function DocumentEditor(props: {
     }
   })()
 
-  const editor = useCreateBlockNote({ initialContent: parsed, uploadFile })
+  const editor = useCreateBlockNote({ schema, initialContent: parsed, uploadFile })
 
   // clear any pending save only on unmount — an empty deps array is load-bearing
   // (without it, every render clears the debounce timer and saves never fire)
@@ -110,7 +140,13 @@ export function DocumentEditor(props: {
           </button>
         </div>
       )}
-      <div className="-mx-[54px]">
+      {/* BlockNote pads its editor 54px inline for the block side-menu; the
+          negative margin pulls the text back to the page edge. On desktop
+          (lg+, container px-10) that's -54; below lg the gutter shrinks to
+          16px (see .bn-editor override in styles.css) and the margin only
+          cancels the container's px-4, so the editor is exactly viewport-wide
+          instead of overflowing 108px and forcing a horizontal scroll. */}
+      <div className="-mx-4 lg:-mx-[54px]">
         <BlockNoteView
           editor={editor}
           onChange={scheduleSave}
