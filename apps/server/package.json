@@ -1,7 +1,7 @@
 {
   "name": "@bn/server",
   "private": true,
-  "version": "0.8.6",
+  "version": "0.8.7",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
