@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { isPrivateIp } from './linkfetch'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fetchLink, isPrivateIp } from './linkfetch'
 
 describe('SSRF address guard', () => {
   it('blocks private, loopback, link-local and reserved IPv4', () => {
@@ -41,5 +41,36 @@ describe('SSRF address guard', () => {
     for (const s of ['not-an-ip', '', '999.1.1.1', '10.0.0']) {
       expect(isPrivateIp(s), s).toBe(true)
     }
+  })
+})
+
+describe('fetchLink upstream status', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // literal public IP so the host check short-circuits DNS in the sandbox
+  it('refuses a non-2xx (paywall / bot wall) instead of storing the block page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response('<title>Are you a robot?</title><p>Please verify.</p>', {
+          status: 403,
+          headers: { 'content-type': 'text/html' },
+        }),
+    )
+    await expect(fetchLink('https://93.184.216.34/x', 'full')).rejects.toThrow()
+  })
+
+  it('reads a 200 article and returns its title', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          '<html><head><title>Real Title</title></head><body><p>The first substantial paragraph of the article body goes here.</p></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+        ),
+    )
+    const r = await fetchLink('https://93.184.216.34/x', 'excerpt')
+    expect(r.title).toBe('Real Title')
+    expect(r.content).toContain('first substantial paragraph')
   })
 })
