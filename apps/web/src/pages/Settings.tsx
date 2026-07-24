@@ -960,7 +960,8 @@ function StorageCard() {
               onChange={(v) => setForm({ ...form, s3Bucket: v })}
             />
             <Field
-              label="Endpoint (blank = AWS)"
+              label="Endpoint"
+              hint="Blank = AWS"
               value={form.s3Endpoint}
               onChange={(v) => setForm({ ...form, s3Endpoint: v })}
             />
@@ -1029,10 +1030,10 @@ function UsersTab() {
 
   return (
     <Card title="Members & invites">
-      <div className="flex justify-end gap-2 mb-3">
+      <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mb-3">
         <input
           type="email"
-          className="rounded-lg border px-3 py-1.5 text-sm flex-1 max-w-60"
+          className="rounded-lg border px-3 py-1.5 text-sm w-full sm:flex-1 sm:max-w-60"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
           placeholder={mailConfigured ? 'email (sends the link)' : 'email (optional)'}
           value={inviteEmail}
@@ -1042,7 +1043,7 @@ function UsersTab() {
           type="button"
           onClick={makeInvite}
           disabled={createInvite.isPending}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white w-full sm:w-auto"
           style={{ background: 'var(--accent)' }}
         >
           + Invite link

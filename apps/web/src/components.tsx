@@ -103,6 +103,7 @@ export function Field(props: {
   onChange: (v: string) => void
   autoFocus?: boolean
   placeholder?: string
+  hint?: string
 }) {
   return (
     <label className="block mb-4">
@@ -116,6 +117,11 @@ export function Field(props: {
         placeholder={props.placeholder}
         onChange={(e) => props.onChange(e.target.value)}
       />
+      {props.hint ? (
+        <span className="block text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+          {props.hint}
+        </span>
+      ) : null}
     </label>
   )
 }

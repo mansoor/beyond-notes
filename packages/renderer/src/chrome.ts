@@ -142,6 +142,23 @@ if(copy)copy.addEventListener('click',function(){
 navigator.clipboard.writeText(copy.getAttribute('data-url')).then(function(){
 var t=copy.querySelector('span');var was=t.textContent;t.textContent='Copied!';
 setTimeout(function(){t.textContent=was;},1500);});});
+// Mobile chrome: the hamburger reveals the nav (a dropdown on sites, an
+// off-canvas drawer on wikis — the stylesheet decides which), the search icon
+// expands the search field. State is a class on <body>; the CSS does the rest.
+var body=document.body;
+function bnToggle(cls){body.classList.toggle(cls);
+if(cls==='bn-search-open'&&body.classList.contains(cls)){
+var qi=document.querySelector('header input[name=q]');if(qi)qi.focus();}}
+var navBtn=document.querySelector('.navtoggle');
+if(navBtn)navBtn.addEventListener('click',function(e){e.preventDefault();bnToggle('bn-nav-open');});
+var searchBtn=document.querySelector('.searchtoggle');
+if(searchBtn)searchBtn.addEventListener('click',function(e){e.preventDefault();bnToggle('bn-search-open');});
+// an outside tap closes the open nav; a nav link just navigates (page reload)
+document.addEventListener('click',function(e){
+if(body.classList.contains('bn-nav-open')&&!e.target.closest('nav.side,header nav,.navtoggle'))
+body.classList.remove('bn-nav-open');});
+document.addEventListener('keydown',function(e){
+if(e.key==='Escape')body.classList.remove('bn-nav-open','bn-search-open');});
 })();
 `
 

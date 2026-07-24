@@ -169,6 +169,33 @@ pre:hover .copy,pre .copy:focus{opacity:1}
 .tok-kw{color:var(--accent);font-weight:600}
 .tok-key{color:#8a5cd6}
 @media(prefers-color-scheme:dark){.tok-str{color:#84c99b}.tok-num{color:#d9a066}.tok-key{color:#b69bec}}
+/* the hamburger is desktop-hidden; it only appears in the mobile block below */
+.navtoggle{display:none;border:0;background:none;color:var(--text3);cursor:pointer;
+font-size:22px;line-height:1;padding:2px 6px;align-items:center}
+.navtoggle:hover{color:var(--text)}
+/* Mobile: the page list folds into a left drawer behind the hamburger, the
+   content takes the full width, and the contents rail moves above the content
+   instead of sitting to its side — the same shape as the app. */
+@media(max-width:768px){
+.navtoggle{display:inline-flex}
+header{flex-wrap:wrap;gap:10px 12px;padding:12px 18px}
+header .logo{margin-right:auto}
+header form{margin-left:0;width:100%;order:5}
+header input{width:100%;max-width:none}
+header.hassocial{display:flex;align-items:center}
+header.hassocial form{width:100%}
+.layout{flex-direction:column;min-height:0}
+nav.side{position:fixed;top:0;left:0;bottom:0;z-index:50;width:82vw;max-width:300px;
+background:var(--bg);border-right:1px solid var(--border);transform:translateX(-100%);
+transition:transform .2s ease;overflow-y:auto;padding:18px 12px}
+body.bn-nav-open nav.side{transform:translateX(0);box-shadow:0 0 40px rgba(0,0,0,.35)}
+body.bn-nav-open::after{content:'';position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.4)}
+.dragbar{display:none}
+main{padding:22px 18px 40px}
+main .inner{max-width:none}
+.toc{display:block;position:static;order:-1;width:auto;max-height:none;padding:10px 0 2px;overflow:visible}
+.toc:empty{display:none}
+}
 `
 
 /** Sections with children get a twisty; the active trail stays expanded. */
@@ -447,7 +474,13 @@ function headerHtml(
   searchQuery = '',
   social: SocialLink[] = [],
   appearance: ThemeAppearance = 'auto',
+  hasNav = true,
 ) {
+  // mobile-only hamburger (CSS hides it on desktop) that opens the page list as
+  // a left drawer; omitted where there's no sidebar (e.g. the 404)
+  const navToggle = hasNav
+    ? '<button type="button" class="navtoggle" aria-label="Menu">☰</button>'
+    : ''
   const logo = `<a class="logo" href="${escapeHtml(basePath || '/')}">${escapeHtml(siteTitle)}</a>`
   // autocomplete=off keeps the browser's own history popup from fighting the
   // recents list below; the list is filled by DOCS_JS and stays empty without it
@@ -462,8 +495,8 @@ function headerHtml(
   // with socials the header is a three-track grid: logo left, search centered,
   // socials right. Without, the search keeps its right-aligned place.
   return socials
-    ? `<header class="hassocial">${logo}${search}<span class="socials">${socials}${toggle}</span></header>`
-    : `<header>${logo}${search}${toggle}</header>`
+    ? `<header class="hassocial">${navToggle}${logo}${search}<span class="socials">${socials}${toggle}</span></header>`
+    : `<header>${navToggle}${logo}${search}${toggle}</header>`
 }
 
 export function docsShell(input: ShellInput): string {
@@ -563,7 +596,7 @@ export function docs404(
   theme: ThemeName = 'paper',
   appearance: ThemeAppearance = 'auto',
 ): string {
-  const body = `${headerHtml(siteTitle, basePath, '', [], appearance)}
+  const body = `${headerHtml(siteTitle, basePath, '', [], appearance, false)}
 <div class="layout"><main><div class="inner"><h1>Not found</h1><p>This page does not exist or is not published.</p></div></main></div>`
   return page(siteTitle, footer, basePath, body, 'Not found', false, theme, appearance)
 }
