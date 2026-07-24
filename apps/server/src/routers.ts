@@ -104,6 +104,7 @@ import { z } from 'zod'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
 import { GithubError } from './github'
+import { fetchLink } from './linkfetch'
 import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
@@ -138,6 +139,7 @@ function toUserView(u: UserRow): UserView {
     taskDays: u.taskDays,
     reminderDays: u.reminderDays,
     confirmDelete: u.confirmDelete,
+    linkCaptureFull: u.linkCaptureFull,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -364,6 +366,14 @@ const authRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.repo.updateUser(ctx.user.id, { confirmDelete: input.enabled })
+      return { ok: true }
+    }),
+
+  /** Whether a shared link is captured as its full article or just the opener. */
+  setLinkCaptureFull: authedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { linkCaptureFull: input.enabled })
       return { ok: true }
     }),
 
@@ -1321,6 +1331,20 @@ const memosRouter = router({
     const memo = await ctx.daily.capture(ctx.user, input.content)
     return { id: memo.id }
   }),
+
+  /** Fetch a shared link server-side and hand back a title + content the client
+   *  can drop into the capture box for review. Never saves on its own; the URL
+   *  is attacker-controlled, so fetchLink does the SSRF gatekeeping. */
+  captureLink: authedProcedure
+    .input(z.object({ url: z.string().trim().min(1).max(2048) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const r = await fetchLink(input.url, ctx.user.linkCaptureFull ? 'full' : 'excerpt')
+        return { ok: true as const, url: r.url, title: r.title, content: r.content }
+      } catch {
+        return { ok: false as const, url: input.url, title: '', content: '' }
+      }
+    }),
 
   update: authedProcedure.input(updateMemoInput).mutation(async ({ ctx, input }) => {
     try {

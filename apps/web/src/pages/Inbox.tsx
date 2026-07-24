@@ -1,5 +1,5 @@
 import type { MemoView } from '@bn/schema'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
 import { trpc } from '../trpc'
 
@@ -9,14 +9,47 @@ export function InboxPage() {
   const capture = trpc.memos.capture.useMutation({
     onSuccess: () => utils.memos.list.invalidate(),
   })
+  const captureLink = trpc.memos.captureLink.useMutation()
   // PWA share target lands here as /inbox?title=&text=&url= — prefill capture
   const [text, setText] = useState(() => {
     const params = new URLSearchParams(window.location.search)
-    const shared = [params.get('title'), params.get('text'), params.get('url')]
-      .filter(Boolean)
+    // a shared link is fetched below and replaces this; the non-link parts are
+    // shown immediately so the box is never blank while we fetch
+    return [params.get('title'), params.get('text')]
+      .filter((v) => v && !/^https?:\/\//i.test(v))
       .join('\n')
-    return shared
   })
+  const [fetching, setFetching] = useState(false)
+
+  // A shared link: fetch it (server-side) and prefill a tidy title + URL + body
+  // for the user to review before saving. Runs once, on load.
+  const started = useRef(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run exactly once on load, guarded by the ref
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    const params = new URLSearchParams(window.location.search)
+    const shareText = params.get('text') ?? ''
+    const url = params.get('url') || shareText.match(/https?:\/\/\S+/)?.[0] || ''
+    if (!url) return
+    setFetching(true)
+    captureLink.mutate(
+      { url },
+      {
+        onSettled: () => setFetching(false),
+        onSuccess: (r) => {
+          if (!r.ok) {
+            setText((t) => [t, url].filter(Boolean).join('\n'))
+            return
+          }
+          const block = [r.title, r.url]
+          if (r.content) block.push('', r.content)
+          setText((t) => [t.trim(), block.filter(Boolean).join('\n')].filter(Boolean).join('\n\n'))
+        },
+        onError: () => setText((t) => [t, url].filter(Boolean).join('\n')),
+      },
+    )
+  }, [])
 
   const submit = async () => {
     const value = text.trim()
@@ -37,8 +70,8 @@ export function InboxPage() {
         style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
       >
         <textarea
-          rows={2}
-          className="w-full bg-transparent text-sm outline-none resize-none"
+          rows={text.length > 120 ? 8 : 2}
+          className="w-full bg-transparent text-sm outline-none resize-y"
           placeholder="What's on your mind?"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -46,7 +79,12 @@ export function InboxPage() {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
           }}
         />
-        <div className="flex justify-end mt-2">
+        <div className="flex items-center justify-end gap-3 mt-2">
+          {fetching && (
+            <span className="text-xs mr-auto" style={{ color: 'var(--text-3)' }}>
+              Fetching link…
+            </span>
+          )}
           <button
             type="button"
             onClick={submit}

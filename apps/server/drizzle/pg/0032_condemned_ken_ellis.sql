@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "link_capture_full" boolean DEFAULT true NOT NULL;

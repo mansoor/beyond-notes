@@ -18,6 +18,8 @@ export type UserRow = {
   reminderDays: number
   /** ask before a page goes to the Trash */
   confirmDelete: boolean
+  /** fetch the full article (vs. just the first paragraph) for a shared link */
+  linkCaptureFull: boolean
   createdAt: Date
 }
 
@@ -309,6 +311,7 @@ export function createRepo(appDb: AppDb) {
           | 'taskDays'
           | 'reminderDays'
           | 'confirmDelete'
+          | 'linkCaptureFull'
         >
       >,
     ): Promise<void> {

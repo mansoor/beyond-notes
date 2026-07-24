@@ -79,6 +79,8 @@ export type UserView = {
   reminderDays: number
   /** ask "are you sure?" before a page goes to the Trash */
   confirmDelete: boolean
+  /** fetch the full article (vs. just the first paragraph) for a shared link */
+  linkCaptureFull: boolean
   createdAt: string
 }
 

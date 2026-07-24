@@ -225,6 +225,13 @@
       "when": 1784778895652,
       "tag": "0031_dusty_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784869338807,
+      "tag": "0032_condemned_ken_ellis",
+      "breakpoints": true
     }
   ]
 }

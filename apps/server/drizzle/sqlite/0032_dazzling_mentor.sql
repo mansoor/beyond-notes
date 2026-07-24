@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `link_capture_full` integer DEFAULT true NOT NULL;

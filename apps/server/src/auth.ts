@@ -111,6 +111,7 @@ export function createAuthService(
         taskDays: 7,
         reminderDays: 7,
         confirmDelete: true,
+        linkCaptureFull: true,
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -337,6 +338,7 @@ export function createAuthService(
         taskDays: 7,
         reminderDays: 7,
         confirmDelete: true,
+        linkCaptureFull: true,
         createdAt: now(),
       }
       await repo.insertUser(user)
