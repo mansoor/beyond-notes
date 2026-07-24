@@ -197,17 +197,40 @@ main figure img{max-width:100%;border-radius:10px}
 main figcaption{font-size:13px;color:var(--text3);margin-top:4px}
 footer{border-top:1px solid var(--border);padding:16px 40px;font-size:12px;color:var(--text3);
 display:flex;justify-content:space-between;max-width:var(--site-w);margin:0 auto}
+/* the two mobile controls — a search icon and a hamburger — are desktop-hidden
+   and only surface under the media query below */
+.navtoggle,.searchtoggle{display:none;border:0;background:none;color:var(--text2);
+cursor:pointer;font-size:22px;line-height:1;padding:2px 6px;align-items:center}
+.navtoggle:hover,.searchtoggle:hover{color:var(--text)}
 /* Last, so it actually overrides. This block used to sit above the main rule
    and lost to it on equal specificity: phones kept main's 40px side padding
    while the header dropped to 20px, so the content hung past the chrome. */
 @media(max-width:640px){
-header{padding:20px 20px 12px}
-header nav{flex-direction:column;gap:4px;width:100%;padding-top:6px}
+/* header stays a single tidy row: brand on the left, compact controls on the
+   right; the nav and search field are hidden behind their icons and drop down
+   as full-width overlay panels when tapped (position:absolute dodges the four
+   header layouts' differing flex nesting). */
+header{padding:14px 18px;position:relative}
+.hl-classic,.hl-split,.hl-minimal,.hl-centered .navrow{gap:10px;flex-wrap:nowrap}
+.hl-minimal{flex-direction:row;text-align:left}
+.hl-centered .brand{justify-content:flex-start;text-align:left;margin-bottom:0}
+.brand{margin-right:auto;min-width:0}
+.brand .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navtoggle,.searchtoggle{display:inline-flex}
+header nav{display:none}
+body.bn-nav-open header nav{display:flex;flex-direction:column;gap:2px;
+position:absolute;left:0;right:0;top:100%;z-index:25;background:var(--bg);
+border-bottom:1px solid var(--border);padding:8px 18px;box-shadow:0 10px 24px rgba(0,0,0,.12)}
 .navitem{position:static}
 .navitem>a .caret{display:none}
-.dropdown{display:block;position:static;border:0;box-shadow:none;padding:0 0 2px 16px;min-width:0}
-main{padding:24px 20px 50px}
-footer{padding:16px 20px}
+.dropdown{display:block;position:static;border:0;box-shadow:none;padding:2px 0 2px 16px;
+min-width:0;background:none}
+.sitesearch{display:none}
+body.bn-search-open .sitesearch{display:block;position:absolute;left:0;right:0;top:100%;
+z-index:26;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 18px}
+.sitesearch input{width:100%}
+main{padding:24px 18px 50px}
+footer{padding:16px 18px}
 }
 `
 
@@ -362,7 +385,13 @@ function shell(input: {
   }</span></a>`
   const search = `<form class="sitesearch" action="${escapeHtml(`${input.basePath}/_search`)}" method="get"><input type="search" name="q" placeholder="Search"></form>`
   const toggle = (input.appearance ?? 'auto') === 'toggle' ? appearanceToggleHtml() : ''
-  const tail = `<span class="tail">${socials}${search}${toggle}</span>`
+  // mobile-only affordances (CSS hides them on desktop): a search icon that
+  // expands the field, and — when there's a menu — a hamburger for the nav
+  const searchToggle = '<button type="button" class="searchtoggle" aria-label="Search">⌕</button>'
+  const navToggle = input.nav.length
+    ? '<button type="button" class="navtoggle" aria-label="Menu">☰</button>'
+    : ''
+  const tail = `<span class="tail">${searchToggle}${socials}${search}${toggle}${navToggle}</span>`
   const layout = input.headerLayout ?? 'classic'
   const header =
     layout === 'centered'
