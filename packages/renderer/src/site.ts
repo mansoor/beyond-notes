@@ -206,29 +206,40 @@ cursor:pointer;font-size:22px;line-height:1;padding:2px 6px;align-items:center}
    and lost to it on equal specificity: phones kept main's 40px side padding
    while the header dropped to 20px, so the content hung past the chrome. */
 @media(max-width:640px){
-/* header stays a single tidy row: brand on the left, compact controls on the
-   right; the nav and search field are hidden behind their icons and drop down
-   as full-width overlay panels when tapped (position:absolute dodges the four
-   header layouts' differing flex nesting). */
-header{padding:14px 18px;position:relative}
-.hl-classic,.hl-split,.hl-minimal,.hl-centered .navrow{gap:10px;flex-wrap:nowrap}
-.hl-minimal{flex-direction:row;text-align:left}
-.hl-centered .brand{justify-content:flex-start;text-align:left;margin-bottom:0}
-.brand{margin-right:auto;min-width:0}
+/* One row for every configured layout: hamburger far left, the brand (kept in
+   its style's own alignment), search icon on the right. The menu opens as a
+   left drawer; the search field hides behind its icon and expands across the
+   middle of the header when tapped. Targeting the .hl-* classes (not the bare
+   header element) so the grid beats the base per-layout flex rules on specificity. */
+.hl-classic,.hl-split,.hl-minimal,.hl-centered{display:grid;
+grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:12px 14px;position:relative}
+.hl-centered .navrow{display:contents}
+.navtoggle{display:inline-flex;grid-column:1;justify-self:start}
+.brand{grid-column:2;min-width:0;margin:0}
 .brand .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.navtoggle,.searchtoggle{display:inline-flex}
-header nav{display:none}
-body.bn-nav-open header nav{display:flex;flex-direction:column;gap:2px;
-position:absolute;left:0;right:0;top:100%;z-index:25;background:var(--bg);
-border-bottom:1px solid var(--border);padding:8px 18px;box-shadow:0 10px 24px rgba(0,0,0,.12)}
+.hl-classic .brand,.hl-split .brand{justify-self:start}
+.hl-centered .brand,.hl-minimal .brand{justify-self:center;flex-direction:row;
+justify-content:center;text-align:center;margin-bottom:0}
+.tail{grid-column:3;justify-self:end;gap:6px}
+.searchtoggle{display:inline-flex}
+/* nav → off-canvas left drawer */
+header nav{display:flex;flex-direction:column;gap:2px;align-items:stretch;
+position:fixed;top:0;left:0;bottom:0;width:82vw;max-width:300px;z-index:50;
+background:var(--bg);border-right:1px solid var(--border);padding:56px 16px 22px;
+overflow-y:auto;transform:translateX(-100%);transition:transform .2s ease}
+header nav a{padding:8px 4px}
+body.bn-nav-open header nav{transform:translateX(0);box-shadow:0 0 40px rgba(0,0,0,.35)}
+body.bn-nav-open::after{content:'';position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.4)}
 .navitem{position:static}
 .navitem>a .caret{display:none}
 .dropdown{display:block;position:static;border:0;box-shadow:none;padding:2px 0 2px 16px;
 min-width:0;background:none}
+/* search → icon; the field expands across the middle of the header row */
 .sitesearch{display:none}
-body.bn-search-open .sitesearch{display:block;position:absolute;left:0;right:0;top:100%;
-z-index:26;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 18px}
-.sitesearch input{width:100%}
+body.bn-search-open .sitesearch{display:block;position:absolute;left:48px;right:44px;
+top:50%;transform:translateY(-50%);z-index:26}
+body.bn-search-open .sitesearch input{width:100%}
+body.bn-search-open .brand{visibility:hidden}
 main{padding:24px 18px 50px}
 footer{padding:16px 18px}
 }
@@ -386,21 +397,22 @@ function shell(input: {
   const search = `<form class="sitesearch" action="${escapeHtml(`${input.basePath}/_search`)}" method="get"><input type="search" name="q" placeholder="Search"></form>`
   const toggle = (input.appearance ?? 'auto') === 'toggle' ? appearanceToggleHtml() : ''
   // mobile-only affordances (CSS hides them on desktop): a search icon that
-  // expands the field, and — when there's a menu — a hamburger for the nav
+  // expands the field, and — when there's a menu — a hamburger for the nav. The
+  // hamburger leads the header (far left); the search icon rides the tail.
   const searchToggle = '<button type="button" class="searchtoggle" aria-label="Search">⌕</button>'
   const navToggle = input.nav.length
     ? '<button type="button" class="navtoggle" aria-label="Menu">☰</button>'
     : ''
-  const tail = `<span class="tail">${searchToggle}${socials}${search}${toggle}${navToggle}</span>`
+  const tail = `<span class="tail">${searchToggle}${socials}${search}${toggle}</span>`
   const layout = input.headerLayout ?? 'classic'
   const header =
     layout === 'centered'
-      ? `<header class="hl-centered">${brand}<div class="navrow"><nav>${nav}</nav>${tail}</div></header>`
+      ? `<header class="hl-centered">${navToggle}${brand}<div class="navrow"><nav>${nav}</nav>${tail}</div></header>`
       : layout === 'split'
-        ? `<header class="hl-split">${brand}<nav>${nav}</nav>${tail}</header>`
+        ? `<header class="hl-split">${navToggle}${brand}<nav>${nav}</nav>${tail}</header>`
         : layout === 'minimal'
-          ? `<header class="hl-minimal">${brand}<nav>${nav}</nav>${tail}</header>`
-          : `<header class="hl-classic">${brand}<nav>${nav}</nav>${tail}</header>`
+          ? `<header class="hl-minimal">${navToggle}${brand}<nav>${nav}</nav>${tail}</header>`
+          : `<header class="hl-classic">${navToggle}${brand}<nav>${nav}</nav>${tail}</header>`
   return `<!doctype html>
 <html lang="en">
 <head>
