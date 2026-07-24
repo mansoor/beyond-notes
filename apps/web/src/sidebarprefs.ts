@@ -94,6 +94,9 @@ export function useSidebarPrefs() {
   const saveConfirm = trpc.auth.setConfirmDelete.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
+  const saveLinkCapture = trpc.auth.setLinkCaptureFull.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
 
   const hidden = new Set(status.data?.me?.sidebarHidden ?? [])
 
@@ -124,6 +127,13 @@ export function useSidebarPrefs() {
      */
     confirmDelete: status.data?.me?.confirmDelete ?? true,
     setConfirmDelete: (enabled: boolean) => saveConfirm.mutateAsync({ enabled }),
-    saving: save.isPending || saveDays.isPending || saveConfirm.isPending,
+    /** Whether a shared link is captured as its full article or just the opener. */
+    linkCaptureFull: status.data?.me?.linkCaptureFull ?? true,
+    setLinkCaptureFull: (enabled: boolean) => saveLinkCapture.mutateAsync({ enabled }),
+    saving:
+      save.isPending ||
+      saveDays.isPending ||
+      saveConfirm.isPending ||
+      saveLinkCapture.isPending,
   }
 }

@@ -34,6 +34,9 @@ export const users = sqliteTable('users', {
   // Ask before a page goes to the Trash. On by default: deleting is reversible
   // for 30 days, but losing the page you were looking at is still a surprise.
   confirmDelete: integer('confirm_delete', { mode: 'boolean' }).notNull().default(true),
+  // When a link is shared into the inbox, fetch the whole readable article
+  // (default) vs. just the opening paragraph.
+  linkCaptureFull: integer('link_capture_full', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

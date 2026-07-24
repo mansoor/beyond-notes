@@ -111,6 +111,7 @@ function AppearanceTab() {
     <>
       <ComingUpCard />
       <DeleteConfirmCard />
+      <LinkCaptureCard />
       <Card title="Sidebar">
         <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
           Hide sections you do not use, or single items inside them. Nothing is deleted or turned
@@ -224,6 +225,31 @@ function DeleteConfirmCard() {
       <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
         Deleted pages go to the Trash and can be restored for 30 days either way. Deleting a whole
         notebook, site, or wiki always asks — that one is not covered by this setting.
+      </p>
+    </Card>
+  )
+}
+
+/**
+ * How much of a shared link to pull into the Inbox. The app fetches the page
+ * server-side and prefills the capture box for review either way.
+ */
+function LinkCaptureCard() {
+  const prefs = useSidebarPrefs()
+  return (
+    <Card title="Shared links">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={prefs.linkCaptureFull}
+          disabled={prefs.saving}
+          onChange={(e) => prefs.setLinkCaptureFull(e.target.checked)}
+        />
+        <span>Capture the full article when a link is shared</span>
+      </label>
+      <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+        On, sharing a link pulls the whole readable article into the Inbox. Off, it grabs just the
+        title and opening paragraph. Either way the text is prefilled for you to edit before saving.
       </p>
     </Card>
   )

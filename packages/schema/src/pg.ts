@@ -46,6 +46,9 @@ export const users = pgTable('users', {
   // Ask before a page goes to the Trash. On by default: deleting is reversible
   // for 30 days, but losing the page you were looking at is still a surprise.
   confirmDelete: boolean('confirm_delete').notNull().default(true),
+  // When a link is shared into the inbox, fetch the whole readable article
+  // (default) vs. just the opening paragraph.
+  linkCaptureFull: boolean('link_capture_full').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
