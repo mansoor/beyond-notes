@@ -178,6 +178,10 @@ export async function fetchLink(rawUrl: string, mode: 'full' | 'excerpt'): Promi
       current = new URL(loc, current) // re-checked at the top of the next turn
       continue
     }
+    // A paywall, bot wall, or any 4xx/5xx still returns an HTML body; parsing it
+    // would store the block page's title as the "article". Refuse it — the
+    // caller falls back to keeping just the clean URL.
+    if (!res.ok) throw new Error(`upstream returned ${res.status}`)
     const ct = res.headers.get('content-type') ?? ''
     if (ct && !/text\/html|application\/xhtml/i.test(ct)) {
       return { url: current.href, title: current.hostname, content: '' }
