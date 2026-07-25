@@ -363,6 +363,12 @@ export const journalDayInput = z.object({ date: dateKey })
 export const journalMonthInput = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM'),
 })
+/** A page of the journal timeline: days newest-first, each with a text preview.
+ *  `cursor` is the offset (managed by react-query's infinite query). */
+export const journalTimelineInput = z.object({
+  limit: z.number().int().min(1).max(100).default(40),
+  cursor: z.number().int().min(0).nullish(),
+})
 
 export const captureMemoInput = z.object({
   content: z.string().trim().min(1).max(5000),
@@ -1273,7 +1279,7 @@ export function msUntilNextMidnight(now: Date): number {
  * 'db:<id>' for one item.
  */
 export const sidebarTokenPattern =
-  /^(cat:(notebook|wiki|site|database)|space:[\w-]{1,40}|db:[\w-]{1,40})$/
+  /^(cat:(notebook|wiki|site|database)|nav:journal|space:[\w-]{1,40}|db:[\w-]{1,40})$/
 
 export const setSidebarHiddenInput = z.object({
   hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),

@@ -16,6 +16,8 @@ export type HideableKind = SpaceCategory | 'database'
 export const catToken = (kind: HideableKind) => `cat:${kind}`
 export const spaceToken = (id: string) => `space:${id}`
 export const dbToken = (id: string) => `db:${id}`
+/** The single nav-item token in use: the journal timeline link under Today. */
+export const JOURNAL_NAV_TOKEN = 'nav:journal'
 
 /**
  * Which sidebar groups (spaces and databases both) are shown collapsed,

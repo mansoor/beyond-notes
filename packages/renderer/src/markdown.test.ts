@@ -222,4 +222,21 @@ describe('mergeDocuments', () => {
     }>
     expect(out.map((b) => b.type)).toEqual(['heading', 'paragraph'])
   })
+
+  const ids = (json: string) => (JSON.parse(json) as Array<{ id: string }>).map((b) => b.id)
+
+  it('makes block ids unique even when the two documents collide', () => {
+    // both sides carry a block with id "x" — BlockNote would crash on the dupe
+    const side = JSON.stringify([{ id: 'x', type: 'paragraph', props: {}, content: [], children: [] }])
+    const out = ids(mergeDocuments(side, 'T', side))
+    expect(new Set(out).size).toBe(out.length)
+  })
+
+  it('stays unique across repeated merges into the same target', () => {
+    const p = (id: string) => ({ id, type: 'paragraph', props: {}, content: [], children: [] })
+    const once = mergeDocuments(JSON.stringify([p('a')]), 'First', JSON.stringify([p('b')]))
+    const twice = mergeDocuments(once, 'Second', JSON.stringify([p('c')]))
+    const out = ids(twice)
+    expect(new Set(out).size).toBe(out.length) // the two "## " headings no longer share md-1
+  })
 })

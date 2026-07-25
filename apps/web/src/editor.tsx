@@ -46,6 +46,31 @@ const schema = BlockNoteSchema.create({
 
 export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
 
+/**
+ * Give every block a document-unique id, children included. BlockNote resolves
+ * blocks by id and throws "Block type does not match" if two share one — a page
+ * merge could leave duplicates behind, so we repair them before the editor sees
+ * the content. First to claim an id keeps it; later clashes get a suffix.
+ */
+function dedupeBlockIds(blocks: unknown[], seen: Set<string> = new Set()): unknown[] {
+  return blocks.map((b) => {
+    if (!b || typeof b !== 'object') return b
+    const block = b as { id?: unknown; children?: unknown }
+    let id = typeof block.id === 'string' && block.id ? block.id : 'block'
+    if (seen.has(id)) {
+      let k = 1
+      while (seen.has(`${id}-${k}`)) k++
+      id = `${id}-${k}`
+    }
+    seen.add(id)
+    return {
+      ...block,
+      id,
+      children: Array.isArray(block.children) ? dedupeBlockIds(block.children, seen) : block.children,
+    }
+  })
+}
+
 export async function uploadFile(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
@@ -86,7 +111,12 @@ export function DocumentEditor(props: {
   const parsed = (() => {
     try {
       const blocks = JSON.parse(props.doc.content)
-      return Array.isArray(blocks) && blocks.length > 0 ? blocks : undefined
+      // Heal duplicate block ids before handing them to BlockNote — two blocks
+      // sharing an id makes it throw "Block type does not match" and the page
+      // won't open. A page merge could produce that; this repairs it on load.
+      return Array.isArray(blocks) && blocks.length > 0
+        ? (dedupeBlockIds(blocks) as typeof blocks)
+        : undefined
     } catch {
       return undefined
     }
