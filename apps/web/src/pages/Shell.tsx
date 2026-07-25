@@ -6,7 +6,12 @@ import { AboutModal } from '../about'
 import { BrandMark, Modal } from '../components'
 import { todayKey } from '../editor'
 import { useInstallPrompt } from '../pwa'
-import { JOURNAL_NAV_TOKEN, useSidebarPrefs } from '../sidebarprefs'
+import {
+  JOURNAL_NAV_TOKEN,
+  TAGS_NAV_TOKEN,
+  TASKS_NAV_TOKEN,
+  useSidebarPrefs,
+} from '../sidebarprefs'
 import { SpacesNav } from '../spaces'
 import {
   type AppTheme,
@@ -593,8 +598,12 @@ function DailyNav() {
       ? []
       : [{ label: 'Journal', to: '/journal', params: {}, count: null as number | null }]),
     { label: 'Inbox', to: '/inbox', params: {}, count: inboxCount },
-    { label: 'Tasks', to: '/tasks', params: {}, count: dueCount },
-    { label: 'Tags', to: '/tags', params: {}, count: null as number | null },
+    ...(prefs.isHidden(TASKS_NAV_TOKEN)
+      ? []
+      : [{ label: 'Tasks', to: '/tasks', params: {}, count: dueCount }]),
+    ...(prefs.isHidden(TAGS_NAV_TOKEN)
+      ? []
+      : [{ label: 'Tags', to: '/tags', params: {}, count: null as number | null }]),
   ]
 
   return (

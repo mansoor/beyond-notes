@@ -1279,7 +1279,7 @@ export function msUntilNextMidnight(now: Date): number {
  * 'db:<id>' for one item.
  */
 export const sidebarTokenPattern =
-  /^(cat:(notebook|wiki|site|database)|nav:journal|space:[\w-]{1,40}|db:[\w-]{1,40})$/
+  /^(cat:(notebook|wiki|site|database)|nav:(journal|tasks|tags)|space:[\w-]{1,40}|db:[\w-]{1,40})$/
 
 export const setSidebarHiddenInput = z.object({
   hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),
