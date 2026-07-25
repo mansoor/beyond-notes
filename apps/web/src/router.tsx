@@ -7,6 +7,7 @@ import { Gate } from './pages/Gate'
 import { HomePage } from './pages/Home'
 import { InboxPage } from './pages/Inbox'
 import { JournalPage } from './pages/Journal'
+import { JournalTimelinePage } from './pages/JournalTimeline'
 import { ResetPasswordPage } from './pages/ResetPassword'
 import { SettingsPage } from './pages/Settings'
 import { SpaceEmptyPage } from './pages/SpaceEmpty'
@@ -96,6 +97,12 @@ const tagsRoute = createRoute({
   component: TagsPage,
 })
 
+const journalRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/journal',
+  component: JournalTimelinePage,
+})
+
 const dataRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/data/$tableId',
@@ -129,6 +136,7 @@ export const router = createRouter({
       trashRoute,
       staleRoute,
       tagsRoute,
+      journalRoute,
       dataRoute,
       spaceRoute,
     ]),

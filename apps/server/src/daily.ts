@@ -1,3 +1,4 @@
+import { plainText } from '@bn/renderer'
 import { nanoid } from 'nanoid'
 import { PagesError } from './pages'
 import type { MemoRow, PageRow, Repo, SpaceRow, UserRow } from './repo'
@@ -209,6 +210,46 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
     async tasksInboxPage(user: UserRow): Promise<PageRow> {
       const space = await ensureJournalSpace(user)
       return ensurePage(space, TASKS_INBOX_KEY, 'Tasks inbox')
+    },
+
+    /**
+     * The journal as a reverse-chronological stream: one entry per day with a
+     * text preview and a note count, paged from newest. The `date`-keyed rows
+     * sort lexicographically, so a string sort is already newest-first. Preview
+     * text comes from the day's main note only; expanding a day fetches the full
+     * content through the existing `notes` query.
+     */
+    async journalTimeline(
+      user: UserRow,
+      opts: { limit: number; cursor?: number | null },
+    ): Promise<{
+      items: Array<{ date: string; preview: string; notes: number }>
+      nextCursor: number | null
+    }> {
+      const offset = opts.cursor ?? 0
+      const space = await repo.getSpaceByOwnerAndKind(user.id, 'journal')
+      if (!space) return { items: [], nextCursor: null }
+      const byDate = new Map<string, PageRow[]>()
+      for (const p of await repo.listPagesInSpace(space.id)) {
+        // real journal days only — skip the tasks-inbox sentinel page
+        if (!p.dateKey || p.dateKey === TASKS_INBOX_KEY) continue
+        const group = byDate.get(p.dateKey) ?? []
+        group.push(p)
+        byDate.set(p.dateKey, group)
+      }
+      const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
+      const items = []
+      for (const date of dates.slice(offset, offset + opts.limit)) {
+        const group = (byDate.get(date) ?? []).sort(
+          (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+        )
+        const main = group[0]
+        const doc = main ? await repo.getDocument(main.id) : null
+        const preview = doc ? plainText(doc.content).replace(/\s+/g, ' ').slice(0, 180).trim() : ''
+        items.push({ date, preview, notes: group.length })
+      }
+      const next = offset + opts.limit
+      return { items, nextCursor: next < dates.length ? next : null }
     },
 
     // ---- memos ----

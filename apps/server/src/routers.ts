@@ -59,6 +59,7 @@ import {
   insertRowInput,
   journalDayInput,
   journalMonthInput,
+  journalTimelineInput,
   loginInput,
   mergePagesInput,
   movePageInput,
@@ -1035,6 +1036,15 @@ const journalRouter = router({
   days: authedProcedure.input(journalMonthInput).query(async ({ ctx, input }) => {
     try {
       return await ctx.daily.days(ctx.user, input.month)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  /** The journal as a reverse-chronological stream, paged from newest. */
+  timeline: authedProcedure.input(journalTimelineInput).query(async ({ ctx, input }) => {
+    try {
+      return await ctx.daily.journalTimeline(ctx.user, input)
     } catch (err) {
       rethrow(err)
     }

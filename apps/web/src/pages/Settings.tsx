@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
 import {
   type HideableKind,
+  JOURNAL_NAV_TOKEN,
   KIND_LABEL,
   catToken,
   dbToken,
@@ -118,6 +119,18 @@ function AppearanceTab() {
           off — a hidden space still works, still takes new pages, and comes back the moment you
           untick it. Applies everywhere you sign in.
         </p>
+        <label className="flex items-center gap-2 text-sm font-medium mb-4">
+          <input
+            type="checkbox"
+            checked={!prefs.isHidden(JOURNAL_NAV_TOKEN)}
+            disabled={prefs.saving}
+            onChange={(e) => prefs.setHidden(JOURNAL_NAV_TOKEN, !e.target.checked)}
+          />
+          Journal timeline
+          <span className="text-xs font-normal" style={{ color: 'var(--text-3)' }}>
+            — the “Journal” link under Today
+          </span>
+        </label>
         {kinds.map((kind) => {
           const sectionHidden = prefs.isHidden(catToken(kind))
           const items = itemsOf(kind)

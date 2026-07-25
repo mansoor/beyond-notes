@@ -6,6 +6,7 @@ import { AboutModal } from '../about'
 import { BrandMark, Modal } from '../components'
 import { todayKey } from '../editor'
 import { useInstallPrompt } from '../pwa'
+import { JOURNAL_NAV_TOKEN, useSidebarPrefs } from '../sidebarprefs'
 import { SpacesNav } from '../spaces'
 import {
   type AppTheme,
@@ -577,6 +578,7 @@ function PinnedNav() {
 function DailyNav() {
   const memos = trpc.memos.list.useQuery()
   const agenda = trpc.tasks.agenda.useQuery()
+  const prefs = useSidebarPrefs()
   const today = todayKey()
 
   const inboxCount = (memos.data ?? []).filter((m) => !m.promotedTo).length
@@ -586,6 +588,10 @@ function DailyNav() {
 
   const items = [
     { label: 'Today', to: '/day/$date', params: { date: today }, count: null as number | null },
+    // the journal timeline sits under Today; hidden by a per-user setting
+    ...(prefs.isHidden(JOURNAL_NAV_TOKEN)
+      ? []
+      : [{ label: 'Journal', to: '/journal', params: {}, count: null as number | null }]),
     { label: 'Inbox', to: '/inbox', params: {}, count: inboxCount },
     { label: 'Tasks', to: '/tasks', params: {}, count: dueCount },
     { label: 'Tags', to: '/tags', params: {}, count: null as number | null },
