@@ -1,6 +1,8 @@
 import type { MemoView } from '@bn/schema'
+import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
+import { toDateKey } from '../editor'
 import { trpc } from '../trpc'
 
 export function InboxPage() {
@@ -141,7 +143,24 @@ function MemoItem(props: { memo: MemoView }) {
         style={{ color: 'var(--text-3)' }}
       >
         {when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-        {m.promotedTo && <span>promoted → {m.promotedTo}</span>}
+        {/* a promoted memo lives elsewhere now — link to where it landed so it's
+            one tap, not a hunt through dates */}
+        {m.promotedTo === 'journal' ? (
+          <Link
+            to="/day/$date"
+            params={{ date: toDateKey(when) }}
+            className="underline hover:no-underline"
+            style={{ color: 'var(--text-3)' }}
+          >
+            promoted → journal ↗
+          </Link>
+        ) : m.promotedTo === 'task' ? (
+          <Link to="/tasks" className="underline hover:no-underline" style={{ color: 'var(--text-3)' }}>
+            promoted → task ↗
+          </Link>
+        ) : m.promotedTo ? (
+          <span>promoted → {m.promotedTo}</span>
+        ) : null}
         {!m.promotedTo && !editing && (
           <button
             type="button"
