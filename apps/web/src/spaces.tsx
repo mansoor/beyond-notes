@@ -718,6 +718,175 @@ function SpaceMenu(props: {
   )
 }
 
+/**
+ * The same whole-space actions the sidebar's ⋯ offers, laid out as a vertical
+ * menu for the Space Home rail — where the space name lands you. It owns its own
+ * modals, so it drops in anywhere with just a space.
+ */
+export function SpaceActionsPanel(props: { space: SpaceView }) {
+  const { space } = props
+  const utils = trpc.useUtils()
+  const navigate = useNavigate()
+  const tree = trpc.pages.tree.useQuery({ spaceId: space.id })
+  const createPage = trpc.pages.create.useMutation()
+  const lock = useLockState('space', space.id)
+  const lockNow = trpc.locks.lockNow.useMutation({ onSuccess: () => utils.locks.list.invalidate() })
+
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [lockOpen, setLockOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [publishingOpen, setPublishingOpen] = useState(false)
+  const [reorgOpen, setReorgOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+
+  const addPage = async () => {
+    const page = await createPage.mutateAsync({ spaceId: space.id, parentId: null, title: '' })
+    await utils.pages.tree.invalidate({ spaceId: space.id })
+    navigate({ to: '/p/$pageId', params: { pageId: page.id } })
+  }
+
+  const row =
+    'block w-full text-left text-sm py-1.5 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5'
+  const isSite = space.category === 'site' || space.category === 'wiki'
+
+  return (
+    <div>
+      <h2 className="text-[11px] uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
+        Space
+      </h2>
+      <div className="flex flex-col">
+        <button
+          type="button"
+          className={row}
+          onClick={addPage}
+          disabled={createPage.isPending}
+          style={{ color: 'var(--text-2)' }}
+        >
+          New page
+        </button>
+        {isSite && (
+          <a
+            href={`/s/draft/${space.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className={row}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Preview draft ↗
+          </a>
+        )}
+        {space.publicEnabled && space.publicHost && (
+          <a
+            href={publicUrlFor(space.publicHost).href}
+            target="_blank"
+            rel="noreferrer"
+            className={row}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Open published site ↗
+          </a>
+        )}
+        <button
+          type="button"
+          className={row}
+          onClick={() => setRenameOpen(true)}
+          style={{ color: 'var(--text-2)' }}
+        >
+          Rename
+        </button>
+        <button
+          type="button"
+          className={row}
+          onClick={() => setLockOpen(true)}
+          style={{ color: 'var(--text-2)' }}
+        >
+          {lock ? 'Remove the lock…' : 'Lock with my password…'}
+        </button>
+        {lock?.open && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => lockNow.mutate({ target: 'space', id: space.id })}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Lock now
+          </button>
+        )}
+        <button
+          type="button"
+          className={row}
+          onClick={() => setPublishingOpen(true)}
+          style={{ color: 'var(--text-2)' }}
+        >
+          Publishing settings
+        </button>
+        <button
+          type="button"
+          className={row}
+          onClick={() => setReorgOpen(true)}
+          style={{ color: 'var(--text-2)' }}
+        >
+          Reorganize pages
+        </button>
+        <button
+          type="button"
+          className={row}
+          onClick={() => setImportOpen(true)}
+          style={{ color: 'var(--text-2)' }}
+        >
+          Import pages…
+        </button>
+        <a
+          href={`/api/export/space/${space.id}`}
+          download
+          className={row}
+          style={{ color: 'var(--text-2)' }}
+        >
+          Export as Markdown (.zip)
+        </a>
+        <button
+          type="button"
+          className={row}
+          onClick={() => setDeleteOpen(true)}
+          style={{ color: 'var(--danger)' }}
+        >
+          Delete space…
+        </button>
+      </div>
+
+      {renameOpen && <RenameSpaceModal space={space} onClose={() => setRenameOpen(false)} />}
+      {lockOpen && (
+        <LockModal
+          target="space"
+          id={space.id}
+          name={space.name}
+          current={lock}
+          onClose={() => setLockOpen(false)}
+        />
+      )}
+      {deleteOpen && (
+        <DeleteSpaceModal
+          space={space}
+          pageCount={tree.data?.length ?? 0}
+          onClose={() => setDeleteOpen(false)}
+        />
+      )}
+      {publishingOpen && (
+        <SpacePublishingModal space={space} onClose={() => setPublishingOpen(false)} />
+      )}
+      {reorgOpen && tree.data && (
+        <ReorganizeModal
+          spaceId={space.id}
+          spaceName={space.name}
+          pages={tree.data}
+          onClose={() => setReorgOpen(false)}
+        />
+      )}
+      {importOpen && <ImportModal space={space} onClose={() => setImportOpen(false)} />}
+    </div>
+  )
+}
+
 function RenameSpaceModal(props: { space: SpaceView; onClose: () => void }) {
   const utils = trpc.useUtils()
   const rename = trpc.spaces.rename.useMutation()

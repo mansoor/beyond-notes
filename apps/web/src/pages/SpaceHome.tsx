@@ -1,5 +1,6 @@
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { ConceptGraph } from '../graph/ConceptGraph'
+import { SpaceActionsPanel } from '../spaces'
 import { trpc } from '../trpc'
 
 /**
@@ -101,7 +102,7 @@ export function SpaceHomePage() {
           className="w-64 border-l overflow-y-auto p-4 hidden md:block shrink-0"
           style={{ background: 'var(--panel)' }}
         >
-          <SpaceMenu spaceId={spaceId} />
+          {space && <SpaceActionsPanel space={space} />}
           {concepts.length > 0 && (
             <div className="mt-6">
               <h2
@@ -130,39 +131,3 @@ export function SpaceHomePage() {
   )
 }
 
-/** The space's pages, in tree order, as quick links — the "space menu". */
-function SpaceMenu(props: { spaceId: string }) {
-  const tree = trpc.pages.tree.useQuery({ spaceId: props.spaceId })
-  const byId = new Map((tree.data ?? []).map((p) => [p.id, p]))
-  const depthOf = (p: { parentId: string | null }): number => {
-    let d = 0
-    let cur = p.parentId
-    while (cur && byId.has(cur)) {
-      d++
-      cur = byId.get(cur)?.parentId ?? null
-    }
-    return d
-  }
-
-  return (
-    <div>
-      <h2 className="text-[11px] uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
-        Pages
-      </h2>
-      <div className="flex flex-col">
-        {(tree.data ?? []).map((p) => (
-          <Link
-            key={p.id}
-            to="/p/$pageId"
-            params={{ pageId: p.id }}
-            className="text-sm py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 truncate"
-            style={{ color: 'var(--text-2)', paddingLeft: `${depthOf(p) * 12}px` }}
-          >
-            {p.icon ? `${p.icon} ` : ''}
-            {p.title.trim() || 'Untitled'}
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
-}

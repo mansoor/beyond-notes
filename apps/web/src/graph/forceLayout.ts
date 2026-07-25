@@ -17,6 +17,8 @@ export type LayoutOptions = {
   width?: number
   height?: number
   iterations?: number
+  /** multiplier on the ideal edge length — larger scatters nodes further apart */
+  spread?: number
 }
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
@@ -54,8 +56,8 @@ export function forceLayout(
   const valid = edges.filter((e) => has.has(e.source) && has.has(e.target))
 
   const area = width * height
-  const k = 0.8 * Math.sqrt(area / n) // ideal edge length
-  let temp = width / 10 // max displacement, cooled each pass
+  const k = (opts.spread ?? 1) * 0.8 * Math.sqrt(area / n) // ideal edge length
+  let temp = width / 8 // max displacement, cooled each pass
 
   for (let iter = 0; iter < iterations; iter++) {
     for (const id of ids) {
