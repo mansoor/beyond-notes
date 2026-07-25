@@ -1368,7 +1368,12 @@ function ReorganizeModal(props: {
   const move = trpc.pages.move.useMutation({
     onSuccess: () => utils.pages.tree.invalidate({ spaceId: props.spaceId }),
   })
-  const busy = move.isPending
+  const merge = trpc.pages.merge.useMutation({
+    onSuccess: () => utils.pages.tree.invalidate({ spaceId: props.spaceId }),
+  })
+  const busy = move.isPending || merge.isPending
+  // the row awaiting a "merge into the page above?" confirmation, if any
+  const [mergeConfirm, setMergeConfirm] = useState<string | null>(null)
 
   const childrenOf = (parentId: string | null) =>
     props.pages.filter((p) => p.parentId === parentId).sort((a, b) => a.position - b.position)
@@ -1424,7 +1429,8 @@ function ReorganizeModal(props: {
       <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
         Drag a row to reorder or nest it (drop on the top/bottom edge to reorder, on the middle to
         nest). Or use the buttons: ↑ ↓ within a level, → to indent under the page above, ← to
-        outdent.
+        outdent, and the merge icon to fold a page into the one above it (its sub-pages move up too;
+        the merged page goes to Trash).
       </p>
       <div className="max-h-[60vh] overflow-y-auto -mx-1 px-1">
         {rows.length === 0 && (
@@ -1489,30 +1495,68 @@ function ReorganizeModal(props: {
                 <PagePrefix page={page} />
                 {page.title || 'Untitled'}
               </span>
-              <ReorgBtn
-                label="↑"
-                title="Move up"
-                disabled={busy || i <= 0}
-                onClick={() => up(page, i)}
-              />
-              <ReorgBtn
-                label="↓"
-                title="Move down"
-                disabled={busy || i >= sibs.length - 1}
-                onClick={() => down(page, i)}
-              />
-              <ReorgBtn
-                label="→"
-                title="Indent — nest under the page above"
-                disabled={busy || !prev}
-                onClick={() => prev && indent(page, prev)}
-              />
-              <ReorgBtn
-                label="←"
-                title="Outdent — lift out to the parent's level"
-                disabled={busy || !page.parentId}
-                onClick={() => outdent(page)}
-              />
+              {mergeConfirm === page.id && prev ? (
+                <span className="flex items-center gap-1 text-xs">
+                  <span
+                    className="truncate max-w-[92px]"
+                    style={{ color: 'var(--text-3)' }}
+                    title={prev.title || 'Untitled'}
+                  >
+                    into “{prev.title || 'Untitled'}”?
+                  </span>
+                  <ReorgBtn
+                    label="✓"
+                    title="Merge — append this page into the one above"
+                    disabled={busy}
+                    onClick={() => {
+                      merge.mutate({ sourceId: page.id, targetId: prev.id })
+                      setMergeConfirm(null)
+                    }}
+                  />
+                  <ReorgBtn label="✗" title="Cancel" onClick={() => setMergeConfirm(null)} />
+                </span>
+              ) : (
+                <>
+                  <ReorgBtn
+                    label="↑"
+                    title="Move up"
+                    disabled={busy || i <= 0}
+                    onClick={() => up(page, i)}
+                  />
+                  <ReorgBtn
+                    label="↓"
+                    title="Move down"
+                    disabled={busy || i >= sibs.length - 1}
+                    onClick={() => down(page, i)}
+                  />
+                  <ReorgBtn
+                    label="→"
+                    title="Indent — nest under the page above"
+                    disabled={busy || !prev}
+                    onClick={() => prev && indent(page, prev)}
+                  />
+                  <ReorgBtn
+                    label="←"
+                    title="Outdent — lift out to the parent's level"
+                    disabled={busy || !page.parentId}
+                    onClick={() => outdent(page)}
+                  />
+                  <ReorgBtn
+                    label={
+                      <span className="msym" style={{ fontSize: 15, lineHeight: 1 }}>
+                        merge
+                      </span>
+                    }
+                    title={
+                      prev
+                        ? `Merge into “${prev.title || 'Untitled'}” — its content is appended and this page goes to Trash`
+                        : 'Nothing above at this level to merge into'
+                    }
+                    disabled={busy || !prev}
+                    onClick={() => setMergeConfirm(page.id)}
+                  />
+                </>
+              )}
             </div>
           )
         })}
@@ -1522,7 +1566,7 @@ function ReorganizeModal(props: {
 }
 
 function ReorgBtn(props: {
-  label: string
+  label: React.ReactNode
   title: string
   disabled?: boolean
   onClick: () => void

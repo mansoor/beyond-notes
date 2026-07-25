@@ -1,3 +1,4 @@
+import { mergeDocuments } from '@bn/renderer'
 import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import { reconcileLinks } from './links'
@@ -520,6 +521,61 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
     async deletePage(user: UserRow, pageId: string): Promise<void> {
       await requirePage(pageId, user)
       await repo.deletePage(pageId)
+    },
+
+    /**
+     * Fold `source`'s document into `target`, re-home `source`'s sub-pages under
+     * `target`, and send the emptied `source` to the Trash. The block-level twin
+     * of the importer's merge: content is appended (source title as an H2), the
+     * children outlive the merge, and the source is recoverable for 30 days.
+     */
+    async mergePages(
+      user: UserRow,
+      input: { sourceId: string; targetId: string },
+    ): Promise<{ targetId: string }> {
+      if (input.sourceId === input.targetId) {
+        throw new PagesError('BAD_MOVE', 'Cannot merge a page into itself.')
+      }
+      const { page: source } = await requirePage(input.sourceId, user)
+      const { page: target } = await requirePage(input.targetId, user)
+      if (source.spaceId !== target.spaceId) {
+        throw new PagesError('BAD_MOVE', 'Pages are in different spaces.')
+      }
+      const all = await repo.listPagesInSpace(source.spaceId)
+      // the target must not be inside the source, or its content would be folded
+      // into a page that is about to be trashed
+      if (subtreeIds(all, source.id).includes(target.id)) {
+        throw new PagesError('BAD_MOVE', 'Cannot merge a page into its own sub-page.')
+      }
+
+      const [tgtDoc, srcDoc] = await Promise.all([
+        repo.getDocument(target.id),
+        repo.getDocument(source.id),
+      ])
+      const when = now()
+      const merged = mergeDocuments(
+        tgtDoc?.content ?? EMPTY_DOC,
+        source.title,
+        srcDoc?.content ?? EMPTY_DOC,
+      )
+      await repo.updateDocument(target.id, merged, when)
+      await reconcileTasks(repo, target.id, merged, when)
+      await reconcileTags(repo, target.id, merged)
+      await reconcileLinks(repo, target.id, merged)
+
+      // re-parent the source's direct children onto the end of the target's
+      const srcChildren = all
+        .filter((p) => p.parentId === source.id)
+        .sort((a, b) => a.position - b.position)
+      let pos = all.filter((p) => p.parentId === target.id && p.id !== source.id).length
+      for (const child of srcChildren) {
+        await repo.updatePage(child.id, { parentId: target.id, position: pos++, updatedAt: when })
+      }
+
+      // the source is childless now — trash it (recoverable), rather than a hard
+      // delete that would drop its pre-merge document
+      await repo.setPagesTrashed([source.id], when, user.id)
+      return { targetId: target.id }
     },
 
     /** Autosave with optimistic locking: the client proves it saw the latest version. */

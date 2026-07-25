@@ -13,7 +13,25 @@ applyTheme(currentTheme())
 
 function App() {
   const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }),
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // A freshly-launched PWA (mobile radio still waking, a proxy/backend
+            // briefly cold) can get a network error or a non-JSON body on the
+            // very first request — which surfaced as a scary "…is not valid
+            // JSON" on the sign-in gate until a manual refresh. Retry transient
+            // failures with backoff so the retry does what that refresh did; a
+            // real 4xx (auth/forbidden/not-found) is not transient, so skip it.
+            retry: (failureCount, error) => {
+              const status = (error as { data?: { httpStatus?: number } })?.data?.httpStatus
+              if (typeof status === 'number' && status >= 400 && status < 500) return false
+              return failureCount < 3
+            },
+            retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+          },
+        },
+      }),
   )
   const [trpcClient] = useState(() =>
     // maxURLLength splits large GET batches — enough parallel queries on one
