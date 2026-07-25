@@ -462,13 +462,19 @@ function SpaceItem(props: { space: SpaceView }) {
         <button type="button" onClick={onToggle} className="w-4 text-xs">
           {expanded ? '▾' : '▸'}
         </button>
-        <span
-          className="truncate select-none cursor-default"
-          onDoubleClick={onToggle}
-          title={shut ? 'Locked — double-click to unlock' : 'Double-click to expand or collapse'}
+        <button
+          type="button"
+          className="truncate select-none cursor-pointer text-left flex-1 min-w-0"
+          onClick={() => {
+            // a locked space must be unlocked before its overview (which reads
+            // page content into the concept graph) can open
+            if (shut) setUnlockOpen(true)
+            else navigate({ to: '/space/$spaceId', params: { spaceId: props.space.id } })
+          }}
+          title={shut ? 'Locked — click to unlock' : 'Open the space overview'}
         >
           {props.space.name}
-        </span>
+        </button>
         {props.space.personal && (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal space">
             ⛭

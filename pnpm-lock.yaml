@@ -44,6 +44,9 @@ importers:
       better-sqlite3:
         specifier: ^11.7.0
         version: 11.10.0
+      compromise:
+        specifier: ^14.16.0
+        version: 14.16.0
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.2.17)(better-sqlite3@11.10.0)(postgres@3.4.9)(react@19.2.7)
@@ -2359,6 +2362,10 @@ packages:
     resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
     engines: {node: '>= 12'}
 
+  compromise@14.16.0:
+    resolution: {integrity: sha512-4DFYl/Hl7sW4XWUDfx9S5vxqyYKpZDwwqrpXsQv5acdbVP+joKceIcIaLb0lhVWUpDBV0OnExk/o/dnYUwXnhQ==}
+    engines: {node: '>=12.0.0'}
+
   confbox@0.1.8:
     resolution: {integrity: sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w==}
 
@@ -2694,6 +2701,10 @@ packages:
       sqlite3:
         optional: true
 
+  efrt@2.7.0:
+    resolution: {integrity: sha512-/RInbCy1d4P6Zdfa+TMVsf/ufZVotat5hCw3QXmWtjU+3pFEOvOQ7ibo3aIxyCJw2leIeAMjmPj+1SLJiCpdrQ==}
+    engines: {node: '>=12.0.0'}
+
   electron-to-chromium@1.5.393:
     resolution: {integrity: sha512-kiDJdIUawuEIcp9XoICKp1iTYDEbgguIPq526N1Q7jIQDeQ3CqoMx71025PI/7E48Ddtw2HuWsVjY7afEgNxmg==}
 
@@ -2865,6 +2876,10 @@ packages:
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
+
+  grad-school@0.0.5:
+    resolution: {integrity: sha512-rXunEHF9M9EkMydTBux7+IryYXEZinRk6g8OBOGDBzo/qWJjhTxy86i5q7lQYpCLHN8Sqv1XX3OIOc7ka2gtvQ==}
+    engines: {node: '>=8.0.0'}
 
   hachure-fill@0.5.2:
     resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
@@ -3566,6 +3581,9 @@ packages:
     resolution: {integrity: sha512-DhuTmvZWux4H1UOnWMB3sk0sbaCVOoQZjv8u1rDoTV0HTdGem9hkAZtl4JZy8P2z4Bg0nT+YMeOFyVr4zcG5Tw==}
     engines: {node: '>=16 || 14 >=14.17'}
     hasBin: true
+
+  suffix-thumb@5.0.2:
+    resolution: {integrity: sha512-I5PWXAFKx3FYnI9a+dQMWNqTxoRt6vdBdb0O+BJ1sxXCWtSoQCusc13E58f+9p4MYx/qCnEMkD5jac6K2j3dgA==}
 
   tabbable@6.5.0:
     resolution: {integrity: sha512-wieBHXygIm7OyQOu5hQlkk62/WyCFYGlWg7L6/ZCUZwx0o398Zkn4pVmMyfYhfMG8kGrj/Krt8eIk6UKC6VzwA==}
@@ -5749,6 +5767,12 @@ snapshots:
 
   commander@8.3.0: {}
 
+  compromise@14.16.0:
+    dependencies:
+      efrt: 2.7.0
+      grad-school: 0.0.5
+      suffix-thumb: 5.0.2
+
   confbox@0.1.8: {}
 
   consola@3.4.2: {}
@@ -6012,6 +6036,8 @@ snapshots:
       better-sqlite3: 11.10.0
       postgres: 3.4.9
       react: 19.2.7
+
+  efrt@2.7.0: {}
 
   electron-to-chromium@1.5.393: {}
 
@@ -6325,6 +6351,8 @@ snapshots:
       path-scurry: 2.0.2
 
   graceful-fs@4.2.11: {}
+
+  grad-school@0.0.5: {}
 
   hachure-fill@0.5.2: {}
 
@@ -6978,6 +7006,8 @@ snapshots:
       pirates: 4.0.7
       tinyglobby: 0.2.17
       ts-interface-checker: 0.1.13
+
+  suffix-thumb@5.0.2: {}
 
   tabbable@6.5.0: {}
 
