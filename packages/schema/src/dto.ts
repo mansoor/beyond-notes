@@ -156,6 +156,10 @@ export const renamePageInput = z.object({
   title: z.string().trim().min(1).max(300),
 })
 
+/** The per-space concept graph shown on a space's home. */
+export const spaceGraphInput = z.object({ spaceId: z.string() })
+export type SpaceGraphInput = z.infer<typeof spaceGraphInput>
+
 export const movePageInput = z.object({
   pageId: z.string(),
   parentId: z.string().nullable(),
@@ -1279,7 +1283,7 @@ export function msUntilNextMidnight(now: Date): number {
  * 'db:<id>' for one item.
  */
 export const sidebarTokenPattern =
-  /^(cat:(notebook|wiki|site|database)|nav:journal|space:[\w-]{1,40}|db:[\w-]{1,40})$/
+  /^(cat:(notebook|wiki|site|database)|nav:(journal|tasks|tags)|space:[\w-]{1,40}|db:[\w-]{1,40})$/
 
 export const setSidebarHiddenInput = z.object({
   hidden: z.array(z.string().regex(sidebarTokenPattern)).max(300),

@@ -85,6 +85,7 @@ import {
   setSidebarHiddenInput,
   setupInput,
   smtpSettings,
+  spaceGraphInput,
   storageSettings,
   toggleTaskInput,
   totpConfirmInput,
@@ -574,6 +575,17 @@ const spacesRouter = router({
         rethrow(err)
       }
     }),
+
+  graph: authedProcedure.input(spaceGraphInput).query(async ({ ctx, input }) => {
+    try {
+      // the graph exposes page content, so — like search and pages.get — it
+      // enforces the lock itself: hide every page this session has not unlocked.
+      const hidden = await ctx.locks.hiddenPageIds(ctx.sessionToken, ctx.user)
+      return await ctx.pages.spaceGraph(ctx.user, input.spaceId, { excludePageIds: hidden })
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
 })
 
 const pagesRouter = router({

@@ -1,6 +1,7 @@
-import { mergeDocuments } from '@bn/renderer'
+import { mergeDocuments, plainText } from '@bn/renderer'
 import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
+import { type SpaceGraph, buildSpaceGraph } from './graph'
 import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
@@ -122,6 +123,40 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name)
       }
       return [...seen.values()].sort((a, b) => a.localeCompare(b))
+    },
+
+    /**
+     * The space's concept graph — pages tied together by the salient nouns they
+     * share. Access is gated exactly like `tree`: a space you cannot see never
+     * yields a graph. Trashed and archived pages are excluded, as is anything
+     * with no readable text.
+     *
+     * `excludePageIds` is the lock boundary: the graph distills page *content*,
+     * so a locked page's words must not surface here. The router passes the
+     * session's hidden-page set — a fully locked space therefore contributes
+     * nothing, exactly as its editor would show nothing.
+     */
+    async spaceGraph(
+      user: UserRow,
+      spaceId: string,
+      opts: { excludePageIds?: Set<string> } = {},
+    ): Promise<SpaceGraph> {
+      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      const hidden = opts.excludePageIds ?? new Set<string>()
+      const pages = (await repo.listPagesInSpace(spaceId))
+        .filter((p) => p.archivedAt === null && p.trashedAt === null && !hidden.has(p.id))
+        .sort((a, b) => a.position - b.position)
+
+      const loaded = await Promise.all(
+        pages.map(async (p) => {
+          const doc = await repo.getDocument(p.id)
+          const body = doc ? plainText(doc.content) : ''
+          // the title carries real signal too — a page called "Docker backups"
+          // should surface those concepts even if its body is thin
+          return { id: p.id, title: p.title, icon: p.icon, text: `${p.title}. ${body}` }
+        }),
+      )
+      return buildSpaceGraph(loaded)
     },
 
     // ---- archive ----
