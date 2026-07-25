@@ -60,6 +60,7 @@ import {
   journalDayInput,
   journalMonthInput,
   loginInput,
+  mergePagesInput,
   movePageInput,
   moveTableInput,
   ntfySettings,
@@ -657,6 +658,14 @@ const pagesRouter = router({
     try {
       await ctx.pages.movePage(ctx.user, input)
       return { ok: true }
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  merge: authedProcedure.input(mergePagesInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.pages.mergePages(ctx.user, input)
     } catch (err) {
       rethrow(err)
     }

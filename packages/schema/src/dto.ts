@@ -166,6 +166,14 @@ export const movePageInput = z.object({
 })
 export type MovePageInput = z.infer<typeof movePageInput>
 
+/** Fold `source`'s content into `target` (same space), re-home its sub-pages
+ *  under `target`, and send the emptied source to the Trash. */
+export const mergePagesInput = z.object({
+  sourceId: z.string(),
+  targetId: z.string(),
+})
+export type MergePagesInput = z.infer<typeof mergePagesInput>
+
 export const saveDocumentInput = z.object({
   pageId: z.string(),
   // BlockNote block array, JSON-stringified by the client

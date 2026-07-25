@@ -345,3 +345,28 @@ export function markdownToBlocks(markdown: string): unknown[] {
   }
   return blocks
 }
+
+/**
+ * Concatenate two BlockNote documents for a page merge: the target's blocks,
+ * then the source's title as an H2 (so a folded section keeps its heading and
+ * nothing reads as if it were silently glued on), then the source's blocks.
+ * Malformed JSON on either side is treated as empty. Mirrors the GitHub/markdown
+ * import's `foldMergedNodes`, but at the block level since these pages already
+ * exist as documents.
+ */
+export function mergeDocuments(
+  targetJson: string,
+  sourceTitle: string,
+  sourceJson: string,
+): string {
+  const parse = (j: string): unknown[] => {
+    try {
+      const p = JSON.parse(j)
+      return Array.isArray(p) ? p : []
+    } catch {
+      return []
+    }
+  }
+  const heading = sourceTitle.trim() ? markdownToBlocks(`## ${sourceTitle.trim()}`) : []
+  return JSON.stringify([...parse(targetJson), ...heading, ...parse(sourceJson)])
+}

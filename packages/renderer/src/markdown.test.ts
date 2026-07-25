@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blocknoteToMarkdown, markdownToBlocks } from './markdown'
+import { blocknoteToMarkdown, markdownToBlocks, mergeDocuments } from './markdown'
 
 const text = (t: string, styles: Record<string, boolean> = {}) => ({
   type: 'text',
@@ -181,5 +181,45 @@ describe('markdown tables', () => {
   it('leaves a lone pipe line as a paragraph (no divider, no table)', () => {
     const blocks = markdownToBlocks('| not a table |') as Array<{ type: string }>
     expect(blocks.map((b) => b.type)).toEqual(['paragraph'])
+  })
+})
+
+describe('mergeDocuments', () => {
+  const para = (t: string) => ({
+    id: t,
+    type: 'paragraph',
+    props: {},
+    content: [{ type: 'text', text: t, styles: {} }],
+    children: [],
+  })
+
+  it('appends source after target with the source title as an H2 heading', () => {
+    const target = JSON.stringify([para('A')])
+    const source = JSON.stringify([para('B')])
+    const out = JSON.parse(mergeDocuments(target, 'Second', source)) as Array<{
+      type: string
+      props?: { level?: number }
+      content?: Array<{ text?: string }>
+    }>
+    expect(out.map((b) => b.type)).toEqual(['paragraph', 'heading', 'paragraph'])
+    expect(out[1]?.props?.level).toBe(2)
+    expect(out[1]?.content?.[0]?.text).toBe('Second')
+    expect(out[0]?.content?.[0]?.text).toBe('A')
+    expect(out[2]?.content?.[0]?.text).toBe('B')
+  })
+
+  it('omits the heading when the source has no title', () => {
+    const out = JSON.parse(
+      mergeDocuments(JSON.stringify([para('A')]), '   ', JSON.stringify([para('B')])),
+    ) as Array<{ type: string }>
+    expect(out.map((b) => b.type)).toEqual(['paragraph', 'paragraph'])
+  })
+
+  it('treats malformed or empty JSON on either side as empty', () => {
+    expect(JSON.parse(mergeDocuments('not json', '', '[]'))).toEqual([])
+    const out = JSON.parse(mergeDocuments('[]', 'T', JSON.stringify([para('B')]))) as Array<{
+      type: string
+    }>
+    expect(out.map((b) => b.type)).toEqual(['heading', 'paragraph'])
   })
 })
