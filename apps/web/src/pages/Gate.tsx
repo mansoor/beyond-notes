@@ -19,11 +19,20 @@ export function Gate() {
   }
   if (status.error) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ color: 'var(--danger)' }}
-      >
-        Cannot reach the server: {status.error.message}
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <p style={{ color: 'var(--text-2)' }}>Couldn’t reach the server.</p>
+        <button
+          type="button"
+          onClick={() => status.refetch()}
+          disabled={status.isFetching}
+          className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          style={{ background: 'var(--accent)' }}
+        >
+          {status.isFetching ? 'Trying…' : 'Try again'}
+        </button>
+        <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+          {status.error.message}
+        </p>
       </div>
     )
   }
