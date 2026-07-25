@@ -368,5 +368,31 @@ export function mergeDocuments(
     }
   }
   const heading = sourceTitle.trim() ? markdownToBlocks(`## ${sourceTitle.trim()}`) : []
-  return JSON.stringify([...parse(targetJson), ...heading, ...parse(sourceJson)])
+  return JSON.stringify(dedupeBlockIds([...parse(targetJson), ...heading, ...parse(sourceJson)]))
+}
+
+/**
+ * Give every block a document-unique id, children included. BlockNote resolves
+ * blocks by id and throws "Block type does not match" the moment two share one —
+ * which a merge produces (the appended heading always lands on the same id, and
+ * ids can overlap between two documents, especially after repeated merges). The
+ * first block to claim an id keeps it; later clashes get a suffix.
+ */
+export function dedupeBlockIds(blocks: unknown[], seen: Set<string> = new Set()): unknown[] {
+  return blocks.map((b) => {
+    if (!b || typeof b !== 'object') return b
+    const block = b as { id?: unknown; children?: unknown }
+    let id = typeof block.id === 'string' && block.id ? block.id : 'block'
+    if (seen.has(id)) {
+      let k = 1
+      while (seen.has(`${id}-${k}`)) k++
+      id = `${id}-${k}`
+    }
+    seen.add(id)
+    return {
+      ...block,
+      id,
+      children: Array.isArray(block.children) ? dedupeBlockIds(block.children, seen) : block.children,
+    }
+  })
 }

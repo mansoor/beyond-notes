@@ -2,7 +2,7 @@ export { blocknoteToHtml, plainText, galleryHtml, extractHeadings } from './rend
 export type { GalleryLayout, TocEntry } from './render'
 export { socialLinksHtml, shareBarHtml, SOCIAL_PLATFORMS } from './chrome'
 export type { SocialLink, SocialPlatform } from './chrome'
-export { blocknoteToMarkdown, markdownToBlocks, mergeDocuments } from './markdown'
+export { blocknoteToMarkdown, dedupeBlockIds, markdownToBlocks, mergeDocuments } from './markdown'
 export type { GalleryRenderItem } from './render'
 export { slugify } from './slug'
 export { docsShell, docsSearchResults, docs404, docsTagPage } from './theme'
