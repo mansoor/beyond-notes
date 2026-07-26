@@ -78,6 +78,11 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   }
 
   const [hover, setHover] = useState<string | null>(null)
+  // a pinned concept/tag stays highlighted after you click it, and lists its
+  // pages — hovering something else only lights it up transiently
+  const [selected, setSelected] = useState<string | null>(null)
+  const [filters, setFilters] = useState({ concept: true, tag: true, link: true })
+  const [labelDensity, setLabelDensity] = useState(1)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<
     | { kind: 'node'; id: string; startX: number; startY: number }
@@ -86,33 +91,49 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   >(null)
   const moved = useRef(false)
 
-  // adjacency, so hovering a node highlights (and labels) its neighbours
+  const visibleEdges = useMemo(
+    () => edges.filter((e) => filters[e.type]),
+    [edges, filters],
+  )
+
+  // adjacency over the *visible* edges, so hiding an edge type also stops it
+  // highlighting or listing neighbours
   const neighbours = useMemo(() => {
     const m = new Map<string, Set<string>>()
     for (const n of nodes) m.set(n.id, new Set())
-    for (const e of edges) {
+    for (const e of visibleEdges) {
       m.get(e.source)?.add(e.target)
       m.get(e.target)?.add(e.source)
     }
     return m
-  }, [nodes, edges])
+  }, [nodes, visibleEdges])
+
+  // the node driving the highlight: a live hover wins over the pinned selection
+  const focus = hover ?? selected
 
   // nodes ranked by importance — labels reveal from the top of this list, and
-  // how many depends on zoom (more room → more words)
+  // how many depends on zoom (more room → more words) and the density slider
   const ranked = useMemo(
     () => [...nodes].sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label)).map((n) => n.id),
     [nodes],
   )
-  const labelBudget = clamp(Math.round(10 * view.scale), 6, nodes.length)
+  const labelBudget = clamp(Math.round(10 * view.scale * labelDensity), 6, nodes.length)
   const labelled = useMemo(() => new Set(ranked.slice(0, labelBudget)), [ranked, labelBudget])
 
   const isLit = (id: string) => {
-    if (!hover) return true
-    return id === hover || neighbours.get(hover)?.has(id) === true
+    if (!focus) return true
+    return id === focus || neighbours.get(focus)?.has(id) === true
   }
-  const edgeLit = (e: GraphEdge) => !hover || e.source === hover || e.target === hover
+  const edgeLit = (e: GraphEdge) => !focus || e.source === focus || e.target === focus
   const showLabel = (id: string) =>
-    id === hover || neighbours.get(hover ?? '')?.has(id) === true || labelled.has(id)
+    id === focus || neighbours.get(focus ?? '')?.has(id) === true || labelled.has(id)
+
+  // the pinned concept/tag and the pages hanging off it, for the detail card
+  const selectedNode = selected ? (nodes.find((n) => n.id === selected) ?? null) : null
+  const selectedPages =
+    selectedNode && selectedNode.kind !== 'page'
+      ? nodes.filter((n) => n.kind === 'page' && neighbours.get(selectedNode.id)?.has(n.id))
+      : []
 
   const toCanvas = (clientX: number, clientY: number): Point => {
     const rect = svgRef.current?.getBoundingClientRect()
@@ -140,12 +161,14 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   }
   const onBackgroundPointerDown = (e: React.PointerEvent) => {
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    moved.current = false
     drag.current = { kind: 'pan', startX: e.clientX, startY: e.clientY, ox: view.x, oy: view.y }
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
     if (!d) return
     if (d.kind === 'pan') {
+      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 4) moved.current = true
       setView((v) => ({ ...v, x: d.ox + (e.clientX - d.startX), y: d.oy + (e.clientY - d.startY) }))
       return
     }
@@ -172,6 +195,9 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
 
   return (
     <div className="relative w-full h-full">
+      {/* Background onClick clears the pinned selection (nodes stop propagation);
+          keyboard users clear via the ✕ in the selection card. */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: background affordance; card ✕ is the keyboard path */}
       <svg
         ref={svgRef}
         viewBox={`0 0 ${CANVAS} ${CANVAS}`}
@@ -182,11 +208,14 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
+        onClick={() => {
+          if (!moved.current) setSelected(null)
+        }}
         role="img"
         aria-label="Concept graph of this space"
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-          {edges.map((e) => {
+          {visibleEdges.map((e) => {
             const a = positions.get(e.source)
             const b = positions.get(e.target)
             if (!a || !b) return null
@@ -250,9 +279,14 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
                     moved.current = false
                     return
                   }
-                  open()
+                  // a page opens; a concept/tag pins (click again to unpin)
+                  if (isPage) open()
+                  else setSelected((s) => (s === n.id ? null : n.id))
                 }}
               >
+                {selected === n.id && (
+                  <circle r={r + 4} fill="none" stroke="var(--accent)" strokeWidth={1.5} opacity={0.7} />
+                )}
                 <circle r={r} fill={fill} stroke={stroke} strokeWidth={isPage ? 0 : 1} />
                 {showLabel(n.id) && (
                   <text
@@ -304,6 +338,88 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
         >
           ⊡
         </button>
+      </div>
+
+      <div className="absolute top-3 left-3 flex flex-col gap-2 w-[210px]">
+        {selectedNode && (
+          <div
+            className="rounded-lg border p-2 text-xs shadow-sm"
+            style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="font-medium truncate" style={{ color: 'var(--text)' }}>
+                {selectedNode.label}
+              </span>
+              <button
+                type="button"
+                title="Clear selection"
+                onClick={() => setSelected(null)}
+                style={{ color: 'var(--text-3)' }}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="text-[11px] mb-1" style={{ color: 'var(--text-3)' }}>
+              {selectedPages.length} {selectedPages.length === 1 ? 'page' : 'pages'}
+            </div>
+            <div className="flex flex-col max-h-44 overflow-y-auto">
+              {selectedPages.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="text-left py-0.5 truncate hover:underline"
+                  style={{ color: 'var(--text-2)' }}
+                  onClick={() =>
+                    p.pageId && navigate({ to: '/p/$pageId', params: { pageId: p.pageId } })
+                  }
+                >
+                  {p.icon ? `${p.icon} ` : ''}
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div
+          className="rounded-lg border p-2 text-xs flex flex-col gap-1.5"
+          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+        >
+          {([
+            ['link', 'Links'],
+            ['tag', 'Tags'],
+            ['concept', 'Concepts'],
+          ] as const).map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-1.5 cursor-pointer"
+              style={{ color: 'var(--text-2)' }}
+            >
+              <input
+                type="checkbox"
+                checked={filters[key]}
+                onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.checked }))}
+              />
+              {label}
+            </label>
+          ))}
+          <label
+            className="flex items-center gap-2 mt-0.5 pt-1.5 border-t"
+            style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}
+            title="Label density"
+          >
+            <span>Labels</span>
+            <input
+              type="range"
+              min={0.5}
+              max={2.5}
+              step={0.1}
+              value={labelDensity}
+              onChange={(e) => setLabelDensity(Number(e.target.value))}
+              className="flex-1"
+            />
+          </label>
+        </div>
       </div>
     </div>
   )

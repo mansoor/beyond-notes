@@ -126,14 +126,28 @@ export function singular(word: string): string {
 
 export type Concept = { term: string; weight: number }
 
+/** Normalise one term to its concept surface form, or null if it's not one. */
+function normalise(text: string, tags: string[]): string | null {
+  if (tags.includes('Pronoun')) return null
+  if (!tags.includes('Noun') && !tags.includes('ProperNoun')) return null
+  // Proper nouns (Docker, Kubernetes, AWS) are names, not plurals — folding
+  // their trailing "s" mangles them ("Kubernetes" → "kubernete").
+  const bare = text.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const cleaned = tags.includes('ProperNoun') ? bare : singular(bare)
+  if (cleaned.length < 3 || /^\d+$/.test(cleaned) || STOPWORDS.has(cleaned)) return null
+  return cleaned
+}
+
 /**
  * Pull the salient concepts out of one page's plain text, most frequent first.
  *
- * `limit` caps how many a single page contributes — a long page shouldn't drown
- * the graph. Weight is raw in-page frequency; the graph service decides what to
- * do with it (edge thickness, node size).
+ * Emits single nouns and adjacent noun compounds ("managed database", "docker
+ * volume") — the compound only earns a graph node if it recurs across pages, so
+ * one-off phrases cost nothing. `limit` caps how many a single page contributes
+ * so a long page can't drown the graph. Weight is raw in-page frequency; the
+ * graph service reweights it with TF-IDF across the whole space.
  */
-export function extractConcepts(text: string, limit = 12): Concept[] {
+export function extractConcepts(text: string, limit = 14): Concept[] {
   if (!text.trim()) return []
 
   const terms = nlp(text).terms().json() as Array<{
@@ -142,22 +156,22 @@ export function extractConcepts(text: string, limit = 12): Concept[] {
   }>
 
   const counts = new Map<string, number>()
+  const add = (term: string) => counts.set(term, (counts.get(term) ?? 0) + 1)
+
+  // `prev` is the previous term's concept form, but only when that term sat
+  // directly before this one with no non-noun (verb, punctuation) between —
+  // that adjacency is what makes "managed database" a compound and not two
+  // unrelated nouns that merely co-occur in a sentence.
+  let prev: string | null = null
   for (const t of terms) {
-    const tags = t.terms?.[0]?.tags ?? []
-    // keep true nouns; drop pronouns even when compromise also tags them Noun
-    if (tags.includes('Pronoun')) continue
-    if (!tags.includes('Noun') && !tags.includes('ProperNoun')) continue
-
-    // Proper nouns (Docker, Kubernetes, AWS) are names, not plurals — folding
-    // their trailing "s" mangles them ("Kubernetes" → "kubernete"). Only the
-    // common-noun path gets singularised.
-    const bare = t.text.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const cleaned = tags.includes('ProperNoun') ? bare : singular(bare)
-    if (cleaned.length < 3) continue
-    if (/^\d+$/.test(cleaned)) continue
-    if (STOPWORDS.has(cleaned)) continue
-
-    counts.set(cleaned, (counts.get(cleaned) ?? 0) + 1)
+    const cleaned = normalise(t.text, t.terms?.[0]?.tags ?? [])
+    if (!cleaned) {
+      prev = null
+      continue
+    }
+    add(cleaned)
+    if (prev) add(`${prev} ${cleaned}`)
+    prev = cleaned
   }
 
   return [...counts.entries()]
