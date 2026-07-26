@@ -58,6 +58,54 @@ describe('buildSpaceGraph', () => {
 
   it('handles an empty space', () => {
     const g = buildSpaceGraph([])
-    expect(g).toEqual({ nodes: [], edges: [], pageCount: 0, conceptCount: 0, isolatedCount: 0 })
+    expect(g).toEqual({
+      nodes: [],
+      edges: [],
+      pageCount: 0,
+      conceptCount: 0,
+      tagCount: 0,
+      linkCount: 0,
+      isolatedCount: 0,
+    })
+  })
+
+  it('adds a direct link edge from an explicit [[wiki link]]', () => {
+    const g = buildSpaceGraph(
+      [page('a', 'A', 'Sourdough bread.'), page('b', 'B', 'Kubernetes clusters.')],
+      {},
+      { links: [{ from: 'a', to: 'b' }] },
+    )
+    // no shared concept, but the link alone connects them
+    expect(g.linkCount).toBe(1)
+    expect(g.edges).toContainEqual({ source: 'a', target: 'b', weight: 1, type: 'link' })
+    expect(g.isolatedCount).toBe(0)
+  })
+
+  it('makes a tag node for a #tag shared by two pages', () => {
+    const g = buildSpaceGraph(
+      [page('a', 'A', 'One.'), page('b', 'B', 'Two.'), page('c', 'C', 'Three.')],
+      {},
+      {
+        tags: [
+          { pageId: 'a', tag: 'recipe' },
+          { pageId: 'b', tag: 'recipe' },
+          { pageId: 'c', tag: 'solo' }, // only one page → not a connector
+        ],
+      },
+    )
+    expect(g.tagCount).toBe(1)
+    expect(g.nodes.find((n) => n.id === 'tag:recipe')?.label).toBe('#recipe')
+    expect(g.edges.filter((e) => e.type === 'tag')).toHaveLength(2)
+    expect(g.nodes.some((n) => n.id === 'tag:solo')).toBe(false)
+  })
+
+  it('ignores links and tags that point outside the space', () => {
+    const g = buildSpaceGraph(
+      [page('a', 'A', 'Only page.')],
+      {},
+      { links: [{ from: 'a', to: 'ghost' }], tags: [{ pageId: 'ghost', tag: 'x' }] },
+    )
+    expect(g.linkCount).toBe(0)
+    expect(g.tagCount).toBe(0)
   })
 })

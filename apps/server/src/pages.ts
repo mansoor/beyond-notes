@@ -156,7 +156,17 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
           return { id: p.id, title: p.title, icon: p.icon, text: `${p.title}. ${body}` }
         }),
       )
-      return buildSpaceGraph(loaded)
+
+      // explicit relationships, scoped to this space's visible pages. Links or
+      // tags that touch an excluded/other-space page are simply dropped, since
+      // that page is not a node here.
+      const visible = new Set(pages.map((p) => p.id))
+      const links = (await repo.listAllPageLinks())
+        .filter((l) => visible.has(l.fromPageId) && visible.has(l.toPageId))
+        .map((l) => ({ from: l.fromPageId, to: l.toPageId }))
+      const tags = (await repo.listAllPageTags()).filter((t) => visible.has(t.pageId))
+
+      return buildSpaceGraph(loaded, {}, { links, tags })
     },
 
     // ---- archive ----

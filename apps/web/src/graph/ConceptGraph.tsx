@@ -17,12 +17,17 @@ import { type Point, forceLayout } from './forceLayout'
 export type GraphNode = {
   id: string
   label: string
-  kind: 'page' | 'concept'
+  kind: 'page' | 'concept' | 'tag'
   weight: number
   pageId?: string
   icon?: string | null
 }
-export type GraphEdge = { source: string; target: string; weight: number }
+export type GraphEdge = {
+  source: string
+  target: string
+  weight: number
+  type: 'concept' | 'tag' | 'link'
+}
 
 const CANVAS = 1000
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -185,16 +190,26 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
             const a = positions.get(e.source)
             const b = positions.get(e.target)
             if (!a || !b) return null
+            const lit = edgeLit(e)
+            // explicit links stand out (accent), tags dash, concepts stay quiet
+            const stroke =
+              e.type === 'link'
+                ? 'var(--accent)'
+                : e.type === 'tag'
+                  ? 'var(--text-3)'
+                  : 'var(--border)'
+            const base = e.type === 'link' ? 1.6 : 1
             return (
               <line
-                key={`${e.source}->${e.target}`}
+                key={`${e.type}:${e.source}->${e.target}`}
                 x1={a.x}
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="var(--border)"
-                strokeWidth={edgeLit(e) ? 1.2 : 0.5}
-                opacity={edgeLit(e) ? 0.85 : 0.18}
+                stroke={stroke}
+                strokeWidth={lit ? base : base * 0.45}
+                strokeDasharray={e.type === 'tag' ? '4 3' : undefined}
+                opacity={lit ? (e.type === 'link' ? 0.75 : 0.8) : 0.16}
               />
             )
           })}
@@ -204,6 +219,10 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
             const lit = isLit(n.id)
             const r = radius(n)
             const isPage = n.kind === 'page'
+            const isTag = n.kind === 'tag'
+            const fill = isPage ? 'var(--accent)' : isTag ? 'var(--accent-soft)' : 'var(--panel)'
+            const stroke = isPage ? 'var(--accent)' : isTag ? 'var(--accent)' : 'var(--text-3)'
+            const labelFill = isPage ? 'var(--text)' : isTag ? 'var(--accent)' : 'var(--text-2)'
             const open = () => {
               if (isPage && n.pageId) navigate({ to: '/p/$pageId', params: { pageId: n.pageId } })
             }
@@ -234,12 +253,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
                   open()
                 }}
               >
-                <circle
-                  r={r}
-                  fill={isPage ? 'var(--accent)' : 'var(--panel)'}
-                  stroke={isPage ? 'var(--accent)' : 'var(--text-3)'}
-                  strokeWidth={isPage ? 0 : 1}
-                />
+                <circle r={r} fill={fill} stroke={stroke} strokeWidth={isPage ? 0 : 1} />
                 {showLabel(n.id) && (
                   <text
                     x={0}
@@ -247,7 +261,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
                     textAnchor="middle"
                     fontSize={isPage ? 12 : 10}
                     fontWeight={isPage ? 600 : 400}
-                    fill={isPage ? 'var(--text)' : 'var(--text-2)'}
+                    fill={labelFill}
                     style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
                     stroke="var(--bg)"
                     strokeWidth={3}
