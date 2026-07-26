@@ -560,6 +560,12 @@ export function createRepo(appDb: AppDb) {
       return rows.map((r: { fromPageId: string }) => r.fromPageId)
     },
 
+    async listAllPageLinks(): Promise<Array<{ fromPageId: string; toPageId: string }>> {
+      return db
+        .select({ fromPageId: t.pageLinks.fromPageId, toPageId: t.pageLinks.toPageId })
+        .from(t.pageLinks)
+    },
+
     // ---- slug history ----
 
     async addPageSlug(pageId: string, slug: string, when: Date): Promise<void> {

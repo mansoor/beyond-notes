@@ -52,6 +52,23 @@ describe('extractConcepts', () => {
     expect(a).toEqual(b)
   })
 
+  it('emits adjacent noun compounds as their own concept', () => {
+    // "docker" and "volume" are both nouns sitting next to each other
+    const terms = extractConcepts('Docker volume snapshots. Docker volume snapshots.').map(
+      (c) => c.term,
+    )
+    expect(terms).toContain('docker volume')
+    // and still the single nouns
+    expect(terms).toContain('docker')
+    expect(terms).toContain('volume')
+  })
+
+  it('does not bridge a compound across a non-noun', () => {
+    // "backup" and "restore" are separated by a verb, so no "backup restore"
+    const terms = extractConcepts('The backup will restore quickly.').map((c) => c.term)
+    expect(terms).not.toContain('backup restore')
+  })
+
   it('caps how many concepts one page contributes', () => {
     const many = Array.from({ length: 40 }, (_, i) => `concept${i} widget${i}`).join('. ')
     expect(extractConcepts(many, 12).length).toBeLessThanOrEqual(12)

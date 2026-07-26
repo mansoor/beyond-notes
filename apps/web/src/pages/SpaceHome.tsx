@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 import { ConceptGraph } from '../graph/ConceptGraph'
 import { SpaceActionsPanel } from '../spaces'
 import { trpc } from '../trpc'
@@ -65,11 +66,18 @@ export function SpaceHomePage() {
 
   return (
     <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-screen">
-      <header className="px-6 py-3 border-b flex items-baseline gap-3 shrink-0">
+      <header className="px-6 pt-6 pb-3 flex items-baseline gap-3 shrink-0">
         <h1 className="text-lg font-semibold truncate">{space?.name ?? 'Space'}</h1>
         {g && (
           <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-            {g.pageCount} {g.pageCount === 1 ? 'page' : 'pages'} · {g.conceptCount} shared concepts
+            {[
+              `${g.pageCount} ${g.pageCount === 1 ? 'page' : 'pages'}`,
+              g.linkCount > 0 && `${g.linkCount} links`,
+              g.tagCount > 0 && `${g.tagCount} tags`,
+              `${g.conceptCount} concepts`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         )}
       </header>
@@ -90,8 +98,8 @@ export function SpaceHomePage() {
               style={{ color: 'var(--text-3)' }}
             >
               <p className="max-w-sm text-sm">
-                No shared topics yet. As pages grow and start repeating the same words, they'll begin
-                to connect here.
+                Nothing connects these pages yet. Link them with [[…]], share a #tag, or let them
+                grow to repeat the same words — connections show up here.
               </p>
             </div>
           )}
@@ -99,8 +107,8 @@ export function SpaceHomePage() {
         </div>
 
         <aside
-          className="w-64 border-l overflow-y-auto p-4 hidden md:block shrink-0"
-          style={{ background: 'var(--panel)' }}
+          className="w-72 shrink-0 border-l overflow-y-auto px-5 py-8 hidden lg:block"
+          style={{ borderColor: 'var(--border)' }}
         >
           {space && <SpaceActionsPanel space={space} />}
           {concepts.length > 0 && (
@@ -125,7 +133,45 @@ export function SpaceHomePage() {
               </div>
             </div>
           )}
+          {g && hasEdges && <GraphLegend />}
         </aside>
+      </div>
+    </div>
+  )
+}
+
+/** What the dots and lines mean — pages, and the three ways they connect. */
+function GraphLegend() {
+  const dot = (fill: string, stroke: string) => (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" role="presentation">
+      <circle cx="7" cy="7" r="5" fill={fill} stroke={stroke} strokeWidth="1.5" />
+    </svg>
+  )
+  const line = (stroke: string, dash?: string) => (
+    <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden="true" role="presentation">
+      <line x1="1" y1="4" x2="17" y2="4" stroke={stroke} strokeWidth="1.6" strokeDasharray={dash} />
+    </svg>
+  )
+  const rows: Array<[ReactNode, string]> = [
+    [dot('var(--accent)', 'var(--accent)'), 'Page'],
+    [dot('var(--accent-soft)', 'var(--accent)'), 'Tag'],
+    [dot('var(--panel)', 'var(--text-3)'), 'Concept'],
+    [line('var(--accent)'), 'Links to'],
+    [line('var(--text-3)', '4 3'), 'Shares a tag'],
+    [line('var(--border)'), 'Shares a concept'],
+  ]
+  return (
+    <div className="mt-6">
+      <h2 className="text-[11px] uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
+        Legend
+      </h2>
+      <div className="flex flex-col gap-1.5">
+        {rows.map(([mark, label]) => (
+          <div key={label} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-2)' }}>
+            <span className="w-[18px] flex justify-center">{mark}</span>
+            {label}
+          </div>
+        ))}
       </div>
     </div>
   )
