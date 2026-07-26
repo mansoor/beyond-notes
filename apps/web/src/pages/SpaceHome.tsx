@@ -97,7 +97,7 @@ export function SpaceHomePage() {
           style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
         >
           <span className="msym" style={{ fontSize: 20 }}>
-            right_panel_open
+            tune
           </span>
         </button>
       </header>

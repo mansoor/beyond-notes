@@ -41,7 +41,7 @@ export function SettingsPage() {
   const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
-    <div className="max-w-4xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
+    <div className="max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
       {/* stacks on mobile — a dropdown picks the section (a wrapping tab row
           spilled onto more lines with each added section) while md+ keeps the

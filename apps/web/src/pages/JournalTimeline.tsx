@@ -108,7 +108,7 @@ export function JournalTimelinePage() {
   const collapseAll = () => save(new Set(byYear.keys()))
 
   return (
-    <div className="max-w-3xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
+    <div className="max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
       <h1 className="text-2xl font-bold mb-1">Journal</h1>
       <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
         Every day you’ve written, newest first. Tap a day to read it.
@@ -193,7 +193,7 @@ export function JournalTimelinePage() {
                           </span>
                         </button>
                         {monthOpen && (
-                          <div className="pl-4">
+                          <div className="pl-6 lg:pl-10">
                             {list.map((d) => (
                               <TimelineDay
                                 key={d.date}
