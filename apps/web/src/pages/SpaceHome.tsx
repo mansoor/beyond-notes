@@ -65,7 +65,7 @@ export function SpaceHomePage() {
 
   return (
     <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-screen">
-      <header className="px-6 py-3 border-b flex items-baseline gap-3 shrink-0">
+      <header className="px-6 pt-6 pb-3 flex items-baseline gap-3 shrink-0">
         <h1 className="text-lg font-semibold truncate">{space?.name ?? 'Space'}</h1>
         {g && (
           <span className="text-xs" style={{ color: 'var(--text-3)' }}>
@@ -99,8 +99,8 @@ export function SpaceHomePage() {
         </div>
 
         <aside
-          className="w-64 border-l overflow-y-auto p-4 hidden md:block shrink-0"
-          style={{ background: 'var(--panel)' }}
+          className="w-72 shrink-0 border-l overflow-y-auto px-5 py-8 hidden lg:block"
+          style={{ borderColor: 'var(--border)' }}
         >
           {space && <SpaceActionsPanel space={space} />}
           {concepts.length > 0 && (
