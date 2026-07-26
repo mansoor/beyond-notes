@@ -179,3 +179,88 @@ export function extractConcepts(text: string, limit = 14): Concept[] {
     .sort((a, b) => b.weight - a.weight || a.term.localeCompare(b.term))
     .slice(0, limit)
 }
+
+/** Linking/auxiliary verbs carry no action — a "rigger IS a tool" edge is noise. */
+const AUXILIARY_VERBS = new Set([
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'am',
+  'has',
+  'have',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'shall',
+  'should',
+  'can',
+  'could',
+  'may',
+  'might',
+  'must',
+])
+
+export type Triple = { subject: string; verb: string; object: string }
+
+/**
+ * Pull subject–verb–object triples out of one page's text, using compromise's
+ * grammar tags — the "verbs and actions" layer of the graph, and deliberately
+ * AI-free. It is shallow on purpose: a clean "Rigger deploys stacks" yields
+ * (rigger, deploys, stack); a convoluted sentence is simply missed rather than
+ * guessed at. Subjects/objects are normalised to the same concept surface form
+ * as extractConcepts, so a triple lines up with the concept nodes.
+ *
+ * The walk keeps the latest noun as a candidate subject, arms a content verb
+ * once a subject exists, and emits when the next noun (the object) arrives —
+ * resetting at sentence boundaries so it never bridges across a full stop.
+ */
+export function extractTriples(text: string, limit = 40): Triple[] {
+  if (!text.trim()) return []
+
+  const terms = nlp(text).terms().json() as Array<{
+    text: string
+    terms?: Array<{ tags?: string[] }>
+  }>
+
+  const triples: Triple[] = []
+  let subject: string | null = null
+  let verb: string | null = null
+
+  for (const t of terms) {
+    const tags = t.terms?.[0]?.tags ?? []
+    const raw = t.text
+
+    if (tags.includes('Verb') && !tags.includes('Pronoun')) {
+      const v = raw.toLowerCase().replace(/[^a-z]/g, '')
+      // only arm a verb once we have a subject to hang it on
+      if (subject && v.length >= 2 && !AUXILIARY_VERBS.has(v)) verb = v
+    } else {
+      const noun = normalise(raw, tags)
+      if (noun) {
+        if (subject && verb && noun !== subject) {
+          triples.push({ subject, verb, object: noun })
+          subject = noun // the object can chain into the next subject
+          verb = null
+        } else {
+          subject = noun
+          verb = null
+        }
+      }
+    }
+
+    if (/[.!?]/.test(raw)) {
+      subject = null
+      verb = null
+    }
+    if (triples.length >= limit) break
+  }
+
+  return triples
+}

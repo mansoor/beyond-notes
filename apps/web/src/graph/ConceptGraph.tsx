@@ -26,7 +26,9 @@ export type GraphEdge = {
   source: string
   target: string
   weight: number
-  type: 'concept' | 'tag' | 'link' | 'semantic'
+  type: 'concept' | 'tag' | 'link' | 'semantic' | 'relation'
+  /** the verb, on 'relation' edges only */
+  label?: string
 }
 
 const CANVAS = 1000
@@ -37,6 +39,7 @@ const EDGE_STYLE: Record<
   { stroke: string; base: number; dash?: string; opacity: number }
 > = {
   link: { stroke: 'var(--accent)', base: 1.6, opacity: 0.75 },
+  relation: { stroke: 'var(--text-2)', base: 1.2, opacity: 0.85 },
   semantic: { stroke: 'var(--live)', base: 1.3, dash: '1 4', opacity: 0.7 },
   tag: { stroke: 'var(--text-3)', base: 1, dash: '4 3', opacity: 0.8 },
   concept: { stroke: 'var(--border)', base: 1, opacity: 0.8 },
@@ -91,7 +94,13 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   // a pinned concept/tag stays highlighted after you click it, and lists its
   // pages — hovering something else only lights it up transiently
   const [selected, setSelected] = useState<string | null>(null)
-  const [filters, setFilters] = useState({ concept: true, tag: true, link: true, semantic: true })
+  const [filters, setFilters] = useState({
+    concept: true,
+    tag: true,
+    link: true,
+    semantic: true,
+    relation: true,
+  })
   const [labelDensity, setLabelDensity] = useState(1)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<
@@ -201,6 +210,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
 
   const radius = (n: GraphNode) =>
     n.kind === 'page' ? 7 + Math.min(14, n.weight * 1.6) : 4 + Math.min(9, n.weight * 1.4)
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
 
   const ctrlBtn =
     'w-7 h-7 rounded border text-sm leading-none flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5'
@@ -226,27 +236,72 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
         role="img"
         aria-label="Concept graph of this space"
       >
+        <defs>
+          {/* arrowhead for directed relation edges; fixed size, not stroke-scaled */}
+          <marker
+            id="bn-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            markerUnits="userSpaceOnUse"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--text-2)" />
+          </marker>
+        </defs>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
           {visibleEdges.map((e) => {
             const a = positions.get(e.source)
             const b = positions.get(e.target)
             if (!a || !b) return null
             const lit = edgeLit(e)
-            // explicit links stand out (accent), semantic edges are green dots,
-            // tags dash, concepts stay quiet
+            // links (accent), relations (directed, labeled), semantic (green
+            // dots), tags dash, concepts quiet
             const style = EDGE_STYLE[e.type]
+            const isRel = e.type === 'relation'
+            // relation edges are directed — trim to the target node's boundary
+            // so the arrowhead sits at the edge, not buried under the circle
+            let bx = b.x
+            let by = b.y
+            if (isRel) {
+              const tgt = nodeById.get(e.target)
+              const trim = (tgt ? radius(tgt) : 6) + 4
+              const dx = b.x - a.x
+              const dy = b.y - a.y
+              const len = Math.hypot(dx, dy) || 1
+              bx = b.x - (dx / len) * trim
+              by = b.y - (dy / len) * trim
+            }
             return (
-              <line
-                key={`${e.type}:${e.source}->${e.target}`}
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                stroke={style.stroke}
-                strokeWidth={lit ? style.base : style.base * 0.45}
-                strokeDasharray={style.dash}
-                opacity={lit ? style.opacity : 0.16}
-              />
+              <g key={`${e.type}:${e.source}->${e.target}:${e.label ?? ''}`}>
+                <line
+                  x1={a.x}
+                  y1={a.y}
+                  x2={bx}
+                  y2={by}
+                  stroke={style.stroke}
+                  strokeWidth={lit ? style.base : style.base * 0.45}
+                  strokeDasharray={style.dash}
+                  opacity={lit ? style.opacity : 0.16}
+                  markerEnd={isRel ? 'url(#bn-arrow)' : undefined}
+                />
+                {isRel && lit && e.label && (
+                  <text
+                    x={(a.x + bx) / 2}
+                    y={(a.y + by) / 2 - 2}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="var(--text-2)"
+                    style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
+                    stroke="var(--bg)"
+                    strokeWidth={3}
+                  >
+                    {e.label}
+                  </text>
+                )}
+              </g>
             )
           })}
           {nodes.map((n) => {
@@ -395,6 +450,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
           {(
             [
               ['link', 'Links'],
+              ['relation', 'Actions'],
               ['semantic', 'Similar'],
               ['tag', 'Tags'],
               ['concept', 'Concepts'],

@@ -1,6 +1,7 @@
 import { mergeDocuments, plainText } from '@bn/renderer'
 import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
+import { extractTriples } from './concepts'
 import { type Embedder, topSimilarPairs } from './embeddings'
 import { type GraphSimilar, type SpaceGraph, buildSpaceGraph } from './graph'
 import { reconcileLinks } from './links'
@@ -204,7 +205,10 @@ export function createPagesService(
       // first-run download blocked), the graph is still links + tags + concepts.
       const similar = await semanticPairs(loaded)
 
-      return buildSpaceGraph(loaded, {}, { links, tags, similar })
+      // typed edges: subject–verb–object triples across every page's text
+      const triples = loaded.flatMap((d) => extractTriples(d.text))
+
+      return buildSpaceGraph(loaded, {}, { links, tags, similar, triples })
     },
 
     // ---- archive ----
