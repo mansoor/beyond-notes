@@ -1,7 +1,7 @@
 {
   "name": "@bn/renderer",
   "private": true,
-  "version": "0.8.17",
+  "version": "0.8.18",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
