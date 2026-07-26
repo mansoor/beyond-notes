@@ -7,6 +7,13 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm -r build
 # Pruned production install for the server only
 RUN pnpm --filter @bn/server --prod deploy /out/server
+# Lean image: drop the optional semantic-layer runtime (transformers.js +
+# onnxruntime, ~200 MB, glibc-only). The embedding code imports it lazily and
+# falls back when absent, so the graph still has links/tags/concepts. For the
+# semantic layer, use the -ml image (docker/Dockerfile.ml).
+RUN rm -rf /out/server/node_modules/@xenova \
+           /out/server/node_modules/.pnpm/@xenova+transformers* \
+           /out/server/node_modules/.pnpm/onnxruntime-*
 
 # Runtime stage
 FROM node:22-alpine

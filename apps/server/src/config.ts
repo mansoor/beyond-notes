@@ -36,6 +36,23 @@ const envSchema = z.object({
   // is generated once and kept at SECRETS_KEY_FILE (outside the database).
   SECRETS_KEY: z.string().default(''),
   SECRETS_KEY_FILE: z.string().default('./data/secrets.key'),
+  // Concept-graph semantic layer (optional, off by default). When on, a small
+  // local embedding model (transformers.js, no cloud) runs in-process to add
+  // "related by meaning" edges the classical concept graph can't find. The
+  // model downloads once to GRAPH_EMBED_CACHE_DIR (mount it as a volume so a
+  // redeploy doesn't refetch). If it's off or the model can't load, the graph
+  // silently falls back to links/tags/concepts.
+  GRAPH_EMBEDDINGS: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  GRAPH_EMBED_MODEL: z.string().default('Xenova/all-MiniLM-L6-v2'),
+  GRAPH_EMBED_CACHE_DIR: z.string().default('./data/models'),
+  // cosine similarity a page pair must clear to earn a semantic edge. Higher =
+  // fewer, tighter matches. MiniLM tends to sit high, so this is worth tuning.
+  GRAPH_EMBED_THRESHOLD: z.coerce.number().min(0).max(1).default(0.55),
+  // most semantic neighbours kept per page, so a dense space can't go N².
+  GRAPH_EMBED_NEIGHBORS: z.coerce.number().int().min(1).max(20).default(4),
   NODE_ENV: z.string().default('development'),
 })
 

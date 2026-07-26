@@ -14,19 +14,19 @@ env:
 jobs:
   # Build each architecture on a runner that runs it natively — no QEMU, so the
   # better-sqlite3 compile that used to wedge under emulation just... compiles.
-  # Each leg pushes an untagged, digest-only image; the merge job below stitches
-  # the two digests into one multi-arch tag.
+  # Two variants: the lean default image, and "-ml" which adds the optional
+  # semantic-layer runtime (transformers.js + onnxruntime, glibc). Each leg
+  # pushes an untagged, digest-only image; the merge job stitches per-variant
+  # digests into one multi-arch tag each.
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            arch: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            arch: arm64
+          - { platform: linux/amd64, runner: ubuntu-latest, arch: amd64, variant: default, dockerfile: docker/Dockerfile }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, variant: default, dockerfile: docker/Dockerfile }
+          - { platform: linux/amd64, runner: ubuntu-latest, arch: amd64, variant: ml, dockerfile: docker/Dockerfile.ml }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64, variant: ml, dockerfile: docker/Dockerfile.ml }
     runs-on: ${{ matrix.runner }}
     # native builds are minutes, not hours — fail fast if one wedges
     timeout-minutes: 30
@@ -43,13 +43,13 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          # a cache per arch — their layers differ, so one ref would clobber the
-          # other. mode=max keeps the intermediate compile stages.
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          # a cache per (variant, arch) — their layers differ, so a shared ref
+          # would clobber. mode=max keeps the intermediate compile stages.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -58,37 +58,53 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.arch }}
+          name: digest-${{ matrix.variant }}-${{ matrix.arch }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
-  # Combine the per-arch digests into one multi-arch manifest and tag it.
+  # Combine per-arch digests into one multi-arch manifest per variant, and tag.
+  # Default -> :<tag> and :latest. ml -> :<tag>-ml and :latest-ml.
   merge:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: digest-*
-          merge-multiple: true
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create and push multi-arch tags
-        working-directory: /tmp/digests
+      - name: Download default digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/d-default
+          pattern: digest-default-*
+          merge-multiple: true
+      - name: Download ml digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/d-ml
+          pattern: digest-ml-*
+          merge-multiple: true
+      - name: Create and push default tags
+        working-directory: /tmp/d-default
         run: |
           docker buildx imagetools create \
             -t ${{ env.IMAGE }}:${{ github.ref_name }} \
             -t ${{ env.IMAGE }}:latest \
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+      - name: Create and push ml tags
+        working-directory: /tmp/d-ml
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE }}:${{ github.ref_name }}-ml \
+            -t ${{ env.IMAGE }}:latest-ml \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
       - name: Inspect
-        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}
+        run: |
+          docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}
+          docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}-ml
 
   release:
     needs: merge

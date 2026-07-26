@@ -73,6 +73,7 @@ export function SpaceHomePage() {
             {[
               `${g.pageCount} ${g.pageCount === 1 ? 'page' : 'pages'}`,
               g.linkCount > 0 && `${g.linkCount} links`,
+              g.semanticCount > 0 && `${g.semanticCount} similar`,
               g.tagCount > 0 && `${g.tagCount} tags`,
               `${g.conceptCount} concepts`,
             ]
@@ -133,15 +134,18 @@ export function SpaceHomePage() {
               </div>
             </div>
           )}
-          {g && hasEdges && <GraphLegend />}
+          {g && hasEdges && <GraphLegend g={g} />}
         </aside>
       </div>
     </div>
   )
 }
 
-/** What the dots and lines mean — pages, and the three ways they connect. */
-function GraphLegend() {
+/** What the dots and lines mean — only the pieces this space actually has. */
+function GraphLegend(props: {
+  g: { tagCount: number; conceptCount: number; linkCount: number; semanticCount: number }
+}) {
+  const { g } = props
   const dot = (fill: string, stroke: string) => (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" role="presentation">
       <circle cx="7" cy="7" r="5" fill={fill} stroke={stroke} strokeWidth="1.5" />
@@ -152,13 +156,14 @@ function GraphLegend() {
       <line x1="1" y1="4" x2="17" y2="4" stroke={stroke} strokeWidth="1.6" strokeDasharray={dash} />
     </svg>
   )
-  const rows: Array<[ReactNode, string]> = [
+  const rows: Array<[ReactNode, string] | false> = [
     [dot('var(--accent)', 'var(--accent)'), 'Page'],
-    [dot('var(--accent-soft)', 'var(--accent)'), 'Tag'],
-    [dot('var(--panel)', 'var(--text-3)'), 'Concept'],
-    [line('var(--accent)'), 'Links to'],
-    [line('var(--text-3)', '4 3'), 'Shares a tag'],
-    [line('var(--border)'), 'Shares a concept'],
+    g.tagCount > 0 && [dot('var(--accent-soft)', 'var(--accent)'), 'Tag'],
+    g.conceptCount > 0 && [dot('var(--panel)', 'var(--text-3)'), 'Concept'],
+    g.linkCount > 0 && [line('var(--accent)'), 'Links to'],
+    g.semanticCount > 0 && [line('var(--live)', '1 4'), 'Similar meaning'],
+    g.tagCount > 0 && [line('var(--text-3)', '4 3'), 'Shares a tag'],
+    g.conceptCount > 0 && [line('var(--border)'), 'Shares a concept'],
   ]
   return (
     <div className="mt-6">
@@ -166,7 +171,7 @@ function GraphLegend() {
         Legend
       </h2>
       <div className="flex flex-col gap-1.5">
-        {rows.map(([mark, label]) => (
+        {rows.filter((r): r is [ReactNode, string] => r !== false).map(([mark, label]) => (
           <div key={label} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-2)' }}>
             <span className="w-[18px] flex justify-center">{mark}</span>
             {label}

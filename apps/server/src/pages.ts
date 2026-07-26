@@ -1,7 +1,8 @@
 import { mergeDocuments, plainText } from '@bn/renderer'
 import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
-import { type SpaceGraph, buildSpaceGraph } from './graph'
+import { type Embedder, topSimilarPairs } from './embeddings'
+import { type GraphSimilar, type SpaceGraph, buildSpaceGraph } from './graph'
 import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
@@ -30,8 +31,40 @@ function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space
   }
 }
 
-export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createPagesService(
+  repo: Repo,
+  opts: { now?: () => Date; embedder?: Embedder; embedThreshold?: number; embedNeighbors?: number } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const embedder = opts.embedder
+  const embedThreshold = opts.embedThreshold ?? 0.55
+  const embedNeighbors = opts.embedNeighbors ?? 4
+  // above this many pages the O(n²) similarity sweep isn't worth it for a live
+  // request; the graph just skips the semantic layer for that space
+  const EMBED_PAGE_CAP = 400
+
+  /**
+   * The semantic edges for a set of pages, or [] when the layer is off, the
+   * space is too big/small, or the model fails to load. Never throws — the graph
+   * degrades to its classical edges rather than erroring.
+   */
+  async function semanticPairs(
+    docs: Array<{ id: string; text: string }>,
+  ): Promise<GraphSimilar[]> {
+    if (!embedder?.enabled || docs.length < 2 || docs.length > EMBED_PAGE_CAP) return []
+    try {
+      const vectors = new Map<string, number[]>()
+      const embedded = await embedder.embed(docs.map((d) => d.text))
+      docs.forEach((d, i) => {
+        const v = embedded[i]
+        if (v) vectors.set(d.id, v)
+      })
+      return topSimilarPairs(vectors, { threshold: embedThreshold, perNode: embedNeighbors })
+    } catch (err) {
+      console.warn('[graph] semantic layer unavailable, falling back:', (err as Error).message)
+      return []
+    }
+  }
 
   async function requirePage(
     pageId: string,
@@ -166,7 +199,12 @@ export function createPagesService(repo: Repo, opts: { now?: () => Date } = {}) 
         .map((l) => ({ from: l.fromPageId, to: l.toPageId }))
       const tags = (await repo.listAllPageTags()).filter((t) => visible.has(t.pageId))
 
-      return buildSpaceGraph(loaded, {}, { links, tags })
+      // the optional semantic layer: embed each page and connect the pairs that
+      // point the same way. Best-effort — if the model can't load (offline box,
+      // first-run download blocked), the graph is still links + tags + concepts.
+      const similar = await semanticPairs(loaded)
+
+      return buildSpaceGraph(loaded, {}, { links, tags, similar })
     },
 
     // ---- archive ----
