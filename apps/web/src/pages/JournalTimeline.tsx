@@ -193,7 +193,7 @@ export function JournalTimelinePage() {
                           </span>
                         </button>
                         {monthOpen && (
-                          <div className="pl-8">
+                          <div className="pl-6 lg:pl-10">
                             {list.map((d) => (
                               <TimelineDay
                                 key={d.date}

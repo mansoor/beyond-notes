@@ -8,7 +8,7 @@
 import type { ImportNodePlan, ImportPlanView, MergeMap, SpaceView } from '@bn/schema'
 import { foldMergedNodes } from '@bn/schema'
 import { useNavigate } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from './components'
 import { trpc } from './trpc'
 
@@ -376,7 +376,11 @@ function ReviewStep(props: {
                 {node.path ?? node.excerpt}
               </span>
               <RowBtn
-                label="⊕"
+                label={
+                  <span className="msym" style={{ fontSize: 15, lineHeight: 1 }}>
+                    merge
+                  </span>
+                }
                 title={
                   mergeTargetAt(index)
                     ? `Merge into “${mergeTargetAt(index)?.title}” — its text is appended there instead of becoming a page`
@@ -516,7 +520,7 @@ function ReviewStep(props: {
 }
 
 function RowBtn(props: {
-  label: string
+  label: ReactNode
   title: string
   disabled?: boolean
   onClick: () => void
