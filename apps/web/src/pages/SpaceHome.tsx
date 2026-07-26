@@ -1,5 +1,7 @@
+import type { SpaceView } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
+import { RightDrawer } from '../components'
 import { ConceptGraph } from '../graph/ConceptGraph'
 import { SpaceActionsPanel } from '../spaces'
 import { trpc } from '../trpc'
@@ -22,6 +24,7 @@ export function SpaceHomePage() {
   const graph = trpc.spaces.graph.useQuery({ spaceId })
   const create = trpc.pages.create.useMutation()
 
+  const [railOpen, setRailOpen] = useState(false)
   const space = (spaces.data ?? []).find((s) => s.id === spaceId)
   const pages = tree.data ?? []
 
@@ -63,10 +66,13 @@ export function SpaceHomePage() {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 16)
   const hasEdges = (g?.edges.length ?? 0) > 0
+  const rail = space ? (
+    <RailContent space={space} concepts={concepts} g={g} hasEdges={hasEdges} />
+  ) : null
 
   return (
     <div className="flex flex-col h-[calc(100dvh-3.5rem)] md:h-screen">
-      <header className="px-6 pt-6 pb-3 flex items-baseline gap-3 shrink-0">
+      <header className="px-6 pt-6 pb-3 flex items-center gap-3 shrink-0">
         <h1 className="text-lg font-semibold truncate">{space?.name ?? 'Space'}</h1>
         {g && (
           <span className="text-xs" style={{ color: 'var(--text-3)' }}>
@@ -81,6 +87,19 @@ export function SpaceHomePage() {
               .join(' · ')}
           </span>
         )}
+        {/* rail is a fixed right column on lg; below that it opens as a drawer */}
+        <button
+          type="button"
+          title="Space menu"
+          aria-label="Space menu"
+          onClick={() => setRailOpen(true)}
+          className="lg:hidden ml-auto w-9 h-9 flex items-center justify-center rounded-md border shrink-0"
+          style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+        >
+          <span className="msym" style={{ fontSize: 20 }}>
+            right_panel_open
+          </span>
+        </button>
       </header>
 
       <div className="flex-1 min-h-0 flex">
@@ -111,33 +130,51 @@ export function SpaceHomePage() {
           className="w-72 shrink-0 border-l overflow-y-auto px-5 py-8 hidden lg:block"
           style={{ borderColor: 'var(--border)' }}
         >
-          {space && <SpaceActionsPanel space={space} />}
-          {concepts.length > 0 && (
-            <div className="mt-6">
-              <h2
-                className="text-[11px] uppercase tracking-wide mb-2"
-                style={{ color: 'var(--text-3)' }}
-              >
-                Top concepts
-              </h2>
-              <div className="flex flex-wrap gap-1.5">
-                {concepts.map((c) => (
-                  <span
-                    key={c.id}
-                    className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-                    title={`in ${c.weight} pages`}
-                  >
-                    {c.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {g && hasEdges && <GraphLegend g={g} />}
+          {rail}
         </aside>
       </div>
+
+      {railOpen && (
+        <RightDrawer title={space?.name ?? 'Space'} onClose={() => setRailOpen(false)}>
+          {rail}
+        </RightDrawer>
+      )}
     </div>
+  )
+}
+
+/** The right-rail contents, shared by the desktop column and the mobile drawer. */
+function RailContent(props: {
+  space: SpaceView
+  concepts: Array<{ id: string; label: string; weight: number }>
+  g: { tagCount: number; conceptCount: number; linkCount: number; semanticCount: number } | undefined
+  hasEdges: boolean
+}) {
+  const { space, concepts, g, hasEdges } = props
+  return (
+    <>
+      <SpaceActionsPanel space={space} />
+      {concepts.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-[11px] uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
+            Top concepts
+          </h2>
+          <div className="flex flex-wrap gap-1.5">
+            {concepts.map((c) => (
+              <span
+                key={c.id}
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                title={`in ${c.weight} pages`}
+              >
+                {c.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {g && hasEdges && <GraphLegend g={g} />}
+    </>
   )
 }
 
