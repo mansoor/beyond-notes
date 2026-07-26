@@ -79,6 +79,7 @@ export function SpaceHomePage() {
             {[
               `${g.pageCount} ${g.pageCount === 1 ? 'page' : 'pages'}`,
               g.linkCount > 0 && `${g.linkCount} links`,
+              g.relationCount > 0 && `${g.relationCount} actions`,
               g.semanticCount > 0 && `${g.semanticCount} similar`,
               g.tagCount > 0 && `${g.tagCount} tags`,
               `${g.conceptCount} concepts`,
@@ -147,7 +148,15 @@ export function SpaceHomePage() {
 function RailContent(props: {
   space: SpaceView
   concepts: Array<{ id: string; label: string; weight: number }>
-  g: { tagCount: number; conceptCount: number; linkCount: number; semanticCount: number } | undefined
+  g:
+    | {
+        tagCount: number
+        conceptCount: number
+        linkCount: number
+        semanticCount: number
+        relationCount: number
+      }
+    | undefined
   hasEdges: boolean
 }) {
   const { space, concepts, g, hasEdges } = props
@@ -180,7 +189,13 @@ function RailContent(props: {
 
 /** What the dots and lines mean — only the pieces this space actually has. */
 function GraphLegend(props: {
-  g: { tagCount: number; conceptCount: number; linkCount: number; semanticCount: number }
+  g: {
+    tagCount: number
+    conceptCount: number
+    linkCount: number
+    semanticCount: number
+    relationCount: number
+  }
 }) {
   const { g } = props
   const dot = (fill: string, stroke: string) => (
@@ -193,11 +208,18 @@ function GraphLegend(props: {
       <line x1="1" y1="4" x2="17" y2="4" stroke={stroke} strokeWidth="1.6" strokeDasharray={dash} />
     </svg>
   )
+  const arrow = (
+    <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden="true" role="presentation">
+      <line x1="1" y1="4" x2="12" y2="4" stroke="var(--text-2)" strokeWidth="1.6" />
+      <path d="M11,1 L17,4 L11,7 z" fill="var(--text-2)" />
+    </svg>
+  )
   const rows: Array<[ReactNode, string] | false> = [
     [dot('var(--accent)', 'var(--accent)'), 'Page'],
     g.tagCount > 0 && [dot('var(--accent-soft)', 'var(--accent)'), 'Tag'],
     g.conceptCount > 0 && [dot('var(--panel)', 'var(--text-3)'), 'Concept'],
     g.linkCount > 0 && [line('var(--accent)'), 'Links to'],
+    g.relationCount > 0 && [arrow, 'Acts on (verb)'],
     g.semanticCount > 0 && [line('var(--live)', '1 4'), 'Similar meaning'],
     g.tagCount > 0 && [line('var(--text-3)', '4 3'), 'Shares a tag'],
     g.conceptCount > 0 && [line('var(--border)'), 'Shares a concept'],

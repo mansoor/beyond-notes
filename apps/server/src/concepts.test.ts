@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractConcepts, singular } from './concepts'
+import { extractConcepts, extractTriples, singular } from './concepts'
 
 describe('singular', () => {
   it('folds common plurals to a shared form', () => {
@@ -72,5 +72,30 @@ describe('extractConcepts', () => {
   it('caps how many concepts one page contributes', () => {
     const many = Array.from({ length: 40 }, (_, i) => `concept${i} widget${i}`).join('. ')
     expect(extractConcepts(many, 12).length).toBeLessThanOrEqual(12)
+  })
+})
+
+describe('extractTriples', () => {
+  it('pulls subject-verb-object from a clean sentence', () => {
+    const t = extractTriples('Rigger deploys stacks. Docker runs containers.')
+    expect(t).toContainEqual({ subject: 'rigger', verb: 'deploys', object: 'stack' })
+    expect(t).toContainEqual({ subject: 'docker', verb: 'runs', object: 'container' })
+  })
+
+  it('drops auxiliary/linking verbs (no "X is Y" noise)', () => {
+    expect(extractTriples('Rigger is a tool.')).toEqual([])
+    expect(extractTriples('The backup was ready.')).toEqual([])
+  })
+
+  it('does not bridge a triple across a sentence boundary', () => {
+    // "backups" ends the first sentence; "docker" starts the next
+    const t = extractTriples('The tool stores backups. Docker helps.')
+    expect(t.every((x) => !(x.subject === 'backup' && x.object === 'docker'))).toBe(true)
+  })
+
+  it('is deterministic and empty-safe', () => {
+    expect(extractTriples('')).toEqual([])
+    const a = extractTriples('Rigger deploys stacks.')
+    expect(extractTriples('Rigger deploys stacks.')).toEqual(a)
   })
 })

@@ -66,8 +66,39 @@ describe('buildSpaceGraph', () => {
       tagCount: 0,
       linkCount: 0,
       semanticCount: 0,
+      relationCount: 0,
       isolatedCount: 0,
     })
+  })
+
+  it('adds a labeled relation edge between two kept concepts', () => {
+    // docker + container both appear in both pages -> kept concepts; the triple
+    // (docker, runs, container) becomes a directed labeled edge between them
+    const g = buildSpaceGraph(
+      [
+        page('a', 'A', 'Docker runs containers.'),
+        page('b', 'B', 'A container needs Docker.'),
+      ],
+      {},
+      { triples: [{ subject: 'docker', verb: 'runs', object: 'container' }] },
+    )
+    expect(g.relationCount).toBe(1)
+    expect(g.edges).toContainEqual({
+      source: 'concept:docker',
+      target: 'concept:container',
+      weight: 1,
+      type: 'relation',
+      label: 'runs',
+    })
+  })
+
+  it('drops a relation whose endpoints are not both kept concepts', () => {
+    const g = buildSpaceGraph(
+      [page('a', 'A', 'Sourdough bread only.')],
+      {},
+      { triples: [{ subject: 'rigger', verb: 'deploys', object: 'stack' }] },
+    )
+    expect(g.relationCount).toBe(0)
   })
 
   it('adds a semantic edge from a similarity pair (no shared word needed)', () => {
