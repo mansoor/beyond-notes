@@ -65,8 +65,20 @@ describe('buildSpaceGraph', () => {
       conceptCount: 0,
       tagCount: 0,
       linkCount: 0,
+      semanticCount: 0,
       isolatedCount: 0,
     })
+  })
+
+  it('adds a semantic edge from a similarity pair (no shared word needed)', () => {
+    const g = buildSpaceGraph(
+      [page('a', 'A', 'Sourdough bread.'), page('b', 'B', 'Kubernetes clusters.')],
+      {},
+      { similar: [{ a: 'a', b: 'b', score: 0.71 }] },
+    )
+    expect(g.semanticCount).toBe(1)
+    expect(g.edges).toContainEqual({ source: 'a', target: 'b', weight: 0.71, type: 'semantic' })
+    expect(g.isolatedCount).toBe(0)
   })
 
   it('adds a direct link edge from an explicit [[wiki link]]', () => {

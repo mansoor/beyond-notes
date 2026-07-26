@@ -13,6 +13,7 @@ import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './ca
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
@@ -64,7 +65,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const settings = createSettingsService(repo, config, { secretsKey })
   await settings.load()
   const auth = createAuthService(repo)
-  const pages = createPagesService(repo)
+  const embedder = createEmbedder(config)
+  const pages = createPagesService(repo, {
+    embedder,
+    embedThreshold: config.GRAPH_EMBED_THRESHOLD,
+    embedNeighbors: config.GRAPH_EMBED_NEIGHBORS,
+  })
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)

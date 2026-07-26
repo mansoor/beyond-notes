@@ -26,11 +26,21 @@ export type GraphEdge = {
   source: string
   target: string
   weight: number
-  type: 'concept' | 'tag' | 'link'
+  type: 'concept' | 'tag' | 'link' | 'semantic'
 }
 
 const CANVAS = 1000
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+const EDGE_STYLE: Record<
+  GraphEdge['type'],
+  { stroke: string; base: number; dash?: string; opacity: number }
+> = {
+  link: { stroke: 'var(--accent)', base: 1.6, opacity: 0.75 },
+  semantic: { stroke: 'var(--live)', base: 1.3, dash: '1 4', opacity: 0.7 },
+  tag: { stroke: 'var(--text-3)', base: 1, dash: '4 3', opacity: 0.8 },
+  concept: { stroke: 'var(--border)', base: 1, opacity: 0.8 },
+}
 
 type View = { x: number; y: number; scale: number }
 
@@ -81,7 +91,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   // a pinned concept/tag stays highlighted after you click it, and lists its
   // pages — hovering something else only lights it up transiently
   const [selected, setSelected] = useState<string | null>(null)
-  const [filters, setFilters] = useState({ concept: true, tag: true, link: true })
+  const [filters, setFilters] = useState({ concept: true, tag: true, link: true, semantic: true })
   const [labelDensity, setLabelDensity] = useState(1)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<
@@ -95,6 +105,8 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
     () => edges.filter((e) => filters[e.type]),
     [edges, filters],
   )
+  // which edge types this space actually has — only those get a filter toggle
+  const present = useMemo(() => new Set(edges.map((e) => e.type)), [edges])
 
   // adjacency over the *visible* edges, so hiding an edge type also stops it
   // highlighting or listing neighbours
@@ -220,14 +232,9 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
             const b = positions.get(e.target)
             if (!a || !b) return null
             const lit = edgeLit(e)
-            // explicit links stand out (accent), tags dash, concepts stay quiet
-            const stroke =
-              e.type === 'link'
-                ? 'var(--accent)'
-                : e.type === 'tag'
-                  ? 'var(--text-3)'
-                  : 'var(--border)'
-            const base = e.type === 'link' ? 1.6 : 1
+            // explicit links stand out (accent), semantic edges are green dots,
+            // tags dash, concepts stay quiet
+            const style = EDGE_STYLE[e.type]
             return (
               <line
                 key={`${e.type}:${e.source}->${e.target}`}
@@ -235,10 +242,10 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke={stroke}
-                strokeWidth={lit ? base : base * 0.45}
-                strokeDasharray={e.type === 'tag' ? '4 3' : undefined}
-                opacity={lit ? (e.type === 'link' ? 0.75 : 0.8) : 0.16}
+                stroke={style.stroke}
+                strokeWidth={lit ? style.base : style.base * 0.45}
+                strokeDasharray={style.dash}
+                opacity={lit ? style.opacity : 0.16}
               />
             )
           })}
@@ -385,24 +392,29 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
           className="rounded-lg border p-2 text-xs flex flex-col gap-1.5"
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
-          {([
-            ['link', 'Links'],
-            ['tag', 'Tags'],
-            ['concept', 'Concepts'],
-          ] as const).map(([key, label]) => (
-            <label
-              key={key}
-              className="flex items-center gap-1.5 cursor-pointer"
-              style={{ color: 'var(--text-2)' }}
-            >
-              <input
-                type="checkbox"
-                checked={filters[key]}
-                onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.checked }))}
-              />
-              {label}
-            </label>
-          ))}
+          {(
+            [
+              ['link', 'Links'],
+              ['semantic', 'Similar'],
+              ['tag', 'Tags'],
+              ['concept', 'Concepts'],
+            ] as const
+          )
+            .filter(([key]) => present.has(key))
+            .map(([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center gap-1.5 cursor-pointer"
+                style={{ color: 'var(--text-2)' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={filters[key]}
+                  onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
           <label
             className="flex items-center gap-2 mt-0.5 pt-1.5 border-t"
             style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}
