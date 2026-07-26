@@ -37,6 +37,15 @@ describe('daily.journalTimeline (sqlite)', () => {
     expect(second.nextCursor).toBeNull()
   })
 
+  it('excludes a day that was opened but never written in', async () => {
+    const { daily, user } = await setup()
+    await daily.appendToDay(user, '2026-07-20', 'a real entry')
+    await daily.day(user, '2026-07-21') // opens Today for the 21st — creates an empty day page
+    const t = await daily.journalTimeline(user, { limit: 40, cursor: 0 })
+    // only the day with actual text shows; the empty shell does not
+    expect(t.items.map((i) => i.date)).toEqual(['2026-07-20'])
+  })
+
   it('skips the tasks-inbox sentinel page', async () => {
     const { daily, user } = await setup()
     await daily.tasksInboxPage(user) // creates the 'inbox' sentinel in the journal space

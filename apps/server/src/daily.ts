@@ -238,18 +238,33 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
         byDate.set(p.dateKey, group)
       }
       const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a))
-      const items = []
-      for (const date of dates.slice(offset, offset + opts.limit)) {
+      const items: Array<{ date: string; preview: string; notes: number }> = []
+
+      // A day page is created just by opening it on Today, so most "days" are
+      // empty shells the user never wrote in. Only days with actual text belong
+      // on the timeline — so we walk the dates, skip the empty ones, and stop
+      // once we've filled a page. The cursor resumes at the date we left off.
+      let i = offset
+      for (; i < dates.length && items.length < opts.limit; i++) {
+        const date = dates[i]
+        if (!date) continue
         const group = (byDate.get(date) ?? []).sort(
           (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
         )
-        const main = group[0]
-        const doc = main ? await repo.getDocument(main.id) : null
-        const preview = doc ? plainText(doc.content).replace(/\s+/g, ' ').slice(0, 180).trim() : ''
+        let preview = ''
+        let hasContent = false
+        for (const p of group) {
+          const doc = await repo.getDocument(p.id)
+          const text = doc ? plainText(doc.content).replace(/\s+/g, ' ').trim() : ''
+          if (text) {
+            hasContent = true
+            if (!preview) preview = text.slice(0, 180) // first note with text (the main note)
+          }
+        }
+        if (!hasContent) continue // an empty day the user only opened — not written
         items.push({ date, preview, notes: group.length })
       }
-      const next = offset + opts.limit
-      return { items, nextCursor: next < dates.length ? next : null }
+      return { items, nextCursor: i < dates.length ? i : null }
     },
 
     // ---- memos ----
