@@ -7,9 +7,12 @@
  * unhide, rather than refusing.
  */
 
-import type { SpaceCategory } from '@bn/schema'
+import type { AppTheme, GraphEdgeKind, SpaceCategory } from '@bn/schema'
 import { useCallback, useEffect, useState } from 'react'
 import { trpc } from './trpc'
+
+/** Every graph edge kind, in canonical order — the default when nothing is set. */
+export const ALL_GRAPH_EDGES: GraphEdgeKind[] = ['concept', 'link', 'tag', 'relation', 'semantic']
 
 export type HideableKind = SpaceCategory | 'database'
 
@@ -113,6 +116,12 @@ export function useSidebarPrefs() {
   const saveLinkCapture = trpc.auth.setLinkCaptureFull.useMutation({
     onSuccess: () => utils.auth.status.invalidate(),
   })
+  const saveGraph = trpc.auth.setGraphPrefs.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
+  const saveTheme = trpc.auth.setDefaultTheme.useMutation({
+    onSuccess: () => utils.auth.status.invalidate(),
+  })
 
   const hidden = new Set(status.data?.me?.sidebarHidden ?? [])
 
@@ -146,7 +155,22 @@ export function useSidebarPrefs() {
     /** Whether a shared link is captured as its full article or just the opener. */
     linkCaptureFull: status.data?.me?.linkCaptureFull ?? true,
     setLinkCaptureFull: (enabled: boolean) => saveLinkCapture.mutateAsync({ enabled }),
+    /** Knowledge graph: whether a space name opens its graph overview, and which
+     *  edge kinds that graph draws. Defaults to on/all while the query loads. */
+    graphEnabled: status.data?.me?.graphEnabled ?? true,
+    graphEdges: status.data?.me?.graphEdges ?? ALL_GRAPH_EDGES,
+    graphMobile: status.data?.me?.graphMobile ?? true,
+    setGraphPrefs: (input: { enabled: boolean; edges: GraphEdgeKind[]; mobile: boolean }) =>
+      saveGraph.mutateAsync(input),
+    /** The account's default app theme (applied on a device with no local choice). */
+    defaultTheme: status.data?.me?.defaultTheme ?? 'light',
+    setDefaultTheme: (theme: AppTheme) => saveTheme.mutateAsync({ theme }),
     saving:
-      save.isPending || saveDays.isPending || saveConfirm.isPending || saveLinkCapture.isPending,
+      save.isPending ||
+      saveDays.isPending ||
+      saveConfirm.isPending ||
+      saveLinkCapture.isPending ||
+      saveGraph.isPending ||
+      saveTheme.isPending,
   }
 }

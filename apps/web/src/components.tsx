@@ -5,6 +5,24 @@ import { createPortal } from 'react-dom'
 import { MATERIAL_ICONS } from './material-icons'
 
 /**
+ * True on phone-width screens (≤767px). A JS media query, not a `md:` class, so
+ * behaviour — not just layout — can branch on it: the mobile drawer, and whether
+ * the knowledge graph is built on small screens.
+ */
+export function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const on = () => setMobile(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return mobile
+}
+
+/**
  * Fixed-position placement for a dropdown anchored to a trigger. `position:
  * fixed` escapes the sidebar's `overflow` clipping, and the menu flips above the
  * trigger when there isn't room below — so it always stays on screen.

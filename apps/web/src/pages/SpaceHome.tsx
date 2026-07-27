@@ -1,8 +1,9 @@
 import type { SpaceView } from '@bn/schema'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
-import { RightDrawer } from '../components'
+import { RightDrawer, useIsMobile } from '../components'
 import { ConceptGraph } from '../graph/ConceptGraph'
+import { useSidebarPrefs } from '../sidebarprefs'
 import { SpaceActionsPanel } from '../spaces'
 import { trpc } from '../trpc'
 
@@ -21,7 +22,13 @@ export function SpaceHomePage() {
   const utils = trpc.useUtils()
   const spaces = trpc.spaces.list.useQuery()
   const tree = trpc.pages.tree.useQuery({ spaceId })
-  const graph = trpc.spaces.graph.useQuery({ spaceId })
+  const { graphEnabled, graphMobile } = useSidebarPrefs()
+  const isMobile = useIsMobile()
+  // don't build the graph when the preference is off — or on a phone with the
+  // graph disabled there. This page is only reached by direct URL then, and it
+  // renders the pages list instead.
+  const graphActive = graphEnabled && (graphMobile || !isMobile)
+  const graph = trpc.spaces.graph.useQuery({ spaceId }, { enabled: graphActive })
   const create = trpc.pages.create.useMutation()
 
   const [railOpen, setRailOpen] = useState(false)
@@ -105,7 +112,30 @@ export function SpaceHomePage() {
 
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 relative">
-          {graph.isLoading && (
+          {!graphActive && (
+            <div className="absolute inset-0 overflow-y-auto px-6 py-4">
+              <p className="text-sm mb-4" style={{ color: 'var(--text-3)' }}>
+                The knowledge graph is off{graphEnabled ? ' on phones' : ''}. Turn it on in Settings
+                → Preferences to see how these pages connect.
+              </p>
+              <div className="flex flex-col">
+                {pages
+                  .filter((p) => p.parentId === null)
+                  .map((p) => (
+                    <Link
+                      key={p.id}
+                      to="/p/$pageId"
+                      params={{ pageId: p.id }}
+                      className="text-sm py-1.5 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5 truncate"
+                      style={{ color: 'var(--text-2)' }}
+                    >
+                      {p.title.trim() || 'Untitled'}
+                    </Link>
+                  ))}
+              </div>
+            </div>
+          )}
+          {graphActive && graph.isLoading && (
             <div
               className="absolute inset-0 flex items-center justify-center text-sm"
               style={{ color: 'var(--text-3)' }}
@@ -165,7 +195,10 @@ function RailContent(props: {
       <SpaceActionsPanel space={space} />
       {concepts.length > 0 && (
         <div className="mt-6">
-          <h2 className="text-[11px] uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
+          <h2
+            className="text-[11px] uppercase tracking-wide mb-2"
+            style={{ color: 'var(--text-3)' }}
+          >
             Top concepts
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -230,14 +263,19 @@ function GraphLegend(props: {
         Legend
       </h2>
       <div className="flex flex-col gap-1.5">
-        {rows.filter((r): r is [ReactNode, string] => r !== false).map(([mark, label]) => (
-          <div key={label} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-2)' }}>
-            <span className="w-[18px] flex justify-center">{mark}</span>
-            {label}
-          </div>
-        ))}
+        {rows
+          .filter((r): r is [ReactNode, string] => r !== false)
+          .map(([mark, label]) => (
+            <div
+              key={label}
+              className="flex items-center gap-2 text-xs"
+              style={{ color: 'var(--text-2)' }}
+            >
+              <span className="w-[18px] flex justify-center">{mark}</span>
+              {label}
+            </div>
+          ))}
       </div>
     </div>
   )
 }
-

@@ -20,6 +20,14 @@ export type UserRow = {
   confirmDelete: boolean
   /** fetch the full article (vs. just the first paragraph) for a shared link */
   linkCaptureFull: boolean
+  /** clicking a space name opens its knowledge-graph overview vs. just expanding */
+  graphEnabled: boolean
+  /** JSON array of enabled graph edge kinds: concept|link|tag|relation|semantic */
+  graphEdges: string
+  /** also build the graph on phones (off = treat as disabled on small screens) */
+  graphMobile: boolean
+  /** default app theme, adopted on a device that has not picked one */
+  defaultTheme: 'light' | 'paper' | 'navy' | 'dark'
   createdAt: Date
 }
 
@@ -312,6 +320,10 @@ export function createRepo(appDb: AppDb) {
           | 'reminderDays'
           | 'confirmDelete'
           | 'linkCaptureFull'
+          | 'graphEnabled'
+          | 'graphEdges'
+          | 'graphMobile'
+          | 'defaultTheme'
         >
       >,
     ): Promise<void> {

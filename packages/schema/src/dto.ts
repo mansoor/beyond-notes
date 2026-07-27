@@ -81,8 +81,31 @@ export type UserView = {
   confirmDelete: boolean
   /** fetch the full article (vs. just the first paragraph) for a shared link */
   linkCaptureFull: boolean
+  /** clicking a space name opens its knowledge-graph overview vs. just expanding */
+  graphEnabled: boolean
+  /** which edge kinds the knowledge graph generates */
+  graphEdges: GraphEdgeKind[]
+  /** also build the graph on phones */
+  graphMobile: boolean
+  /** the account's default app theme, applied on a device with no local choice */
+  defaultTheme: AppTheme
   createdAt: string
 }
+
+/** The four built-in app themes, lightest to darkest. */
+export const appTheme = z.enum(['light', 'paper', 'navy', 'dark'])
+export type AppTheme = z.infer<typeof appTheme>
+
+/** The five relationship layers the per-space knowledge graph can draw. */
+export const graphEdgeKind = z.enum(['concept', 'link', 'tag', 'relation', 'semantic'])
+export type GraphEdgeKind = z.infer<typeof graphEdgeKind>
+
+export const graphPrefsInput = z.object({
+  enabled: z.boolean(),
+  edges: z.array(graphEdgeKind),
+  mobile: z.boolean(),
+})
+export type GraphPrefsInput = z.infer<typeof graphPrefsInput>
 
 export type InviteView = {
   id: string
@@ -98,6 +121,9 @@ export type AuthStatus = {
   me: UserView | null
   // SMTP present on this deployment: gates "Forgot password?" and emailed invites
   mailConfigured: boolean
+  // the embeddings layer is available on this deployment (the -ml image): gates
+  // the graph's "similar meaning" edge option in Settings
+  graphEmbeddings: boolean
 }
 
 // ---- spaces & pages (M1) ----

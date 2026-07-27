@@ -112,6 +112,10 @@ export function createAuthService(
         reminderDays: 7,
         confirmDelete: true,
         linkCaptureFull: true,
+        graphEnabled: true,
+        graphEdges: '["concept","link","tag","relation","semantic"]',
+        graphMobile: true,
+        defaultTheme: 'light',
         createdAt: now(),
       }
       await repo.insertUser(user)
@@ -339,6 +343,10 @@ export function createAuthService(
         reminderDays: 7,
         confirmDelete: true,
         linkCaptureFull: true,
+        graphEnabled: true,
+        graphEdges: '["concept","link","tag","relation","semantic"]',
+        graphMobile: true,
+        defaultTheme: 'light',
         createdAt: now(),
       }
       await repo.insertUser(user)

@@ -1,0 +1,2 @@
+ALTER TABLE `users` ADD `graph_enabled` integer DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE `users` ADD `graph_edges` text DEFAULT '["concept","link","tag","relation","semantic"]' NOT NULL;

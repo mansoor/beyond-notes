@@ -232,6 +232,20 @@
       "when": 1784869338807,
       "tag": "0032_condemned_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785154588962,
+      "tag": "0033_chunky_iron_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785155465027,
+      "tag": "0034_oval_jasper_sitwell",
+      "breakpoints": true
     }
   ]
 }

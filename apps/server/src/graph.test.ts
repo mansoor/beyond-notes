@@ -75,10 +75,7 @@ describe('buildSpaceGraph', () => {
     // docker + container both appear in both pages -> kept concepts; the triple
     // (docker, runs, container) becomes a directed labeled edge between them
     const g = buildSpaceGraph(
-      [
-        page('a', 'A', 'Docker runs containers.'),
-        page('b', 'B', 'A container needs Docker.'),
-      ],
+      [page('a', 'A', 'Docker runs containers.'), page('b', 'B', 'A container needs Docker.')],
       {},
       { triples: [{ subject: 'docker', verb: 'runs', object: 'container' }] },
     )
@@ -150,5 +147,39 @@ describe('buildSpaceGraph', () => {
     )
     expect(g.linkCount).toBe(0)
     expect(g.tagCount).toBe(0)
+  })
+
+  it('include limits which edge kinds are emitted, and drops orphaned nodes', () => {
+    const pages = [
+      page('a', 'A', 'Docker volume backups run nightly.'),
+      page('b', 'B', 'Docker backup restore steps.'),
+    ]
+    const rel = {
+      links: [{ from: 'a', to: 'b' }],
+      tags: [
+        { pageId: 'a', tag: 'ops' },
+        { pageId: 'b', tag: 'ops' },
+      ],
+    }
+    // only links: no concept or tag nodes survive, just the two pages + one edge
+    const linksOnly = buildSpaceGraph(pages, { include: new Set(['link']) }, rel)
+    expect(linksOnly.edges).toEqual([{ source: 'a', target: 'b', weight: 1, type: 'link' }])
+    expect(linksOnly.linkCount).toBe(1)
+    expect(linksOnly.conceptCount).toBe(0)
+    expect(linksOnly.tagCount).toBe(0)
+    expect(linksOnly.nodes.every((n) => n.kind === 'page')).toBe(true)
+
+    // only tags: the tag node stays, concept nodes and the link edge are gone
+    const tagsOnly = buildSpaceGraph(pages, { include: new Set(['tag']) }, rel)
+    expect(tagsOnly.edges.every((e) => e.type === 'tag')).toBe(true)
+    expect(tagsOnly.tagCount).toBe(1)
+    expect(tagsOnly.conceptCount).toBe(0)
+    expect(tagsOnly.linkCount).toBe(0)
+
+    // omitting include keeps the current all-edges behaviour
+    const all = buildSpaceGraph(pages, {}, rel)
+    expect(all.linkCount).toBe(1)
+    expect(all.tagCount).toBe(1)
+    expect(all.conceptCount).toBeGreaterThan(0)
   })
 })
