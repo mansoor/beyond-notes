@@ -31,6 +31,7 @@ import {
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
 import {
+  KIND_ICON,
   KIND_LABEL,
   catToken,
   spaceLabel,
@@ -104,9 +105,10 @@ export function SpacesNav() {
         return (
           <div key={cat}>
             <div
-              className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center"
+              className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center gap-1.5"
               style={{ color: 'var(--text-3)' }}
             >
+              <PageIcon icon={KIND_ICON[cat]} className="text-[13px]" />
               {CATEGORY_LABEL[cat]}
               <button
                 type="button"
@@ -243,12 +245,13 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
               key={k}
               type="button"
               onClick={() => setKind(k)}
-              className="px-3 py-1.5 rounded-lg text-sm border capitalize"
+              className="px-3 py-1.5 rounded-lg text-sm border capitalize flex items-center gap-1.5"
               style={{
                 borderColor: kind === k ? 'var(--accent)' : 'var(--border)',
                 color: kind === k ? 'var(--accent)' : 'var(--text-2)',
               }}
             >
+              <PageIcon icon={KIND_ICON[k]} className="text-[15px]" />
               {k}
             </button>
           ))}
@@ -1106,8 +1109,8 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
                   Maintenance mode
                 </label>
                 <p className="text-xs mb-4 pl-6" style={{ color: 'var(--text-3)' }}>
-                  Keeps the site online but serves a “back soon” page instead of the content — so the
-                  address still works while you take it down for a while.
+                  Keeps the site online but serves a “back soon” page instead of the content — so
+                  the address still works while you take it down for a while.
                 </p>
                 <Field label="Domain (e.g. docs.example.com)" value={host} onChange={setHost} />
                 <Field

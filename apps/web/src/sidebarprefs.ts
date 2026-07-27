@@ -75,6 +75,18 @@ export const KIND_LABEL: Record<HideableKind, string> = {
   database: 'Databases',
 }
 
+/**
+ * A Material Symbols ligature per kind, so the sidebar sections and the
+ * New-space buttons read at a glance: a book for private notes, a doc for a
+ * wiki, a globe for a website, a cylinder for a database.
+ */
+export const KIND_ICON: Record<HideableKind, string> = {
+  notebook: 'book',
+  wiki: 'article',
+  site: 'public',
+  database: 'database',
+}
+
 /** Singular type word for one space, e.g. for a dialog title. */
 const SPACE_TYPE_LABEL: Record<SpaceCategory, string> = {
   notebook: 'Notebook',
@@ -135,9 +147,6 @@ export function useSidebarPrefs() {
     linkCaptureFull: status.data?.me?.linkCaptureFull ?? true,
     setLinkCaptureFull: (enabled: boolean) => saveLinkCapture.mutateAsync({ enabled }),
     saving:
-      save.isPending ||
-      saveDays.isPending ||
-      saveConfirm.isPending ||
-      saveLinkCapture.isPending,
+      save.isPending || saveDays.isPending || saveConfirm.isPending || saveLinkCapture.isPending,
   }
 }
