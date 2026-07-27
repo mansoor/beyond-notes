@@ -212,6 +212,51 @@ for (const dialect of dialects) {
       await dest.appDb.close()
     })
 
+    it('a page in the trash counts as missing and is restored', async () => {
+      const { path, spaceId, childId } = await seededArchive()
+      const dest = await instance()
+      const { user } = await dest.auth.setup({
+        name: 'M',
+        email: 'm@x.dev',
+        password: 'longpassword1',
+      })
+      const restore = restoreFor(dest, path)
+      await restore.run({
+        name: 'backup.zip',
+        spaces: [{ id: spaceId, mode: 'merge' }],
+        journal: false,
+        inbox: false,
+      })
+
+      // send Setup to the trash — a soft delete, the row lingers with trashedAt
+      await dest.pages.trashPage(user, childId)
+
+      // the plan must treat it as gone: 1 current page, 1 missing
+      const plan = await restore.plan('backup.zip')
+      const sp = plan.spaces.find((s) => s.id === spaceId)
+      expect(sp?.existingPages).toBe(1) // only Guide is current
+      expect(sp?.missingPages).toBe(1) // Setup (trashed) is restorable
+
+      const res = await restore.run({
+        name: 'backup.zip',
+        spaces: [{ id: spaceId, mode: 'merge' }],
+        journal: false,
+        inbox: false,
+      })
+      expect(res.pagesRestored).toBe(1)
+      const all = await dest.repo.listPagesInSpace(spaceId)
+      // Setup is back and live, with no leftover trashed duplicate of its id
+      expect(all.filter((p) => p.id === childId)).toHaveLength(1)
+      expect(all.find((p) => p.id === childId)?.trashedAt).toBeNull()
+      expect(
+        all
+          .filter((p) => p.trashedAt === null)
+          .map((p) => p.title)
+          .sort(),
+      ).toEqual(['Guide', 'Setup'])
+      await dest.appDb.close()
+    })
+
     it('overwrite replaces a clashing same-named space wholesale', async () => {
       const { path, spaceId } = await seededArchive()
 

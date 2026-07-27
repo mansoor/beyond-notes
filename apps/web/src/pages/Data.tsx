@@ -19,8 +19,16 @@ import {
 } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { ErrorNote, Field, Modal, SubmitButton, useMenuAnchor, useSubmit } from '../components'
-import { catToken, dbToken, useCollapsibleGroup, useSidebarPrefs } from '../sidebarprefs'
+import {
+  ErrorNote,
+  Field,
+  Modal,
+  PageIcon,
+  SubmitButton,
+  useMenuAnchor,
+  useSubmit,
+} from '../components'
+import { KIND_ICON, catToken, dbToken, useCollapsibleGroup, useSidebarPrefs } from '../sidebarprefs'
 import { NewSpaceModal } from '../spaces'
 import { trpc } from '../trpc'
 
@@ -76,7 +84,8 @@ function useDragReorder(onMove: (from: number, to: number) => void) {
     },
   })
   /** true when a drag is hovering this row and would drop onto it */
-  const isOver = (index: number) => over === index && from.current !== null && from.current !== index
+  const isOver = (index: number) =>
+    over === index && from.current !== null && from.current !== index
   return { handleProps, rowProps, isOver }
 }
 
@@ -193,9 +202,10 @@ export function DatabasesNav() {
   return (
     <div>
       <div
-        className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center"
+        className="text-[11px] uppercase tracking-wide font-semibold mb-1 px-2 flex items-center gap-1.5"
         style={{ color: 'var(--text-3)' }}
       >
+        <PageIcon icon={KIND_ICON.database} className="text-[13px]" />
         Databases
         <button
           type="button"

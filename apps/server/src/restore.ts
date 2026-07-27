@@ -161,8 +161,13 @@ export function createRestoreService(deps: {
       existing.filter((s) => s.kind === 'tree').map((s) => [s.name.toLowerCase(), s]),
     )
     const users = await repo.listUsers()
-    // page ids currently living in each space — to count what a merge would add
-    const livePageIdsBySpace = groupBy(await repo.listAllPages(), (p) => p.spaceId)
+    // page ids currently living in each space — to count what a merge would add.
+    // Trashed pages are treated as gone: they don't count as "current", and the
+    // backup can restore over them (see run()), so they show up as missing.
+    const livePageIdsBySpace = groupBy(
+      (await repo.listAllPages()).filter((p) => p.trashedAt === null),
+      (p) => p.spaceId,
+    )
 
     const treeSpaces = spaces
       .filter((s) => s.kind === 'tree')
@@ -341,9 +346,14 @@ export function createRestoreService(deps: {
           targetId = space.id
         }
 
-        const present = new Set((await repo.listPagesInSpace(targetId)).map((p) => p.id))
+        // a page sitting in the trash counts as gone: it is restorable, and its
+        // id is freed (purge the trashed row) so the backup copy can take it back
+        const targetPages = await repo.listPagesInSpace(targetId)
+        const present = new Set(targetPages.filter((p) => p.trashedAt === null).map((p) => p.id))
+        const trashed = new Set(targetPages.filter((p) => p.trashedAt !== null).map((p) => p.id))
         for (const page of backupPages) {
-          if (present.has(page.id)) continue // merge: leave a page you still have alone
+          if (present.has(page.id)) continue // merge: leave a live page you still have alone
+          if (trashed.has(page.id)) await repo.deletePage(page.id) // drop the trashed copy first
           await insertPageFull(page, targetId)
         }
         result.spacesRestored++
