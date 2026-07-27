@@ -1,9 +1,11 @@
 import {
+  type BackupSettings,
   type NtfySettings,
   type RecaptchaSettings,
   type ServerSettingsView,
   type SmtpSettings,
   type StorageSettings,
+  backupSettings,
   ntfySettings,
   recaptchaSettings,
   smtpSettings,
@@ -84,6 +86,10 @@ export function createSettingsService(
 
     storage(): StorageSettings | null {
       return parse('storage', storageSettings)
+    },
+
+    backup(): BackupSettings {
+      return parse('backup', backupSettings) ?? backupSettings.parse({})
     },
 
     recaptcha(): RecaptchaSettings | null {
@@ -190,6 +196,7 @@ export function createSettingsService(
           hasSecret: Boolean(storage.s3SecretKey || config.S3_SECRET_KEY),
         },
         recaptcha: { siteKey: recaptcha.siteKey, hasSecret: Boolean(recaptcha.secretKey) },
+        backup: this.backup(),
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',
       }
@@ -203,6 +210,10 @@ export function createSettingsService(
 
     async saveNtfy(input: NtfySettings): Promise<void> {
       await this.put('ntfy', input)
+    },
+
+    async saveBackup(input: BackupSettings): Promise<void> {
+      await this.put('backup', input)
     },
 
     async saveStorage(input: StorageSettings): Promise<void> {

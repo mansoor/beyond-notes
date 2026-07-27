@@ -637,11 +637,36 @@ export const storageSettings = z.object({
 })
 export type StorageSettings = z.infer<typeof storageSettings>
 
+// ---- backups (admin) ----
+
+export const backupFrequency = z.enum(['daily', 'weekly', 'monthly'])
+export type BackupFrequency = z.infer<typeof backupFrequency>
+
+export const backupSettings = z.object({
+  enabled: z.boolean().default(false),
+  frequency: backupFrequency.default('weekly'),
+  // local hour of day (0–23) the scheduled backup runs
+  hour: z.coerce.number().int().min(0).max(23).default(3),
+  // how many backups to keep; older ones are pruned after each run
+  retention: z.coerce.number().int().min(1).max(365).default(4),
+  // also mirror each backup to S3 — only meaningful when storage driver is s3
+  s3Copy: z.boolean().default(false),
+})
+export type BackupSettings = z.infer<typeof backupSettings>
+
+/** One stored backup, listed in Settings (the local dir is the source of truth). */
+export type BackupView = {
+  name: string
+  sizeBytes: number
+  createdAt: string
+}
+
 export type ServerSettingsView = {
   smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
   ntfy: NtfySettings
   storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
   recaptcha: { siteKey: string; hasSecret: boolean }
+  backup: BackupSettings
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
   ntfySource: 'db' | 'env' | 'off'

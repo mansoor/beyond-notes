@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { blocknoteToMarkdown, markdownToBlocks } from '@bn/renderer'
-import { zipSync } from 'fflate'
+import { strToU8, zipSync } from 'fflate'
 import { extractAttachmentIds, thumbKey } from './attachments'
 import type { BlobStore } from './blobstore'
 import { reconcileLinks } from './links'
@@ -55,14 +55,10 @@ type Dump = {
 
 // ---- 1. full instance ----
 
-export async function exportInstance(
-  repo: Repo,
-  blobs: BlobStore,
-  outDir: string,
-  opts: { secretsKey?: Buffer } = {},
-) {
-  mkdirSync(join(outDir, 'blobs'), { recursive: true })
-
+/** Gather every table into one dump. Secrets are decrypted into it so it can
+ *  restore onto an instance with a different key — the dump must be guarded
+ *  like a backup either way. Shared by the dir export and the zip archive. */
+async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
   // sessions and reset tokens are deliberately absent: ephemeral by design
   const tables: Dump['tables'] = {
     users: await repo.listUsers(),
@@ -77,13 +73,10 @@ export async function exportInstance(
     tasks: await repo.listAllTasks(),
     reminders: await repo.listAllReminders(),
     scheduledJobs: await repo.listAllJobs(),
-    // secrets are decrypted into the dump so it restores on an instance with
-    // a different key — an export dir already holds everything and must be
-    // guarded like a backup either way
     settings: (await repo.listSettings()).map((row) => {
       try {
         const parsed = JSON.parse(row.value) as Record<string, unknown>
-        const { value } = decryptGroup(opts.secretsKey, row.key, parsed)
+        const { value } = decryptGroup(secretsKey, row.key, parsed)
         return { ...row, value: JSON.stringify(value) }
       } catch {
         return row
@@ -100,22 +93,51 @@ export async function exportInstance(
     dbRows: await repo.listAllDbRows(),
   } as unknown as Dump['tables']
 
-  const dump: Dump = {
-    version: EXPORT_VERSION,
-    exportedAt: new Date().toISOString(),
-    tables,
-  }
+  return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
+}
+
+export async function exportInstance(
+  repo: Repo,
+  blobs: BlobStore,
+  outDir: string,
+  opts: { secretsKey?: Buffer } = {},
+) {
+  mkdirSync(join(outDir, 'blobs'), { recursive: true })
+  const dump = await collectDump(repo, opts.secretsKey)
   writeFileSync(join(outDir, 'data.json'), JSON.stringify(dump, null, 2))
 
   let blobCount = 0
-  for (const attachment of tables.attachments as unknown as AttachmentRow[]) {
+  for (const attachment of dump.tables.attachments as unknown as AttachmentRow[]) {
     for (const key of [attachment.hash, thumbKey(attachment.hash)]) {
       if (!(await blobs.exists(key))) continue
       writeFileSync(join(outDir, 'blobs', key), await blobs.read(key))
       blobCount++
     }
   }
-  return { tables: Object.keys(tables).length, blobs: blobCount }
+  return { tables: Object.keys(dump.tables).length, blobs: blobCount }
+}
+
+/**
+ * The same full-instance dump, but as a single in-memory zip (data.json +
+ * blobs/…) — what the backup feature stores. Restores via `restoreArchive`
+ * (or the CLI dir import after unzipping).
+ */
+export async function buildInstanceArchive(
+  repo: Repo,
+  blobs: BlobStore,
+  opts: { secretsKey?: Buffer } = {},
+): Promise<Uint8Array> {
+  const dump = await collectDump(repo, opts.secretsKey)
+  const files: Record<string, Uint8Array> = {
+    'data.json': strToU8(JSON.stringify(dump)),
+  }
+  for (const attachment of dump.tables.attachments as unknown as AttachmentRow[]) {
+    for (const key of [attachment.hash, thumbKey(attachment.hash)]) {
+      if (!(await blobs.exists(key))) continue
+      files[`blobs/${key}`] = new Uint8Array(await blobs.read(key))
+    }
+  }
+  return zipSync(files)
 }
 
 function revive(table: string, row: Record<string, unknown>): Record<string, unknown> {

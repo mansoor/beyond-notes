@@ -58,6 +58,7 @@ export function createScheduler(
   opts: {
     now?: () => Date
     publishPage?: (pageId: string, byUserId: string) => Promise<void>
+    runBackup?: () => Promise<void>
   } = {},
 ) {
   const now = opts.now ?? (() => new Date())
@@ -71,6 +72,18 @@ export function createScheduler(
     attempts: number
   }): Promise<void> {
     try {
+      // periodic full backup rides the same job table; it reschedules its own
+      // next run, so one fire never spawns a backlog
+      if (job.type === 'backup') {
+        if (!opts.runBackup) {
+          await repo.finishJob(job.id, 'done', job.attempts, 'backups disabled — skipped')
+          return
+        }
+        await opts.runBackup()
+        await repo.finishJob(job.id, 'done', job.attempts + 1, null)
+        return
+      }
+
       // scheduled publishing rides the same job table as reminders
       if (job.type === 'scheduled-publish') {
         const { by } = JSON.parse(job.payload) as { by: string }
