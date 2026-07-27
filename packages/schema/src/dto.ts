@@ -661,6 +661,62 @@ export type BackupView = {
   createdAt: string
 }
 
+// ---- restore (read side of backup) ----
+
+/** Per tree space: add only the pages missing here, or replace the space wholesale. */
+export const restoreSpaceMode = z.enum(['merge', 'overwrite'])
+export type RestoreSpaceMode = z.infer<typeof restoreSpaceMode>
+
+/** What a restore should put back. Content only — never users/settings/secrets. */
+export const restoreInput = z.object({
+  name: z.string().min(1),
+  // tree spaces to restore. 'merge' (default) adds only pages missing here and
+  // leaves existing ones untouched; 'overwrite' deletes the live space first.
+  spaces: z
+    .array(z.object({ id: z.string(), mode: restoreSpaceMode.default('merge') }))
+    .default([]),
+  // journal (Today + Tasks live inside it) and inbox memos are additive merges
+  journal: z.boolean().default(false),
+  inbox: z.boolean().default(false),
+})
+export type RestoreInput = z.infer<typeof restoreInput>
+
+/** One tree space offered by a backup, and how it lines up with the live one. */
+export type RestorePlanSpaceView = {
+  id: string
+  name: string
+  /** pages in the backup */
+  pageCount: number
+  /** a tree space with this id or name already exists here */
+  conflict: boolean
+  /** how many pages currently live in the matching space (0 if none) */
+  existingPages: number
+  /** backup pages not present here — what a merge would add */
+  missingPages: number
+}
+
+/** The manifest of a backup: what is inside and how it lines up with now. */
+export type RestorePlanView = {
+  name: string
+  exportedAt: string
+  version: number
+  compatible: boolean
+  spaces: RestorePlanSpaceView[]
+  journalPageCount: number
+  journalExists: boolean
+  inboxCount: number
+}
+
+export type RestoreResultView = {
+  spacesRestored: number
+  spacesSkipped: number
+  pagesRestored: number
+  journalPagesRestored: number
+  memosRestored: number
+  blobs: number
+  warnings: string[]
+}
+
 export type ServerSettingsView = {
   smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
   ntfy: NtfySettings

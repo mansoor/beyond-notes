@@ -12,6 +12,7 @@ import type { PagesService } from './pages'
 import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
+import type { RestoreService } from './restore'
 import type { SettingsService } from './settings'
 import type { TablesService } from './tables'
 import type { TasksService } from './tasks'
@@ -37,6 +38,7 @@ export type Context = {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  restore: RestoreService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -57,6 +59,7 @@ export function makeCreateContext(deps: {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  restore: RestoreService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

@@ -77,6 +77,7 @@ import {
   renameTableInput,
   requestPasswordResetInput,
   resetPasswordInput,
+  restoreInput,
   restoreTableInput,
   saveDocumentInput,
   schedulePublishInput,
@@ -1338,6 +1339,33 @@ const settingsRouter = router({
       await ctx.backup.remove(input.name)
       return ctx.backup.list()
     }),
+
+  // ---- restore (admin) ----
+  // the manifest of one backup: which spaces/journal/inbox it holds and how
+  // they line up with what's live, so the confirm dialog can warn on clashes
+  restorePlan: adminProcedure
+    .input(z.object({ name: z.string() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await ctx.restore.plan(input.name)
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof Error ? err.message : 'Could not read that backup.',
+        })
+      }
+    }),
+
+  restoreRun: adminProcedure.input(restoreInput).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.restore.run(input)
+    } catch (err) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: err instanceof Error ? err.message : 'Restore failed.',
+      })
+    }
+  }),
 })
 
 function toWebhookView(w: WebhookRow): WebhookView {
