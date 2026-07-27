@@ -19,7 +19,7 @@ import { decryptGroup, encryptGroup } from './secrets'
 import { reconcileTags } from './tags'
 import { reconcileTasks } from './tasks'
 
-const EXPORT_VERSION = 1
+export const EXPORT_VERSION = 1
 
 // Dates cross the JSON boundary as ISO strings; these are the columns to revive.
 const DATE_COLUMNS: Record<string, string[]> = {
@@ -47,7 +47,7 @@ const DATE_COLUMNS: Record<string, string[]> = {
   dbRows: ['createdAt', 'updatedAt'],
 }
 
-type Dump = {
+export type Dump = {
   version: number
   exportedAt: string
   tables: Record<string, Record<string, unknown>[]>
@@ -140,7 +140,7 @@ export async function buildInstanceArchive(
   return zipSync(files)
 }
 
-function revive(table: string, row: Record<string, unknown>): Record<string, unknown> {
+export function revive(table: string, row: Record<string, unknown>): Record<string, unknown> {
   const out = { ...row }
   for (const col of DATE_COLUMNS[table] ?? []) {
     if (typeof out[col] === 'string') out[col] = new Date(out[col] as string)
@@ -149,7 +149,7 @@ function revive(table: string, row: Record<string, unknown>): Record<string, unk
 }
 
 /** Pages self-reference via parentId; insert parents before children. */
-function topoSortPages(pages: Record<string, unknown>[]): Record<string, unknown>[] {
+export function topoSortPages(pages: Record<string, unknown>[]): Record<string, unknown>[] {
   const remaining = [...pages]
   const inserted = new Set<string>()
   const ordered: Record<string, unknown>[] = []

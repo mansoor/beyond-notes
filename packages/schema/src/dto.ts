@@ -661,6 +661,49 @@ export type BackupView = {
   createdAt: string
 }
 
+// ---- restore (read side of backup) ----
+
+/** What a restore should put back. Content only — never users/settings/secrets. */
+export const restoreInput = z.object({
+  name: z.string().min(1),
+  // tree spaces to restore; `overwrite` only bites on a name/id clash
+  spaces: z.array(z.object({ id: z.string(), overwrite: z.boolean().default(false) })).default([]),
+  // journal (Today + Tasks live inside it) and inbox memos are additive merges
+  journal: z.boolean().default(false),
+  inbox: z.boolean().default(false),
+})
+export type RestoreInput = z.infer<typeof restoreInput>
+
+/** One tree space offered by a backup, with whether it clashes with a live one. */
+export type RestorePlanSpaceView = {
+  id: string
+  name: string
+  pageCount: number
+  conflict: boolean
+}
+
+/** The manifest of a backup: what is inside and how it lines up with now. */
+export type RestorePlanView = {
+  name: string
+  exportedAt: string
+  version: number
+  compatible: boolean
+  spaces: RestorePlanSpaceView[]
+  journalPageCount: number
+  journalExists: boolean
+  inboxCount: number
+}
+
+export type RestoreResultView = {
+  spacesRestored: number
+  spacesSkipped: number
+  pagesRestored: number
+  journalPagesRestored: number
+  memosRestored: number
+  blobs: number
+  warnings: string[]
+}
+
 export type ServerSettingsView = {
   smtp: Omit<SmtpSettings, 'pass'> & { hasPass: boolean }
   ntfy: NtfySettings

@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import type { BackupSettings } from '@bn/schema'
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from './auth'
@@ -23,6 +24,7 @@ function memBlobs(): BlobStore {
   return {
     put: async (k, d) => void m.set(k, d),
     read: async (k) => m.get(k) ?? Buffer.alloc(0),
+    getStream: async (k) => Readable.from(m.get(k) ?? Buffer.alloc(0)),
     exists: async (k) => m.has(k),
     delete: async (k) => void m.delete(k),
   }

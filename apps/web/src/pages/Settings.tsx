@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ErrorNote, Field, SubmitButton, useSubmit } from '../components'
+import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
 import {
   type HideableKind,
   JOURNAL_NAV_TOKEN,
@@ -796,6 +796,7 @@ function BackupTab() {
   const save = trpc.settings.saveBackup.useMutation()
   const runNow = trpc.settings.backupNow.useMutation()
   const del = trpc.settings.deleteBackup.useMutation()
+  const [restoreName, setRestoreName] = useState<string | null>(null)
 
   const b = settings.data?.backup
   const isS3 = settings.data?.storage?.driver === 's3'
@@ -962,6 +963,14 @@ function BackupTab() {
                     {fmtBytes(bk.sizeBytes)}
                   </span>
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setRestoreName(bk.name)}
+                  className="text-xs underline shrink-0"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  Restore
+                </button>
                 <a
                   href={`/api/backups/${bk.name}`}
                   className="text-xs underline shrink-0"
@@ -985,7 +994,206 @@ function BackupTab() {
           </div>
         )}
       </Card>
+
+      {restoreName && <RestoreModal name={restoreName} onClose={() => setRestoreName(null)} />}
     </>
+  )
+}
+
+function RestoreModal({ name, onClose }: { name: string; onClose: () => void }) {
+  const utils = trpc.useUtils()
+  const plan = trpc.settings.restorePlan.useQuery({ name })
+  const run = trpc.settings.restoreRun.useMutation()
+
+  // per-space { include, overwrite }; journal + inbox are simple toggles
+  const [spaces, setSpaces] = useState<Record<string, { include: boolean; overwrite: boolean }>>({})
+  const [journal, setJournal] = useState(false)
+  const [inbox, setInbox] = useState(false)
+  const [result, setResult] = useState<typeof run.data | null>(null)
+
+  const anySelected = journal || inbox || Object.values(spaces).some((s) => s.include)
+  const willOverwrite = Object.values(spaces).some((s) => s.include && s.overwrite)
+
+  const setSpace = (id: string, patch: Partial<{ include: boolean; overwrite: boolean }>) =>
+    setSpaces((prev) => ({
+      ...prev,
+      [id]: { include: false, overwrite: false, ...prev[id], ...patch },
+    }))
+
+  const submit = async () => {
+    const res = await run.mutateAsync({
+      name,
+      spaces: Object.entries(spaces)
+        .filter(([, v]) => v.include)
+        .map(([id, v]) => ({ id, overwrite: v.overwrite })),
+      journal,
+      inbox,
+    })
+    setResult(res)
+    // content changed under the app — refresh spaces, trees, journal, inbox
+    await utils.invalidate()
+  }
+
+  return (
+    <Modal title="Restore from backup" onClose={onClose} dirty={anySelected && !result}>
+      {plan.isLoading && (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          Reading backup…
+        </p>
+      )}
+      {plan.error && <ErrorNote message={plan.error.message} />}
+
+      {plan.data && !result && (
+        <div className="text-sm">
+          <p className="mb-1" style={{ color: 'var(--text-2)' }}>
+            Captured {new Date(plan.data.exportedAt).toLocaleString()}.
+          </p>
+          {!plan.data.compatible && (
+            <p className="mb-3" style={{ color: 'var(--danger)' }}>
+              This backup was written by a newer version and can't be restored here.
+            </p>
+          )}
+          <p className="mb-4" style={{ color: 'var(--text-3)' }}>
+            Restore only brings back content — spaces, journal and inbox. It never changes accounts,
+            passwords or server settings.
+          </p>
+
+          {plan.data.spaces.length > 0 && (
+            <div className="mb-4">
+              <div className="font-medium mb-2">Spaces</div>
+              {plan.data.spaces.map((sp) => {
+                const st = spaces[sp.id] ?? { include: false, overwrite: false }
+                return (
+                  <div
+                    key={sp.id}
+                    className="py-1 border-b"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={st.include}
+                        onChange={(e) => setSpace(sp.id, { include: e.target.checked })}
+                      />
+                      <span className="flex-1">{sp.name}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                        {sp.pageCount} {sp.pageCount === 1 ? 'page' : 'pages'}
+                      </span>
+                    </label>
+                    {st.include && sp.conflict && (
+                      <label
+                        className="flex items-center gap-2 mt-1 ml-6 text-xs"
+                        style={{ color: 'var(--danger)' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={st.overwrite}
+                          onChange={(e) => setSpace(sp.id, { overwrite: e.target.checked })}
+                        />
+                        A space with this name already exists — overwrite it (deletes its current
+                        pages)
+                      </label>
+                    )}
+                    {st.include && !sp.conflict && (
+                      <span className="block ml-6 text-xs" style={{ color: 'var(--text-3)' }}>
+                        New space — will be added.
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="mb-4">
+            <div className="font-medium mb-2">Personal</div>
+            <label className="flex items-center gap-2 py-1">
+              <input
+                type="checkbox"
+                checked={journal}
+                onChange={(e) => setJournal(e.target.checked)}
+              />
+              <span className="flex-1">Journal, Today &amp; Tasks</span>
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                {plan.data.journalPageCount} pages
+              </span>
+            </label>
+            <label className="flex items-center gap-2 py-1">
+              <input type="checkbox" checked={inbox} onChange={(e) => setInbox(e.target.checked)} />
+              <span className="flex-1">Inbox notes</span>
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                {plan.data.inboxCount} notes
+              </span>
+            </label>
+            {(journal || inbox) && (
+              <p className="ml-6 text-xs" style={{ color: 'var(--text-3)' }}>
+                Added, not overwritten: days and notes you already have are left untouched — only
+                ones missing here come back.
+              </p>
+            )}
+          </div>
+
+          <ErrorNote message={run.error?.message ?? null} />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={!anySelected || !plan.data.compatible || run.isPending}
+              onClick={submit}
+              className="rounded-lg px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              style={{ background: willOverwrite ? 'var(--danger)' : 'var(--accent)' }}
+            >
+              {run.isPending ? 'Restoring…' : willOverwrite ? 'Overwrite & restore' : 'Restore'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm"
+              style={{ color: 'var(--text-2)' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="text-sm">
+          <p className="mb-2 font-medium">Restore complete.</p>
+          <ul className="mb-3" style={{ color: 'var(--text-2)' }}>
+            <li>
+              {result.spacesRestored} space{result.spacesRestored === 1 ? '' : 's'} restored
+              {result.spacesSkipped > 0 && `, ${result.spacesSkipped} skipped`}
+            </li>
+            <li>{result.pagesRestored} pages</li>
+            {result.journalPagesRestored > 0 && (
+              <li>{result.journalPagesRestored} journal pages</li>
+            )}
+            {result.memosRestored > 0 && <li>{result.memosRestored} inbox notes</li>}
+            {result.blobs > 0 && <li>{result.blobs} images</li>}
+          </ul>
+          {result.warnings.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-medium mb-1" style={{ color: 'var(--danger)' }}>
+                Notes
+              </div>
+              <ul className="text-xs" style={{ color: 'var(--text-3)' }}>
+                {result.warnings.map((w) => (
+                  <li key={w}>• {w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-sm text-white"
+            style={{ background: 'var(--accent)' }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </Modal>
   )
 }
 

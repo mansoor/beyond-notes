@@ -23,6 +23,7 @@ import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
+import { createRestoreService } from './restore'
 import { appRouter } from './routers'
 import {
   type Notifier,
@@ -103,6 +104,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
     isS3: () => settings.effectiveStorage().driver === 's3',
     secretsKey,
   })
+  // restore reuses backup.resolve so it inherits the same traversal guard
+  const restore = createRestoreService({ repo, blobs, resolvePath: (name) => backup.resolve(name) })
 
   // scheduled publishes and periodic backups run through the same tick as reminders
   const scheduler = createScheduler(repo, notifiers, {
@@ -486,6 +489,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         tables,
         locks,
         backup,
+        restore,
       }),
     },
   })
