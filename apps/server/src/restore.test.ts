@@ -153,7 +153,7 @@ for (const dialect of dialects) {
 
       const res = await restore.run({
         name: 'backup.zip',
-        spaces: [{ id: spaceId, overwrite: false }],
+        spaces: [{ id: spaceId, mode: 'merge' }],
         journal: false,
         inbox: false,
       })
@@ -171,7 +171,48 @@ for (const dialect of dialects) {
       await dest.appDb.close()
     })
 
-    it('overwrite replaces a clashing same-named space; skip leaves it', async () => {
+    it('merge restores only the missing pages and leaves the rest edited', async () => {
+      // the reported scenario: back up, delete a couple of pages (and edit a
+      // survivor), then restore — only the deleted pages should come back
+      const { path, spaceId, childId } = await seededArchive()
+      const dest = await instance()
+      await dest.auth.setup({ name: 'M', email: 'm@x.dev', password: 'longpassword1' })
+      const restore = restoreFor(dest, path)
+
+      // full recovery once, so the space matches the backup (same ids, 2 pages)
+      await restore.run({
+        name: 'backup.zip',
+        spaces: [{ id: spaceId, mode: 'merge' }],
+        journal: false,
+        inbox: false,
+      })
+
+      // delete Setup, and edit the survivor Guide *after* the backup
+      const guide = (await dest.repo.listPagesInSpace(spaceId)).find((p) => p.title === 'Guide')
+      await dest.repo.deletePage(childId) // Setup gone
+      await dest.repo.updateDocument(
+        (guide as { id: string }).id,
+        checklistDoc('newer edit'),
+        new Date(),
+      )
+
+      const res = await restore.run({
+        name: 'backup.zip',
+        spaces: [{ id: spaceId, mode: 'merge' }],
+        journal: false,
+        inbox: false,
+      })
+      // only Setup was missing → exactly one page restored, not both
+      expect(res.pagesRestored).toBe(1)
+      const titles = (await dest.repo.listPagesInSpace(spaceId)).map((p) => p.title).sort()
+      expect(titles).toEqual(['Guide', 'Setup'])
+      // the survivor keeps its newer edit — merge never overwrote it
+      const guideDoc = await dest.repo.getDocument((guide as { id: string }).id)
+      expect(guideDoc?.content).toContain('newer edit')
+      await dest.appDb.close()
+    })
+
+    it('overwrite replaces a clashing same-named space wholesale', async () => {
       const { path, spaceId } = await seededArchive()
 
       // dest already has a *different* space also called "Wiki"
@@ -189,23 +230,9 @@ for (const dialect of dialects) {
       await dest.pages.createPage(user, { spaceId: existing.id, parentId: null, title: 'Old page' })
       const restore = restoreFor(dest, path)
 
-      // skip: nothing changes
-      const skip = await restore.run({
-        name: 'backup.zip',
-        spaces: [{ id: spaceId, overwrite: false }],
-        journal: false,
-        inbox: false,
-      })
-      expect(skip.spacesSkipped).toBe(1)
-      expect(skip.spacesRestored).toBe(0)
-      expect(
-        (await dest.repo.listPagesInSpace(existing.id)).some((p) => p.title === 'Old page'),
-      ).toBe(true)
-
-      // overwrite: the old space is gone, the backup's is in
       const over = await restore.run({
         name: 'backup.zip',
-        spaces: [{ id: spaceId, overwrite: true }],
+        spaces: [{ id: spaceId, mode: 'overwrite' }],
         journal: false,
         inbox: false,
       })
@@ -288,7 +315,13 @@ for (const dialect of dialects) {
         email: 'm@x.dev',
         password: 'longpassword1',
       })
-      await dest.pages.createSpace(user, { name: 'Wiki', category: 'wiki', personal: false })
+      // an existing "Wiki" with one page, none of which match the backup's ids
+      const existing = await dest.pages.createSpace(user, {
+        name: 'Wiki',
+        category: 'wiki',
+        personal: false,
+      })
+      await dest.pages.createPage(user, { spaceId: existing.id, parentId: null, title: 'Old' })
       const restore = restoreFor(dest, path)
 
       const plan = await restore.plan('backup.zip')
@@ -297,6 +330,8 @@ for (const dialect of dialects) {
       expect(plan.spaces[0]?.id).toBe(spaceId)
       expect(plan.spaces[0]?.pageCount).toBe(2)
       expect(plan.spaces[0]?.conflict).toBe(true) // same name already live
+      expect(plan.spaces[0]?.existingPages).toBe(1) // the "Old" page
+      expect(plan.spaces[0]?.missingPages).toBe(2) // neither backup page is present
       expect(plan.journalPageCount).toBeGreaterThanOrEqual(1)
       expect(plan.inboxCount).toBe(1)
       await dest.appDb.close()

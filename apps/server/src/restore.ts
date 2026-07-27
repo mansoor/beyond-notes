@@ -9,18 +9,21 @@
  * whole-instance clone stays in importInstance (fresh DB only).
  *
  * Three buckets, mapped to how the data actually lives:
- *   - tree spaces  → per-space choice: restore (insert), or on a name/id clash
- *                    either overwrite (delete + replace) or skip.
- *   - journal      → merge by page id. Today and Tasks live inside the per-user
+ *   - tree spaces  → per-space choice. 'merge' (the default) inserts only the
+ *                    pages missing here and leaves the rest — including edits
+ *                    made after the backup — untouched; 'overwrite' deletes the
+ *                    live space first and restores it wholesale.
+ *   - journal      → merge by day. Today and Tasks live inside the per-user
  *                    journal space (the dateKey='inbox' page holds quick-add
  *                    tasks), so this one bucket brings all of it back.
  *   - inbox        → the memos table, merged by id.
  *
- * Merge means additive: a bucket only inserts rows whose id is absent and never
- * deletes what is already there. Ids are preserved throughout (no remapping),
- * so this is exact for same-instance recovery — the case it is built for.
- * Cross-instance user-scoped content (another install's journal/inbox) is only
- * restored for users whose id still exists here; the rest is skipped with a note.
+ * Merge is additive: it only inserts rows absent here and never deletes what is
+ * already there, so counts reflect what actually changed (restore 2 deleted
+ * pages → "2 pages", not the whole space). Ids are preserved throughout, so this
+ * is exact for same-instance recovery — the case it is built for. Users are
+ * matched by email, so a rebuilt instance with the same admin still lines up;
+ * user-scoped content owned by a user who no longer exists is skipped with a note.
  */
 
 import { readFileSync } from 'node:fs'
@@ -48,6 +51,10 @@ export type RestorePlanSpace = {
   pageCount: number
   /** a tree space with this id or name already exists — restoring needs a choice */
   conflict: boolean
+  /** pages currently in the matching live space */
+  existingPages: number
+  /** backup pages not present here — what a merge would add */
+  missingPages: number
 }
 
 export type RestorePlanView = {
@@ -74,7 +81,7 @@ export type RestoreResultView = {
 
 export type RestoreSelection = {
   name: string
-  spaces: { id: string; overwrite: boolean }[]
+  spaces: { id: string; mode: 'merge' | 'overwrite' }[]
   journal: boolean
   inbox: boolean
 }
@@ -154,15 +161,26 @@ export function createRestoreService(deps: {
       existing.filter((s) => s.kind === 'tree').map((s) => [s.name.toLowerCase(), s]),
     )
     const users = await repo.listUsers()
+    // page ids currently living in each space — to count what a merge would add
+    const livePageIdsBySpace = groupBy(await repo.listAllPages(), (p) => p.spaceId)
 
     const treeSpaces = spaces
       .filter((s) => s.kind === 'tree')
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        pageCount: (pagesBySpace.get(s.id) ?? []).length,
-        conflict: existingById.has(s.id) || existingTreeByName.has(s.name.toLowerCase()),
-      }))
+      .map((s) => {
+        const match = existingById.get(s.id) ?? existingTreeByName.get(s.name.toLowerCase())
+        const livePageIds = new Set(
+          (match ? (livePageIdsBySpace.get(match.id) ?? []) : []).map((p) => p.id),
+        )
+        const backupPages = pagesBySpace.get(s.id) ?? []
+        return {
+          id: s.id,
+          name: s.name,
+          pageCount: backupPages.length,
+          conflict: Boolean(match),
+          existingPages: livePageIds.size,
+          missingPages: backupPages.filter((p) => !livePageIds.has(p.id)).length,
+        }
+      })
       .sort((a, b) => a.name.localeCompare(b.name))
 
     // user-scoped content is only restorable for a backup user who maps to a
@@ -283,6 +301,9 @@ export function createRestoreService(deps: {
     }
 
     // ---- tree spaces ----
+    // Pages are always inserted in topological (parents-first) order over the
+    // FULL backup set; on a merge we skip ids already present, so a child whose
+    // parent is a kept page still finds its parent in the DB.
     for (const sel of selection.spaces) {
       const bSpace = allSpaces.find((s) => s.id === sel.id)
       if (!bSpace || bSpace.kind !== 'tree') {
@@ -292,30 +313,38 @@ export function createRestoreService(deps: {
       try {
         const clash =
           existingById.get(bSpace.id) ?? existingTreeByName.get(bSpace.name.toLowerCase())
-        if (clash) {
-          if (!sel.overwrite) {
-            result.spacesSkipped++
-            continue
-          }
+        const backupPages = topoSortPages(pagesBySpace.get(bSpace.id) ?? []) as unknown as PageRow[]
+
+        if (clash && sel.mode === 'overwrite') {
           await repo.deleteSpace(clash.id) // FK cascade removes its pages + owned rows
           existingById.delete(clash.id)
           existingTreeByName.delete(clash.name.toLowerCase())
         }
-        let space = bSpace
-        if (space.ownerId) {
-          const owner = mapUserOptional(space.ownerId)
-          if (!owner) {
-            warnings.push(
-              `"${bSpace.name}" was owned by a missing user — restored as a shared space.`,
-            )
+
+        // resolve the space to write into: the surviving clash on a merge, else
+        // the backup's own space row (created now)
+        let targetId: string
+        if (clash && sel.mode === 'merge') {
+          targetId = clash.id
+        } else {
+          let space = bSpace
+          if (space.ownerId) {
+            const owner = mapUserOptional(space.ownerId)
+            if (!owner) {
+              warnings.push(
+                `"${bSpace.name}" was owned by a missing user — restored as a shared space.`,
+              )
+            }
+            space = { ...space, ownerId: owner }
           }
-          space = { ...space, ownerId: owner }
+          await repo.insertSpace(space)
+          targetId = space.id
         }
-        await repo.insertSpace(space)
-        for (const page of topoSortPages(
-          pagesBySpace.get(bSpace.id) ?? [],
-        ) as unknown as PageRow[]) {
-          await insertPageFull(page, space.id)
+
+        const present = new Set((await repo.listPagesInSpace(targetId)).map((p) => p.id))
+        for (const page of backupPages) {
+          if (present.has(page.id)) continue // merge: leave a page you still have alone
+          await insertPageFull(page, targetId)
         }
         result.spacesRestored++
       } catch (err) {

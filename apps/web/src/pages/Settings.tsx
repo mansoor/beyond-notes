@@ -1005,19 +1005,21 @@ function RestoreModal({ name, onClose }: { name: string; onClose: () => void }) 
   const plan = trpc.settings.restorePlan.useQuery({ name })
   const run = trpc.settings.restoreRun.useMutation()
 
-  // per-space { include, overwrite }; journal + inbox are simple toggles
-  const [spaces, setSpaces] = useState<Record<string, { include: boolean; overwrite: boolean }>>({})
+  // per-space { include, mode }; journal + inbox are simple toggles. 'merge'
+  // adds only the pages missing here; 'overwrite' replaces the whole space.
+  type SpaceSel = { include: boolean; mode: 'merge' | 'overwrite' }
+  const [spaces, setSpaces] = useState<Record<string, SpaceSel>>({})
   const [journal, setJournal] = useState(false)
   const [inbox, setInbox] = useState(false)
   const [result, setResult] = useState<typeof run.data | null>(null)
 
   const anySelected = journal || inbox || Object.values(spaces).some((s) => s.include)
-  const willOverwrite = Object.values(spaces).some((s) => s.include && s.overwrite)
+  const willOverwrite = Object.values(spaces).some((s) => s.include && s.mode === 'overwrite')
 
-  const setSpace = (id: string, patch: Partial<{ include: boolean; overwrite: boolean }>) =>
+  const setSpace = (id: string, patch: Partial<SpaceSel>) =>
     setSpaces((prev) => ({
       ...prev,
-      [id]: { include: false, overwrite: false, ...prev[id], ...patch },
+      [id]: { include: false, mode: 'merge', ...prev[id], ...patch },
     }))
 
   const submit = async () => {
@@ -1025,7 +1027,7 @@ function RestoreModal({ name, onClose }: { name: string; onClose: () => void }) 
       name,
       spaces: Object.entries(spaces)
         .filter(([, v]) => v.include)
-        .map(([id, v]) => ({ id, overwrite: v.overwrite })),
+        .map(([id, v]) => ({ id, mode: v.mode })),
       journal,
       inbox,
     })
@@ -1062,7 +1064,7 @@ function RestoreModal({ name, onClose }: { name: string; onClose: () => void }) 
             <div className="mb-4">
               <div className="font-medium mb-2">Spaces</div>
               {plan.data.spaces.map((sp) => {
-                const st = spaces[sp.id] ?? { include: false, overwrite: false }
+                const st = spaces[sp.id] ?? { include: false, mode: 'merge' as const }
                 return (
                   <div
                     key={sp.id}
@@ -1080,24 +1082,42 @@ function RestoreModal({ name, onClose }: { name: string; onClose: () => void }) 
                         {sp.pageCount} {sp.pageCount === 1 ? 'page' : 'pages'}
                       </span>
                     </label>
-                    {st.include && sp.conflict && (
-                      <label
-                        className="flex items-center gap-2 mt-1 ml-6 text-xs"
-                        style={{ color: 'var(--danger)' }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={st.overwrite}
-                          onChange={(e) => setSpace(sp.id, { overwrite: e.target.checked })}
-                        />
-                        A space with this name already exists — overwrite it (deletes its current
-                        pages)
-                      </label>
-                    )}
                     {st.include && !sp.conflict && (
                       <span className="block ml-6 text-xs" style={{ color: 'var(--text-3)' }}>
-                        New space — will be added.
+                        New space — all {sp.pageCount} pages will be added.
                       </span>
+                    )}
+                    {st.include && sp.conflict && (
+                      <div className="ml-6 mt-1 text-xs">
+                        <label className="flex items-center gap-2 py-0.5">
+                          <input
+                            type="radio"
+                            name={`mode-${sp.id}`}
+                            checked={st.mode === 'merge'}
+                            onChange={() => setSpace(sp.id, { mode: 'merge' })}
+                          />
+                          <span style={{ color: 'var(--text-2)' }}>
+                            {sp.missingPages > 0
+                              ? `Add the ${sp.missingPages} missing ${
+                                  sp.missingPages === 1 ? 'page' : 'pages'
+                                } (keeps your ${sp.existingPages} current)`
+                              : 'Add missing pages — nothing is missing right now'}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 py-0.5">
+                          <input
+                            type="radio"
+                            name={`mode-${sp.id}`}
+                            checked={st.mode === 'overwrite'}
+                            onChange={() => setSpace(sp.id, { mode: 'overwrite' })}
+                          />
+                          <span style={{ color: 'var(--danger)' }}>
+                            Replace entirely — delete the {sp.existingPages} current{' '}
+                            {sp.existingPages === 1 ? 'page' : 'pages'} and restore all{' '}
+                            {sp.pageCount}
+                          </span>
+                        </label>
+                      </div>
                     )}
                   </div>
                 )
