@@ -38,6 +38,7 @@ import type {
 import {
   acceptInviteInput,
   archiveTableInput,
+  backupSettings,
   captureMemoInput,
   changePasswordInput,
   createDatabaseInput,
@@ -1310,6 +1311,33 @@ const settingsRouter = router({
     await ctx.settings.saveStorage(input)
     return ctx.settings.view()
   }),
+
+  // ---- backups (admin) ----
+  saveBackup: adminProcedure.input(backupSettings).mutation(async ({ ctx, input }) => {
+    await ctx.settings.saveBackup(input)
+    await ctx.backup.reschedule() // apply the new frequency/enabled state now
+    return ctx.settings.view()
+  }),
+
+  listBackups: adminProcedure.query(({ ctx }) => ctx.backup.list()),
+
+  backupNow: adminProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.backup.run()
+    } catch (err) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: err instanceof Error ? err.message : 'Backup failed.',
+      })
+    }
+  }),
+
+  deleteBackup: adminProcedure
+    .input(z.object({ name: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.backup.remove(input.name)
+      return ctx.backup.list()
+    }),
 })
 
 function toWebhookView(w: WebhookRow): WebhookView {

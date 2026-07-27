@@ -850,6 +850,11 @@ export function createRepo(appDb: AppDb) {
       await db.insert(t.scheduledJobs).values(row)
     },
 
+    /** Drop every job of a type — used to cancel/replace the singleton backup job. */
+    async deleteJobsByType(type: string): Promise<void> {
+      await db.delete(t.scheduledJobs).where(eq(t.scheduledJobs.type, type))
+    },
+
     async listDueJobs(now: Date): Promise<JobRow[]> {
       const rows = (await db
         .select()

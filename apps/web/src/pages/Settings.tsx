@@ -21,9 +21,10 @@ const TABS = [
   'Integrations',
   'Users',
   'Storage',
+  'Backup',
 ] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Storage']
+const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
@@ -32,6 +33,7 @@ const TAB_ICONS: Record<Tab, string> = {
   Integrations: '🔗',
   Users: '👥',
   Storage: '🗄',
+  Backup: '💾',
 }
 
 export function SettingsPage() {
@@ -85,6 +87,7 @@ export function SettingsPage() {
           {tab === 'Integrations' && <IntegrationsTab />}
           {tab === 'Users' && isAdmin && <UsersTab />}
           {tab === 'Storage' && isAdmin && <StorageTab />}
+          {tab === 'Backup' && isAdmin && <BackupTab />}
         </div>
       </div>
     </div>
@@ -778,6 +781,212 @@ function IntegrationsTab() {
 
 function StorageTab() {
   return <StorageCard />
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function BackupTab() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const backups = trpc.settings.listBackups.useQuery()
+  const save = trpc.settings.saveBackup.useMutation()
+  const runNow = trpc.settings.backupNow.useMutation()
+  const del = trpc.settings.deleteBackup.useMutation()
+
+  const b = settings.data?.backup
+  const isS3 = settings.data?.storage?.driver === 's3'
+  const [form, setForm] = useState({
+    enabled: false,
+    frequency: 'weekly' as 'daily' | 'weekly' | 'monthly',
+    hour: 3,
+    retention: 4,
+    s3Copy: false,
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  if (b && !loaded) {
+    setForm({
+      enabled: b.enabled,
+      frequency: b.frequency,
+      hour: b.hour,
+      retention: b.retention,
+      s3Copy: b.s3Copy,
+    })
+    setLoaded(true)
+  }
+
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setDone(true)
+  })
+
+  return (
+    <>
+      <Card title="Automatic backups">
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          A full backup — every space, page, note, task and image — is written as one zip to the
+          server's backup folder. Guard those files: they contain your data and your saved secrets.
+        </p>
+        <form onSubmit={onSubmit}>
+          <label className="flex items-center gap-2 text-sm font-medium mb-4">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            />
+            Back up automatically
+          </label>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <label className="text-sm">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Frequency
+              </span>
+              <select
+                value={form.frequency}
+                disabled={!form.enabled}
+                onChange={(e) =>
+                  setForm({ ...form, frequency: e.target.value as typeof form.frequency })
+                }
+                className="w-full rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly (Mondays)</option>
+                <option value="monthly">Monthly (1st)</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Hour of day (0–23)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={form.hour}
+                disabled={!form.enabled}
+                onChange={(e) =>
+                  setForm({ ...form, hour: Math.max(0, Math.min(23, Number(e.target.value) || 0)) })
+                }
+                className="w-full rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+              />
+            </label>
+          </div>
+
+          <label className="text-sm block mt-2 max-w-[50%] pr-2">
+            <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+              Keep last
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={form.retention}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  retention: Math.max(1, Math.min(365, Number(e.target.value) || 1)),
+                })
+              }
+              className="w-full rounded-lg border px-3 py-1.5 text-sm"
+              style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+            />
+          </label>
+
+          {isS3 && (
+            <label className="flex items-center gap-2 text-sm mt-4">
+              <input
+                type="checkbox"
+                checked={form.s3Copy}
+                onChange={(e) => setForm({ ...form, s3Copy: e.target.checked })}
+              />
+              Also copy each backup to S3
+            </label>
+          )}
+
+          <ErrorNote message={error} />
+          <div className="mt-4 flex items-center gap-3">
+            <SubmitButton label="Save" busy={busy} />
+            {done && !busy && (
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                Saved.
+              </span>
+            )}
+          </div>
+        </form>
+      </Card>
+
+      <Card title="Backups">
+        <div className="flex items-center gap-3 mb-4">
+          <button
+            type="button"
+            disabled={runNow.isPending}
+            onClick={async () => {
+              await runNow.mutateAsync()
+              await utils.settings.listBackups.invalidate()
+            }}
+            className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          >
+            {runNow.isPending ? 'Backing up…' : 'Back up now'}
+          </button>
+          {runNow.error && (
+            <span className="text-xs" style={{ color: 'var(--danger)' }}>
+              {runNow.error.message}
+            </span>
+          )}
+        </div>
+
+        {(backups.data ?? []).length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+            No backups yet.
+          </p>
+        ) : (
+          <div className="flex flex-col">
+            {(backups.data ?? []).map((bk) => (
+              <div
+                key={bk.name}
+                className="flex items-center gap-3 py-2 border-b text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate">{new Date(bk.createdAt).toLocaleString()}</span>
+                  <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    {fmtBytes(bk.sizeBytes)}
+                  </span>
+                </span>
+                <a
+                  href={`/api/backups/${bk.name}`}
+                  className="text-xs underline shrink-0"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await del.mutateAsync({ name: bk.name })
+                    await utils.settings.listBackups.invalidate()
+                  }}
+                  className="text-xs shrink-0"
+                  style={{ color: 'var(--danger)' }}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </>
+  )
 }
 
 function sourceLabel(source: 'db' | 'env' | 'off' | undefined): string {

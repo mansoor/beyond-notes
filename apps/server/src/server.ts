@@ -8,6 +8,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuthService } from './auth'
+import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
 import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
 import type { Config } from './config'
@@ -94,15 +95,26 @@ export async function buildServer(config: Config, appDb: AppDb) {
     createEmailNotifier(mailer),
     createLogNotifier((msg) => server.log.info(msg)),
   ]
-  // scheduled publishes run through the same tick as reminders; the job
-  // carries the scheduling user so the version records who published it
+  const backup = createBackupService({
+    repo,
+    blobs,
+    backupsDir: config.BACKUPS_DIR,
+    getConfig: () => settings.backup(),
+    isS3: () => settings.effectiveStorage().driver === 's3',
+    secretsKey,
+  })
+
+  // scheduled publishes and periodic backups run through the same tick as reminders
   const scheduler = createScheduler(repo, notifiers, {
     publishPage: async (pageId, byUserId) => {
       const user = await repo.getUserById(byUserId)
       if (!user) throw new Error(`scheduled publish: user ${byUserId} is gone`)
       await publishing.publish(user, pageId)
     },
+    runBackup: () => backup.runScheduled(),
   })
+  // make sure the backup job matches the saved config after a restart
+  await backup.reschedule()
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
 
@@ -340,6 +352,22 @@ export async function buildServer(config: Config, appDb: AppDb) {
     return reply.send(data)
   })
 
+  // download a full backup zip — admin only
+  server.get('/api/backups/:name', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user || user.role !== 'admin') return reply.code(403).send({ error: 'admin only' })
+    let path: string | null
+    try {
+      path = backup.resolve(String(req.params.name ?? ''))
+    } catch {
+      return reply.code(400).send({ error: 'bad name' })
+    }
+    if (!path) return reply.code(404).send({ error: 'not found' })
+    reply.header('content-disposition', `attachment; filename="${String(req.params.name)}"`)
+    reply.type('application/zip')
+    return reply.send(createReadStream(path))
+  })
+
   // one data table as CSV (opens directly in Excel)
   server.get('/api/export/table/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
@@ -457,6 +485,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         webhooks,
         tables,
         locks,
+        backup,
       }),
     },
   })
