@@ -37,6 +37,7 @@ import type {
 } from '@bn/schema'
 import {
   acceptInviteInput,
+  appTheme,
   archiveTableInput,
   backupSettings,
   captureMemoInput,
@@ -54,6 +55,8 @@ import {
   deleteRowInput,
   deleteTableInput,
   duplicateTableInput,
+  graphEdgeKind,
+  graphPrefsInput,
   importApplyInput,
   importGithubInput,
   importMarkdownInput,
@@ -129,6 +132,20 @@ import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, route
 import type { Context } from './trpc'
 import { ImportError, applyImportPlan, planFromGithub, planFromMarkdown } from './wikiimport'
 
+const GRAPH_EDGE_KINDS = graphEdgeKind.options
+
+function parseGraphEdges(raw: string): (typeof GRAPH_EDGE_KINDS)[number][] {
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return GRAPH_EDGE_KINDS.filter((k) => parsed.includes(k))
+    }
+  } catch {
+    // fall through to the full default
+  }
+  return [...GRAPH_EDGE_KINDS]
+}
+
 function toUserView(u: UserRow): UserView {
   let sidebarHidden: string[] = []
   try {
@@ -145,6 +162,10 @@ function toUserView(u: UserRow): UserView {
     reminderDays: u.reminderDays,
     confirmDelete: u.confirmDelete,
     linkCaptureFull: u.linkCaptureFull,
+    graphEnabled: u.graphEnabled,
+    graphEdges: parseGraphEdges(u.graphEdges),
+    graphMobile: u.graphMobile,
+    defaultTheme: u.defaultTheme,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -282,6 +303,7 @@ const authRouter = router({
       needsSetup: await ctx.auth.needsSetup(),
       me: ctx.user ? toUserView(ctx.user) : null,
       mailConfigured: ctx.mailer.configured,
+      graphEmbeddings: ctx.config.GRAPH_EMBEDDINGS,
     }
   }),
 
@@ -379,6 +401,29 @@ const authRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.repo.updateUser(ctx.user.id, { linkCaptureFull: input.enabled })
+      return { ok: true }
+    }),
+
+  /** The knowledge-graph preference: whether a space name opens its graph
+   *  overview, which edge kinds that graph draws, and whether it runs on phones.
+   *  Edges are stored deduped in the canonical order so the DB never holds an
+   *  odd/duplicate set. */
+  setGraphPrefs: authedProcedure.input(graphPrefsInput).mutation(async ({ ctx, input }) => {
+    const edges = graphEdgeKind.options.filter((k) => input.edges.includes(k))
+    await ctx.repo.updateUser(ctx.user.id, {
+      graphEnabled: input.enabled,
+      graphEdges: JSON.stringify(edges),
+      graphMobile: input.mobile,
+    })
+    return { ok: true }
+  }),
+
+  /** The account's default app theme — the look a fresh device adopts. Applying
+   *  it locally is the client's job; this just records the cross-device default. */
+  setDefaultTheme: authedProcedure
+    .input(z.object({ theme: appTheme }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.updateUser(ctx.user.id, { defaultTheme: input.theme })
       return { ok: true }
     }),
 
@@ -583,7 +628,9 @@ const spacesRouter = router({
       // the graph exposes page content, so — like search and pages.get — it
       // enforces the lock itself: hide every page this session has not unlocked.
       const hidden = await ctx.locks.hiddenPageIds(ctx.sessionToken, ctx.user)
-      return await ctx.pages.spaceGraph(ctx.user, input.spaceId, { excludePageIds: hidden })
+      // generate only the edge kinds this user keeps on (their graph preference)
+      const edges = new Set(parseGraphEdges(ctx.user.graphEdges))
+      return await ctx.pages.spaceGraph(ctx.user, input.spaceId, { excludePageIds: hidden, edges })
     } catch (err) {
       rethrow(err)
     }

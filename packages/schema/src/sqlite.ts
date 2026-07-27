@@ -37,6 +37,22 @@ export const users = sqliteTable('users', {
   // When a link is shared into the inbox, fetch the whole readable article
   // (default) vs. just the opening paragraph.
   linkCaptureFull: integer('link_capture_full', { mode: 'boolean' }).notNull().default(true),
+  // Whether clicking a space name opens its knowledge-graph overview (on) or
+  // just expands/collapses the space in the sidebar (off).
+  graphEnabled: integer('graph_enabled', { mode: 'boolean' }).notNull().default(true),
+  // Which edge kinds the knowledge graph generates, JSON array drawn from
+  // concept | link | tag | relation | semantic.
+  graphEdges: text('graph_edges')
+    .notNull()
+    .default('["concept","link","tag","relation","semantic"]'),
+  // Also build the graph on phones. Off, a small screen behaves as if the graph
+  // were disabled (name click just expands) even when it's on elsewhere.
+  graphMobile: integer('graph_mobile', { mode: 'boolean' }).notNull().default(true),
+  // The account's default app theme, adopted on a device that hasn't picked one
+  // (a fresh login) so the look follows the user across machines.
+  defaultTheme: text('default_theme', { enum: ['light', 'paper', 'navy', 'dark'] })
+    .notNull()
+    .default('light'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

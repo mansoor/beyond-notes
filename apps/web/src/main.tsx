@@ -4,12 +4,15 @@ import { httpBatchLink } from '@trpc/client'
 import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { router } from './router'
-import { applyTheme, currentTheme } from './theme'
+import { currentTheme, previewTheme } from './theme'
 import { trpc } from './trpc'
 import './styles.css'
 
-// apply the saved theme before first paint so the login screen matches too
-applyTheme(currentTheme())
+// apply the saved theme before first paint so the login screen matches too.
+// preview (not apply) so it doesn't *write* localStorage — a device with no
+// stored choice stays "unset", the signal Shell uses to adopt the account
+// default theme on first login.
+previewTheme(currentTheme())
 
 function App() {
   const [queryClient] = useState(

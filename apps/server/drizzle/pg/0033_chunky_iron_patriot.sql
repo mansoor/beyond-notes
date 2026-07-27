@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "graph_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "graph_edges" text DEFAULT '["concept","link","tag","relation","semantic"]' NOT NULL;

@@ -3,7 +3,7 @@ import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
 import { extractTriples } from './concepts'
 import { type Embedder, topSimilarPairs } from './embeddings'
-import { type GraphSimilar, type SpaceGraph, buildSpaceGraph } from './graph'
+import { type GraphEdgeType, type GraphSimilar, type SpaceGraph, buildSpaceGraph } from './graph'
 import { reconcileLinks } from './links'
 import type { PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
@@ -34,7 +34,12 @@ function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space
 
 export function createPagesService(
   repo: Repo,
-  opts: { now?: () => Date; embedder?: Embedder; embedThreshold?: number; embedNeighbors?: number } = {},
+  opts: {
+    now?: () => Date
+    embedder?: Embedder
+    embedThreshold?: number
+    embedNeighbors?: number
+  } = {},
 ) {
   const now = opts.now ?? (() => new Date())
   const embedder = opts.embedder
@@ -49,9 +54,7 @@ export function createPagesService(
    * space is too big/small, or the model fails to load. Never throws — the graph
    * degrades to its classical edges rather than erroring.
    */
-  async function semanticPairs(
-    docs: Array<{ id: string; text: string }>,
-  ): Promise<GraphSimilar[]> {
+  async function semanticPairs(docs: Array<{ id: string; text: string }>): Promise<GraphSimilar[]> {
     if (!embedder?.enabled || docs.length < 2 || docs.length > EMBED_PAGE_CAP) return []
     try {
       const vectors = new Map<string, number[]>()
@@ -173,9 +176,10 @@ export function createPagesService(
     async spaceGraph(
       user: UserRow,
       spaceId: string,
-      opts: { excludePageIds?: Set<string> } = {},
+      opts: { excludePageIds?: Set<string>; edges?: Set<GraphEdgeType> } = {},
     ): Promise<SpaceGraph> {
       assertSpaceAccess(await repo.getSpace(spaceId), user)
+      const on = (type: GraphEdgeType) => !opts.edges || opts.edges.has(type)
       const hidden = opts.excludePageIds ?? new Set<string>()
       const pages = (await repo.listPagesInSpace(spaceId))
         .filter((p) => p.archivedAt === null && p.trashedAt === null && !hidden.has(p.id))
@@ -194,21 +198,28 @@ export function createPagesService(
       // explicit relationships, scoped to this space's visible pages. Links or
       // tags that touch an excluded/other-space page are simply dropped, since
       // that page is not a node here.
+      // gather only what the enabled edge set needs — the semantic sweep and
+      // triple extraction are the costly parts, so a graph without them skips
+      // the work entirely rather than computing edges to be filtered away.
       const visible = new Set(pages.map((p) => p.id))
-      const links = (await repo.listAllPageLinks())
-        .filter((l) => visible.has(l.fromPageId) && visible.has(l.toPageId))
-        .map((l) => ({ from: l.fromPageId, to: l.toPageId }))
-      const tags = (await repo.listAllPageTags()).filter((t) => visible.has(t.pageId))
+      const links = on('link')
+        ? (await repo.listAllPageLinks())
+            .filter((l) => visible.has(l.fromPageId) && visible.has(l.toPageId))
+            .map((l) => ({ from: l.fromPageId, to: l.toPageId }))
+        : []
+      const tags = on('tag')
+        ? (await repo.listAllPageTags()).filter((t) => visible.has(t.pageId))
+        : []
 
       // the optional semantic layer: embed each page and connect the pairs that
       // point the same way. Best-effort — if the model can't load (offline box,
       // first-run download blocked), the graph is still links + tags + concepts.
-      const similar = await semanticPairs(loaded)
+      const similar = on('semantic') ? await semanticPairs(loaded) : []
 
       // typed edges: subject–verb–object triples across every page's text
-      const triples = loaded.flatMap((d) => extractTriples(d.text))
+      const triples = on('relation') ? loaded.flatMap((d) => extractTriples(d.text)) : []
 
-      return buildSpaceGraph(loaded, {}, { links, tags, similar, triples })
+      return buildSpaceGraph(loaded, { include: opts.edges }, { links, tags, similar, triples })
     },
 
     // ---- archive ----
@@ -388,9 +399,7 @@ export function createPagesService(
       // the bottom of the group. An afterPageId that is not in this group (a
       // stale sidebar, say) falls back to appending rather than failing —
       // landing in the wrong place beats refusing to create the page.
-      const after = input.afterPageId
-        ? siblings.findIndex((p) => p.id === input.afterPageId)
-        : -1
+      const after = input.afterPageId ? siblings.findIndex((p) => p.id === input.afterPageId) : -1
       const at = after >= 0 ? after + 1 : siblings.length
       const page: PageRow = {
         id: nanoid(),

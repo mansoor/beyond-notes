@@ -1,3 +1,4 @@
+import type { GraphEdgeKind } from '@bn/schema'
 import { useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
 import {
@@ -11,11 +12,13 @@ import {
   spaceToken,
   useSidebarPrefs,
 } from '../sidebarprefs'
+import { THEMES, THEME_ICON, THEME_LABEL, applyTheme } from '../theme'
 import { trpc } from '../trpc'
 
 const TABS = [
   'Account',
   'Appearance',
+  'Preferences',
   'Security',
   'Notifications',
   'Integrations',
@@ -28,6 +31,7 @@ const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
+  Preferences: '🎛',
   Security: '🔒',
   Notifications: '🔔',
   Integrations: '🔗',
@@ -82,6 +86,7 @@ export function SettingsPage() {
         <div className="flex-1 min-w-0">
           {tab === 'Account' && <AccountTab />}
           {tab === 'Appearance' && <AppearanceTab />}
+          {tab === 'Preferences' && <PreferencesTab />}
           {tab === 'Security' && <SecurityTab />}
           {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
           {tab === 'Integrations' && <IntegrationsTab />}
@@ -115,9 +120,7 @@ function AppearanceTab() {
 
   return (
     <>
-      <ComingUpCard />
-      <DeleteConfirmCard />
-      <LinkCaptureCard />
+      <DefaultThemeCard />
       <Card title="Sidebar">
         <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
           Hide sections you do not use, or single items inside them. Nothing is deleted or turned
@@ -193,6 +196,170 @@ function AppearanceTab() {
         })}
       </Card>
     </>
+  )
+}
+
+/**
+ * The account's default theme — the look a device adopts on first login, before
+ * it has a choice of its own. Picking one here also switches this device now (and
+ * the toolbar swatch keeps overriding it per-device). Kept in Appearance because
+ * it is purely about the look, and it is the one theme control that travels.
+ */
+function DefaultThemeCard() {
+  const prefs = useSidebarPrefs()
+  const current = prefs.defaultTheme
+  return (
+    <Card title="Theme">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Your default theme. A device that hasn’t picked one — a fresh sign-in — starts here, so the
+        look follows you across machines. The toolbar swatch still overrides it on this device.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {THEMES.map((t) => {
+          const active = t === current
+          return (
+            <button
+              key={t}
+              type="button"
+              disabled={prefs.saving}
+              onClick={() => {
+                applyTheme(t) // switch this device now…
+                prefs.setDefaultTheme(t) // …and remember it as the account default
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border disabled:opacity-60"
+              style={{
+                borderColor: active ? 'var(--accent)' : 'var(--border)',
+                color: active ? 'var(--accent)' : 'var(--text-2)',
+                background: active ? 'var(--accent-soft)' : undefined,
+                fontWeight: active ? 600 : 400,
+              }}
+            >
+              <span aria-hidden>{THEME_ICON[t]}</span>
+              {THEME_LABEL[t]}
+            </button>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+/**
+ * Behaviour preferences — how the app acts, as opposed to what the sidebar
+ * shows. Split out of Appearance once it had grown into a grab-bag of both.
+ */
+function PreferencesTab() {
+  return (
+    <>
+      <ComingUpCard />
+      <KnowledgeGraphCard />
+      <DeleteConfirmCard />
+      <LinkCaptureCard />
+    </>
+  )
+}
+
+const GRAPH_EDGE_LABELS: Record<GraphEdgeKind, { label: string; hint: string }> = {
+  concept: { label: 'Concepts', hint: 'pages that share a key term' },
+  link: { label: 'Links', hint: 'explicit [[wiki links]] between pages' },
+  tag: { label: 'Tags', hint: 'pages carrying the same #tag' },
+  relation: { label: 'Relations', hint: 'verb links read from the text (X runs Y)' },
+  semantic: { label: 'Similar meaning', hint: 'pages that read alike (embeddings)' },
+}
+
+/**
+ * The per-space knowledge graph. Off, a space name just expands in the sidebar
+ * like any folder. On, clicking it opens the graph overview — and these edge
+ * toggles decide which relationships that graph draws.
+ */
+function KnowledgeGraphCard() {
+  const prefs = useSidebarPrefs()
+  const status = trpc.auth.status.useQuery()
+  const embeddingsAvailable = status.data?.graphEmbeddings ?? false
+  const enabled = prefs.graphEnabled
+  const edges = new Set(prefs.graphEdges)
+
+  const kinds: GraphEdgeKind[] = ['concept', 'link', 'tag', 'relation', 'semantic']
+  const shown = kinds.filter((k) => k !== 'semantic' || embeddingsAvailable)
+
+  const toggleEdge = (kind: GraphEdgeKind, on: boolean) => {
+    const next = new Set(edges)
+    if (on) next.add(kind)
+    else next.delete(kind)
+    prefs.setGraphPrefs({
+      enabled,
+      edges: shown.filter((k) => next.has(k)),
+      mobile: prefs.graphMobile,
+    })
+  }
+
+  return (
+    <Card title="Knowledge graph">
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={prefs.saving}
+          onChange={(e) =>
+            prefs.setGraphPrefs({
+              enabled: e.target.checked,
+              edges: prefs.graphEdges,
+              mobile: prefs.graphMobile,
+            })
+          }
+        />
+        <span>Show a space’s knowledge graph when I click its name</span>
+      </label>
+      <p className="text-xs mt-2 mb-4" style={{ color: 'var(--text-3)' }}>
+        On, clicking a space name in the sidebar opens its graph overview. Off, clicking just
+        expands or collapses the space, and the graph is never built.
+      </p>
+
+      <div style={{ opacity: enabled ? 1 : 0.45 }}>
+        <label className="flex items-center gap-2 text-sm mb-4">
+          <input
+            type="checkbox"
+            checked={prefs.graphMobile}
+            disabled={prefs.saving || !enabled}
+            onChange={(e) =>
+              prefs.setGraphPrefs({
+                enabled,
+                edges: prefs.graphEdges,
+                mobile: e.target.checked,
+              })
+            }
+          />
+          <span>Build it on phones too</span>
+          <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+            — off, a phone just expands the space instead
+          </span>
+        </label>
+
+        <span className="block text-sm font-medium mb-2">Draw these connections</span>
+        <div className="flex flex-col gap-2">
+          {shown.map((kind) => (
+            <label key={kind} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={edges.has(kind)}
+                disabled={prefs.saving || !enabled}
+                onChange={(e) => toggleEdge(kind, e.target.checked)}
+              />
+              <span style={{ color: 'var(--text-2)' }}>{GRAPH_EDGE_LABELS[kind].label}</span>
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                — {GRAPH_EDGE_LABELS[kind].hint}
+              </span>
+            </label>
+          ))}
+        </div>
+        {!embeddingsAvailable && (
+          <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+            “Similar meaning” needs the embeddings build (the <code>-ml</code> image with{' '}
+            <code>GRAPH_EMBEDDINGS</code> on); it’s hidden until then.
+          </p>
+        )}
+      </div>
+    </Card>
   )
 }
 

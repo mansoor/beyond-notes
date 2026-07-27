@@ -25,6 +25,7 @@ import {
   Modal,
   PageIcon,
   SubmitButton,
+  useIsMobile,
   useMenuAnchor,
   useSubmit,
 } from './components'
@@ -378,6 +379,11 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
 
 function SpaceItem(props: { space: SpaceView }) {
   const utils = trpc.useUtils()
+  const { graphEnabled, graphMobile } = useSidebarPrefs()
+  const isMobile = useIsMobile()
+  // the graph opens on a name click only where it's actually built: on a phone
+  // that needs graphMobile too, else the name is just a folder toggle
+  const graphActive = graphEnabled && (graphMobile || !isMobile)
   const [savedExpanded, toggleExpanded] = useCollapsibleGroup(props.space.id)
   const spaceLock = useLockState('space', props.space.id)
   /** locked and not opened this session: every write inside will be refused */
@@ -469,12 +475,26 @@ function SpaceItem(props: { space: SpaceView }) {
           type="button"
           className="truncate select-none cursor-pointer text-left flex-1 min-w-0"
           onClick={() => {
+            // with the knowledge graph off (or off on this phone), the name is
+            // just a folder toggle — the pre-graph behaviour
+            if (!graphActive) {
+              onToggle()
+              return
+            }
             // a locked space must be unlocked before its overview (which reads
             // page content into the concept graph) can open
             if (shut) setUnlockOpen(true)
             else navigate({ to: '/space/$spaceId', params: { spaceId: props.space.id } })
           }}
-          title={shut ? 'Locked — click to unlock' : 'Open the space overview'}
+          title={
+            shut
+              ? 'Locked — click to unlock'
+              : graphActive
+                ? 'Open the space overview'
+                : expanded
+                  ? 'Collapse'
+                  : 'Expand'
+          }
         >
           {props.space.name}
         </button>

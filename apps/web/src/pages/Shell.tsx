@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { AboutModal } from '../about'
-import { BrandMark, Modal } from '../components'
+import { BrandMark, Modal, useIsMobile } from '../components'
 import { todayKey } from '../editor'
 import { useInstallPrompt } from '../pwa'
 import {
@@ -32,6 +32,16 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
   })
   const [theme, setTheme] = useState(currentTheme)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // a device that has never picked a theme adopts the account default, so the
+  // look follows you to a new machine on first login. Once a choice is stored
+  // (here or via the picker) this no-ops, leaving each device its own override.
+  useEffect(() => {
+    if (localStorage.getItem('bn-theme') === null) {
+      applyTheme(props.me.defaultTheme)
+      setTheme(props.me.defaultTheme)
+    }
+  }, [props.me.defaultTheme])
 
   // On a phone the sidebar can't sit alongside the page — it becomes an
   // off-canvas drawer behind a hamburger, with the persistent controls (brand,
@@ -244,19 +254,6 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
 
 /** True below Tailwind's `md` breakpoint (768px). Synchronous first read (this
  *  is a client-only SPA), so the correct layout paints on the first frame. */
-function useIsMobile() {
-  const [mobile, setMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
-  )
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)')
-    const on = () => setMobile(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
-  return mobile
-}
-
 const THEME_CELL = 26 // px per swatch
 const THEME_OPEN_MS = 160
 
@@ -267,7 +264,11 @@ const THEME_OPEN_MS = 160
  * dimmer with your setting in the middle. Hovering wears a theme for real;
  * leaving puts yours back.
  */
-function ThemePicker(props: { theme: AppTheme; onPick: (t: AppTheme) => void; className?: string }) {
+function ThemePicker(props: {
+  theme: AppTheme
+  onPick: (t: AppTheme) => void
+  className?: string
+}) {
   const [open, setOpen] = useState(false)
   // Hover previews stay off until the strip has finished unfolding. While it
   // slides, swatches travel *under* a stationary cursor — each one it passes
