@@ -1083,9 +1083,23 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty} width="lg">
       <form onSubmit={onSubmit}>
-        <div className="flex gap-5">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-5">
+          {/* on a phone the vertical rail ate the width; a top dropdown leaves
+              the whole modal for the actual fields */}
+          <select
+            className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
+            style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
+            value={tab}
+            onChange={(e) => setTab(e.target.value as (typeof tabs)[number]['id'])}
+          >
+            {tabs.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.icon} {t.label}
+              </option>
+            ))}
+          </select>
           <div
-            className="flex flex-col gap-1 shrink-0 w-36 border-r pr-3"
+            className="hidden md:flex md:flex-col gap-1 shrink-0 w-36 border-r pr-3"
             style={{ borderColor: 'var(--border)' }}
           >
             {tabs.map((t) => (

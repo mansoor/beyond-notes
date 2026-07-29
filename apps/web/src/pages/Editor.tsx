@@ -113,18 +113,67 @@ function LockedPage(props: { pageId: string; spaceId?: string | null; onOpened: 
   )
 }
 
+/** Pages of a space in reading order — depth-first, each sibling group by
+ *  position. The order Previous/Next and the mobile swipe gesture move through. */
+function flattenReadingOrder(pages: PageMeta[]): PageMeta[] {
+  const byParent = new Map<string | null, PageMeta[]>()
+  for (const p of pages) {
+    const list = byParent.get(p.parentId) ?? []
+    list.push(p)
+    byParent.set(p.parentId, list)
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.position - b.position)
+  const out: PageMeta[] = []
+  const walk = (parentId: string | null) => {
+    for (const p of byParent.get(parentId) ?? []) {
+      out.push(p)
+      walk(p.id)
+    }
+  }
+  walk(null)
+  return out
+}
+
 function PageView(props: {
   page: PageMeta
   doc: Parameters<typeof DocumentEditor>[0]['doc']
   publishing: PublishingView
 }) {
   const utils = trpc.useUtils()
+  const navigate = useNavigate()
   const rename = trpc.pages.rename.useMutation()
   const [title, setTitle] = useState(props.page.title)
   const [state, setState] = useState<SaveState>('saved')
   // the live document, seeded from the load and updated in place on each save
   // (never via a refetch — see DocumentEditor.onSaved)
   const [content, setContent] = useState(props.doc.content)
+
+  // Swipe left/right to walk to the next/previous page in the space (the tree's
+  // reading order) — a touch affordance for phones/tablets. The tree is already
+  // cached by the sidebar and the context rail, so this query is free.
+  const tree = trpc.pages.tree.useQuery({ spaceId: props.page.spaceId })
+  const ordered = useMemo(() => flattenReadingOrder(tree.data ?? []), [tree.data])
+  const idx = ordered.findIndex((p) => p.id === props.page.id)
+  const prevPage = idx > 0 ? ordered[idx - 1] : null
+  const nextPage = idx >= 0 && idx < ordered.length - 1 ? ordered[idx + 1] : null
+  const swipe = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0]
+    swipe.current = t ? { x: t.clientX, y: t.clientY } : null
+  }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = swipe.current
+    swipe.current = null
+    const t = e.changedTouches[0]
+    if (!start || !t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    // a deliberate horizontal swipe: long across, short down — so it never fires
+    // on a tap, a vertical scroll, or text selection during editing
+    if (Math.abs(dx) < 80 || Math.abs(dy) > 60) return
+    const target = dx < 0 ? nextPage : prevPage
+    if (target) navigate({ to: '/p/$pageId', params: { pageId: target.id } })
+  }
 
   const commitTitle = async () => {
     const next = title.trim() || 'Untitled'
@@ -140,7 +189,11 @@ function PageView(props: {
   return (
     // min-height leaves room for the fixed mobile header (3.5rem) so a blank
     // page doesn't spill 56px past the viewport into a phantom scrollbar
-    <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen">
+    <div
+      className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       <div className="flex-1 min-w-0 max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
         <div className="flex items-center gap-3 mb-2">
           <input
