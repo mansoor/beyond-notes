@@ -42,6 +42,13 @@ const CREDITS: [string, string][] = [
 // this is what the About dialog's "What's new" shows, and it drifts otherwise.
 const RELEASE_NOTES: { v: string; notes: string[] }[] = [
   {
+    v: '0.8.24',
+    notes: [
+      'Swipe left/right on the Today page to move between days',
+      'About: “What’s new” is current again, with a Check-for-updates link',
+    ],
+  },
+  {
     v: '0.8.23',
     notes: [
       'Swipe left/right to move between pages in a space',
