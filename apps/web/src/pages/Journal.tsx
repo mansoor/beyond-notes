@@ -1,6 +1,6 @@
 import { isComingUp } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { RightDrawer, fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
 import {
   DocumentEditor,
@@ -198,8 +198,31 @@ export function JournalPage() {
     </>
   )
 
+  // swipe left/right to step a day forward/back — the touch twin of the
+  // ← previous / next → buttons. Only a deliberate horizontal swipe counts
+  // (≥80px across, <60px down), so taps and vertical scrolls are left alone.
+  const swipe = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0]
+    swipe.current = t ? { x: t.clientX, y: t.clientY } : null
+  }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = swipe.current
+    swipe.current = null
+    const t = e.changedTouches[0]
+    if (!start || !t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    if (Math.abs(dx) < 80 || Math.abs(dy) > 60) return
+    navigate({ to: '/day/$date', params: { date: shiftDateKey(date, dx < 0 ? 1 : -1) } })
+  }
+
   return (
-    <div className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen relative">
+    <div
+      className="flex min-h-[calc(100dvh-3.5rem)] md:min-h-screen relative"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       {/* outside the shrinking wrapper, or it would shrink along with it */}
       {roll !== 'idle' ? (
         <div className="day-roll-calendar" aria-hidden="true">

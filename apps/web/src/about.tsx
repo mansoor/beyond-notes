@@ -37,38 +37,93 @@ const CREDITS: [string, string][] = [
   ['SQLite & PostgreSQL', 'storage engines'],
 ]
 
-// Hand-kept highlights; the full, generated changelog lives on GitHub Releases.
+// Hand-kept highlights; the full history lives on GitHub Releases.
+// KEEP CURRENT: prepend an entry the moment you bump the version for a release —
+// this is what the About dialog's "What's new" shows, and it drifts otherwise.
 const RELEASE_NOTES: { v: string; notes: string[] }[] = [
   {
-    v: '0.8.5',
+    v: '0.8.24',
     notes: [
-      'Settings sections stack and use a dropdown on mobile',
-      'Row action menus (＋ / ⋯) are reachable on touch',
+      'Swipe left/right on the Today page to move between days',
+      'About: “What’s new” is current again, with a Check-for-updates link',
     ],
   },
   {
-    v: '0.8.4',
+    v: '0.8.23',
     notes: [
-      'Mobile shell: sidebar becomes a drawer behind a fixed top bar',
-      'Editor context rail and Today’s calendar open in a right drawer',
-      'Fixed mobile scrollbars and editor width overflow',
+      'Swipe left/right to move between pages in a space',
+      'Fixed the account menu being hidden on iPad',
+      'Publishing dialog tabs become a dropdown on phones',
     ],
   },
   {
-    v: '0.8.3',
+    v: '0.8.22',
     notes: [
-      'URL and Date-time database column types',
-      'Drag to reorder columns and form fields',
-      'Faster native multi-arch release builds',
+      'Knowledge graph is now a preference — turn it off, pick which connections it draws, or disable it on phones',
+      'New Preferences tab, split out of Appearance',
+      'A default theme that follows you to a new device',
     ],
   },
   {
-    v: '0.8.2',
+    v: '0.8.21',
     notes: [
-      'Optional delete confirmation',
-      'Maintenance mode for published sites',
-      'Whole-space draft preview before publishing',
-      'Clearer lock / unlock messaging',
+      'Restore now brings back pages sitting in the Trash',
+      'Each space kind shows an icon in the sidebar and the New-space dialog',
+    ],
+  },
+  {
+    v: '0.8.20',
+    notes: ['On-demand restore — whole backup or space by space, add missing pages or replace'],
+  },
+  {
+    v: '0.8.19',
+    notes: [
+      'Scheduled and on-demand full backups (admin), with retention and an optional S3 copy',
+      'Empty days no longer appear on the Journal timeline',
+    ],
+  },
+  {
+    v: '0.8.18',
+    notes: ['The knowledge graph draws typed relationships read from the text (“X runs Y”)'],
+  },
+  {
+    v: '0.8.17',
+    notes: [
+      'Journal folds by year and month, with expand / collapse all',
+      'Wider Journal and Settings, and more consistent icons',
+    ],
+  },
+  {
+    v: '0.8.16',
+    notes: [
+      'Optional on-device “similar meaning” graph layer (the -ml image)',
+      'Leaner default image',
+    ],
+  },
+  {
+    v: '0.8.15',
+    notes: [
+      'Sharper graph concepts, plus [[links]] and shared #tags as connections',
+      'Interactive graph — pin a concept, filter edge types, tune label density',
+    ],
+  },
+  {
+    v: '0.8.14',
+    notes: ['The concept graph opens in a right drawer on mobile'],
+  },
+  {
+    v: '0.8.13',
+    notes: ['A clearer, less crowded graph with zoom and adjustable label density'],
+  },
+  {
+    v: '0.8.12',
+    notes: ['Per-space knowledge graph — single-click a space name to open its overview'],
+  },
+  {
+    v: '0.8.11',
+    notes: [
+      'Journal timeline — every day, newest first',
+      'A promoted inbox note links to where it landed',
     ],
   },
 ]
@@ -82,8 +137,22 @@ export function AboutModal(props: { onClose: () => void }) {
         <BrandMark size={40} />
         <div>
           <div className="font-semibold text-lg leading-tight">Beyond Notes</div>
-          <div className="text-xs" style={{ color: 'var(--text-3)' }}>
-            Version {version}
+          <div
+            className="text-xs flex flex-wrap items-center gap-x-2"
+            style={{ color: 'var(--text-3)' }}
+          >
+            <span>Version {version}</span>
+            {/* the repo is private, so we can't check for a newer version from
+                here — the link jumps to Releases where the latest is marked */}
+            <a
+              href={`${LINKS.github}/releases/latest`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+              style={{ color: 'var(--accent)' }}
+            >
+              Check for updates ↗
+            </a>
           </div>
         </div>
       </div>
@@ -118,14 +187,16 @@ export function AboutModal(props: { onClose: () => void }) {
           </p>
         ) : (
           <p className="text-sm" style={{ color: 'var(--text-3)' }}>
-            Use your browser’s <b>Install app</b> / <b>Add to Home Screen</b> option to keep it a tap
-            away.
+            Use your browser’s <b>Install app</b> / <b>Add to Home Screen</b> option to keep it a
+            tap away.
           </p>
         )}
       </Section>
 
       <details className="mb-5">
-        <summary className="cursor-pointer text-sm font-semibold py-1 select-none">What’s new</summary>
+        <summary className="cursor-pointer text-sm font-semibold py-1 select-none">
+          What’s new
+        </summary>
         <div
           className="mt-2 max-h-56 overflow-y-auto rounded-lg border p-3"
           style={{ borderColor: 'var(--border)' }}
@@ -133,7 +204,10 @@ export function AboutModal(props: { onClose: () => void }) {
           {RELEASE_NOTES.map((r) => (
             <div key={r.v} className="mb-3 last:mb-1">
               <div className="text-xs font-semibold mb-1">v{r.v}</div>
-              <ul className="list-disc pl-4 text-sm flex flex-col gap-0.5" style={{ color: 'var(--text-2)' }}>
+              <ul
+                className="list-disc pl-4 text-sm flex flex-col gap-0.5"
+                style={{ color: 'var(--text-2)' }}
+              >
                 {r.notes.map((n) => (
                   <li key={n}>{n}</li>
                 ))}
