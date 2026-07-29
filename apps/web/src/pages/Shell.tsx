@@ -180,7 +180,10 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
             ? `fixed top-14 bottom-0 left-0 z-40 w-[82vw] max-w-[300px] transition-transform duration-200 ${
                 navOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
               }`
-            : 'h-screen top-0 shrink-0 sticky'
+            : // dynamic viewport height, not 100vh: on iPad/iOS Safari `h-screen`
+              // runs behind the browser chrome, pushing the account menu at the
+              // bottom off-screen
+              'h-[100dvh] top-0 shrink-0 sticky'
         }`}
         style={{
           width: isMobile ? undefined : sidebarW,
@@ -241,7 +244,7 @@ export function Shell(props: { me: UserView; children: ReactNode }) {
         <div
           onPointerDown={startResize}
           title="Drag to resize the sidebar"
-          className="shrink-0 sticky top-0 h-screen z-10 hover:bg-[var(--accent-soft)]"
+          className="shrink-0 sticky top-0 h-[100dvh] z-10 hover:bg-[var(--accent-soft)]"
           style={{ width: 5, marginLeft: -3, cursor: 'col-resize' }}
         />
       )}
