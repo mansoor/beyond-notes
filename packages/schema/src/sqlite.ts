@@ -1,10 +1,12 @@
 import {
   type AnySQLiteColumn,
   blob,
+  index,
   integer,
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 // Mirrors pg.ts exactly; dates are stored as integer epoch-ms and surfaced as Date.
@@ -14,6 +16,10 @@ export const users = sqliteTable('users', {
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
+  // false for an account created by single sign-on: its password_hash is a
+  // random, unknowable value, so "change password" skips the current-password
+  // check and lock screens ask the user to set one first.
+  passwordSet: integer('password_set', { mode: 'boolean' }).notNull().default(true),
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
@@ -63,6 +69,85 @@ export const sessions = sqliteTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// A sign-in identity from an external OpenID Connect provider, tied to a local
+// account. (issuer, subject) is the provider's stable id for the person; the
+// email is kept only for display, since it can change at the provider.
+export const userIdentities = sqliteTable(
+  'user_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    issuer: text('issuer').notNull(),
+    subject: text('subject').notNull(),
+    email: text('email'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
+)
+
+// A WebAuthn passkey. id is the credential id (base64url) the authenticator
+// hands back on sign-in; public_key is the COSE key it registered, also
+// base64url. The counter guards against cloned authenticators.
+export const passkeys = sqliteTable('passkeys', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  // JSON array of transports ("internal", "hybrid", "usb", ...)
+  transports: text('transports').notNull().default('[]'),
+  // synced (a password manager / iCloud keychain) vs bound to one device
+  backedUp: integer('backed_up', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+})
+
+// Who did what, when, from where: sign-ins (and failed ones), security
+// changes and admin actions. actor_id has no foreign key on purpose, and the
+// email is copied in, so the trail survives the account being deleted.
+export const auditEvents = sqliteTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    actorId: text('actor_id'),
+    actorEmail: text('actor_email'),
+    // dotted name, e.g. auth.login, auth.login_failed, settings.saved
+    action: text('action').notNull(),
+    target: text('target'),
+    ip: text('ip'),
+    // JSON object with anything else worth keeping
+    detail: text('detail'),
+  },
+  (t) => ({ at: index('audit_events_at').on(t.at) }),
+)
+
+// Personal access tokens for the REST API and the MCP server. Only the
+// sha256 of the token is stored; `prefix` (the first characters) is kept so
+// people can tell their tokens apart in Settings.
+export const apiTokens = sqliteTable('api_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  // read = look only; write = also create and change content
+  scope: text('scope', { enum: ['read', 'write'] })
+    .notNull()
+    .default('read'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
 })
 
 export const passwordResetTokens = sqliteTable('password_reset_tokens', {

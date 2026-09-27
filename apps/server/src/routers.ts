@@ -1,8 +1,10 @@
 import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
+  ApiTokenView,
   ArchivedPageView,
   ArchivedTableView,
+  AuditEventView,
   AuthStatus,
   BacklinkView,
   DatabaseView,
@@ -10,6 +12,7 @@ import type {
   DbTableView,
   DocumentView,
   GalleryItemView,
+  IdentityView,
   ImportPlanView,
   ImportResultView,
   InviteView,
@@ -17,6 +20,7 @@ import type {
   MemoView,
   PageMeta,
   PageTagView,
+  PasskeyView,
   PinView,
   PreviewView,
   PublishingView,
@@ -36,12 +40,15 @@ import type {
   WebhookView,
 } from '@bn/schema'
 import {
+  type AuditAction,
   acceptInviteInput,
   appTheme,
   archiveTableInput,
+  auditListInput,
   backupSettings,
   captureMemoInput,
   changePasswordInput,
+  createApiTokenInput,
   createDatabaseInput,
   createDayNoteInput,
   createInviteInput,
@@ -69,6 +76,7 @@ import {
   movePageInput,
   moveTableInput,
   ntfySettings,
+  oidcSettings,
   pageTagInput,
   promoteToJournalInput,
   promoteToNoteInput,
@@ -109,6 +117,7 @@ import {
 import { TRPCError } from '@trpc/server'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
+import type { AuditInput } from './audit'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
 import { GithubError } from './github'
@@ -116,6 +125,7 @@ import { fetchLink } from './linkfetch'
 import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
+import { PasskeyError } from './passkeys'
 import type {
   DbDatabaseRow,
   DbRowRow,
@@ -126,9 +136,17 @@ import type {
   UserRow,
   WebhookRow,
 } from './repo'
+import { SsoError } from './sso'
 import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
-import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
+import {
+  SESSION_COOKIE,
+  adminProcedure,
+  authedProcedure,
+  publicProcedure,
+  router,
+  sessionCookieOptions,
+} from './trpc'
 import type { Context } from './trpc'
 import { ImportError, applyImportPlan, planFromGithub, planFromMarkdown } from './wikiimport'
 
@@ -166,6 +184,7 @@ function toUserView(u: UserRow): UserView {
     graphEdges: parseGraphEdges(u.graphEdges),
     graphMobile: u.graphMobile,
     defaultTheme: u.defaultTheme,
+    passwordSet: u.passwordSet,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -189,13 +208,12 @@ function toInviteView(i: InviteRow, now: Date): InviteView {
 }
 
 function setSessionCookie(ctx: Context, token: string, expiresAt: Date) {
-  ctx.res.setCookie(SESSION_COOKIE, token, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: ctx.config.cookieSecure,
-    expires: expiresAt,
-  })
+  ctx.res.setCookie(SESSION_COOKIE, token, sessionCookieOptions(ctx.config, expiresAt))
+}
+
+/** Record an audit event as the signed-in person, from this request's address. */
+function note(ctx: Context, action: AuditAction, extra: Omit<AuditInput, 'action'> = {}) {
+  return ctx.audit.record({ actor: ctx.user, ip: ctx.req.ip, ...extra, action })
 }
 
 function clearSessionCookie(ctx: Context) {
@@ -233,6 +251,15 @@ function rethrow(err: unknown): never {
   // its own code rather than a generic FORBIDDEN
   if (err instanceof LockedError) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'LOCKED' })
+  }
+  if (err instanceof PasskeyError) {
+    const code =
+      err.code === 'NOT_FOUND' || err.code === 'FAILED'
+        ? 'UNAUTHORIZED'
+        : err.code === 'DISABLED'
+          ? 'FORBIDDEN'
+          : 'BAD_REQUEST'
+    throw new TRPCError({ code, message: err.message })
   }
   // an import failure is nearly always the source's fault (bad URL, private
   // repo, empty document) — the message is the useful part, so keep it
@@ -304,6 +331,17 @@ const authRouter = router({
       me: ctx.user ? toUserView(ctx.user) : null,
       mailConfigured: ctx.mailer.configured,
       graphEmbeddings: ctx.config.GRAPH_EMBEDDINGS,
+      passkeys: ctx.passkeys.available,
+      sso: (() => {
+        const sso = ctx.settings.effectiveOidc()
+        return sso
+          ? {
+              label: sso.buttonLabel || 'Single sign-on',
+              passwordLogin: sso.passwordLogin,
+              autoRedirect: sso.autoRedirect,
+            }
+          : null
+      })(),
     }
   }),
 
@@ -311,6 +349,7 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.setup(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.setup', { actor: user })
       return toUserView(user)
     } catch (err) {
       rethrow(err)
@@ -321,21 +360,68 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.login(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.login', { actor: user })
       return toUserView(user)
+    } catch (err) {
+      // a missing TOTP code is a step, not a failure; a rate-limited retry
+      // would only repeat the entry that tripped the limit
+      if (err instanceof AuthError && err.code !== 'TOTP_REQUIRED' && err.code !== 'RATE_LIMITED') {
+        await note(ctx, 'auth.login_failed', {
+          actor: null,
+          actorEmail: input.email,
+          detail: { reason: err.code },
+        })
+      }
+      rethrow(err)
+    }
+  }),
+
+  /** With forward-auth the proxy would sign the person straight back in, so
+   *  the answer says where to go to end the proxy's session too. */
+  logout: publicProcedure.mutation(
+    async ({ ctx }): Promise<{ ok: true; redirect: string | null }> => {
+      if (ctx.sessionToken) {
+        // signing out re-locks everything this session had opened
+        ctx.locks.revokeSession(ctx.sessionToken)
+        await ctx.auth.logout(ctx.sessionToken)
+      }
+      if (ctx.user) {
+        ctx.proxy.forget(ctx.user.email)
+        await note(ctx, 'auth.logout')
+      }
+      clearSessionCookie(ctx)
+      return {
+        ok: true,
+        redirect: ctx.proxy.enabled && ctx.proxy.logoutUrl ? ctx.proxy.logoutUrl : null,
+      }
+    },
+  ),
+
+  /** Step 1 of passkey sign-in: a challenge for whichever passkey the browser offers. */
+  passkeyOptions: publicProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.passkeys.loginOptions()
     } catch (err) {
       rethrow(err)
     }
   }),
 
-  logout: publicProcedure.mutation(async ({ ctx }) => {
-    if (ctx.sessionToken) {
-      // signing out re-locks everything this session had opened
-      ctx.locks.revokeSession(ctx.sessionToken)
-      await ctx.auth.logout(ctx.sessionToken)
-    }
-    clearSessionCookie(ctx)
-    return { ok: true }
-  }),
+  /** Step 2: the browser's signed answer. A passkey is its own second factor. */
+  passkeyLogin: publicProcedure
+    .input(z.object({ response: z.record(z.unknown()) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const { user, session } = await ctx.passkeys.login(input.response as never)
+        setSessionCookie(ctx, session.token, session.expiresAt)
+        await note(ctx, 'auth.passkey_login', { actor: user })
+        return toUserView(user)
+      } catch (err) {
+        if (err instanceof PasskeyError) {
+          await note(ctx, 'auth.passkey_failed', { actor: null, detail: { reason: err.code } })
+        }
+        rethrow(err)
+      }
+    }),
 
   invitePreview: publicProcedure
     .input(z.object({ token: z.string() }))
@@ -350,6 +436,7 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.acceptInvite(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.invite_accepted', { actor: user })
       return toUserView(user)
     } catch (err) {
       rethrow(err)
@@ -361,6 +448,10 @@ const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await ctx.auth.requestPasswordReset(input.email)
+        await note(ctx, 'auth.password_reset_requested', {
+          actor: result?.user ?? null,
+          actorEmail: input.email,
+        })
         if (result && ctx.mailer.configured) {
           const mail = passwordResetEmail(ctx.config.BASE_URL, result.token)
           await ctx.mailer.send(result.user.email, mail.subject, mail.text)
@@ -374,7 +465,9 @@ const authRouter = router({
 
   resetPassword: publicProcedure.input(resetPasswordInput).mutation(async ({ ctx, input }) => {
     try {
-      await ctx.auth.resetPassword(input.token, input.password)
+      const userId = await ctx.auth.resetPassword(input.token, input.password)
+      const user = await ctx.repo.getUserById(userId)
+      await note(ctx, 'auth.password_reset', { actor: user })
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -448,6 +541,7 @@ const authRouter = router({
   changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
     try {
       await ctx.auth.changePassword(ctx.user, input.current, input.next)
+      await note(ctx, 'auth.password_changed')
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -473,7 +567,9 @@ const authRouter = router({
 
   totpConfirm: authedProcedure.input(totpConfirmInput).mutation(async ({ ctx, input }) => {
     try {
-      return await ctx.auth.totpConfirm(ctx.user, input.code)
+      const result = await ctx.auth.totpConfirm(ctx.user, input.code)
+      await note(ctx, 'auth.totp_enabled')
+      return result
     } catch (err) {
       rethrow(err)
     }
@@ -484,6 +580,7 @@ const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         await ctx.auth.totpDisable(ctx.user, input.password)
+        await note(ctx, 'auth.totp_disabled')
         return { ok: true }
       } catch (err) {
         rethrow(err)
@@ -504,6 +601,44 @@ const authRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.auth.revokeSession(ctx.user, input.sessionId)
+      await note(ctx, 'auth.session_revoked')
+      return { ok: true }
+    }),
+
+  /** Single sign-on identities linked to this account. */
+  identities: authedProcedure.query(async ({ ctx }): Promise<IdentityView[]> => {
+    const rows = await ctx.repo.listIdentitiesForUser(ctx.user.id)
+    return rows.map((r) => {
+      let provider = r.issuer
+      try {
+        provider = new URL(r.issuer).host
+      } catch {
+        // not a URL; show it as is
+      }
+      return {
+        id: r.id,
+        provider,
+        email: r.email,
+        createdAt: r.createdAt.toISOString(),
+        lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
+      }
+    })
+  }),
+
+  /** Unlinking the only way in would lock the account out, so an account with
+   *  no password must keep at least one identity. */
+  unlinkIdentity: authedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.repo.listIdentitiesForUser(ctx.user.id)
+      if (!ctx.user.passwordSet && rows.length <= 1) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Set a password first, or you would have no way to sign in.',
+        })
+      }
+      await ctx.repo.deleteIdentity(input.id, ctx.user.id)
+      await note(ctx, 'auth.sso_unlinked')
       return { ok: true }
     }),
 })
@@ -565,6 +700,10 @@ const usersRouter = router({
 
   createInvite: adminProcedure.input(createInviteInput).mutation(async ({ ctx, input }) => {
     const { token, invite } = await ctx.auth.createInvite(ctx.user.id, input)
+    await note(ctx, 'user.invited', {
+      target: input.suggestedEmail ?? null,
+      detail: { role: input.role },
+    })
     let emailed = false
     if (input.sendEmail && input.suggestedEmail && ctx.mailer.configured) {
       const mail = inviteEmail(ctx.config.BASE_URL, token, ctx.user.name)
@@ -583,6 +722,7 @@ const usersRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.auth.revokeInvite(input.id)
+      await note(ctx, 'user.invite_revoked', { target: input.id })
       return { ok: true }
     }),
 })
@@ -1312,21 +1452,175 @@ const templatesRouter = router({
   }),
 })
 
+/** Tokens are managed from a signed-in browser only: a token can't mint more. */
+const tokensRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<ApiTokenView[]> => {
+    const rows = await ctx.repo.listApiTokensForUser(ctx.user.id)
+    const now = Date.now()
+    return rows
+      .filter((t) => !t.revokedAt && !(t.expiresAt && t.expiresAt.getTime() <= now))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        prefix: t.prefix,
+        scope: t.scope,
+        createdAt: t.createdAt.toISOString(),
+        expiresAt: t.expiresAt?.toISOString() ?? null,
+        lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
+      }))
+  }),
+
+  /** The raw token is in this answer and nowhere else, ever. */
+  create: authedProcedure.input(createApiTokenInput).mutation(async ({ ctx, input }) => {
+    const { token, row } = await ctx.tokens.create(ctx.user, input)
+    await note(ctx, 'auth.token_created', { target: row.name, detail: { scope: row.scope } })
+    return { token, id: row.id }
+  }),
+
+  revoke: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    await ctx.repo.revokeApiToken(input.id, ctx.user.id, new Date())
+    await note(ctx, 'auth.token_revoked')
+    return { ok: true }
+  }),
+})
+
+const systemRouter = router({
+  /** A newer release, if the feed knows one (cached, at most twice a day). */
+  updates: authedProcedure.query(({ ctx }) => ctx.updates.check()),
+})
+
+const passkeysRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<PasskeyView[]> => {
+    const rows = await ctx.repo.listPasskeysForUser(ctx.user.id)
+    return rows
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        backedUp: p.backedUp,
+        createdAt: p.createdAt.toISOString(),
+        lastUsedAt: p.lastUsedAt?.toISOString() ?? null,
+      }))
+  }),
+
+  registrationOptions: authedProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.passkeys.registrationOptions(ctx.user)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  register: authedProcedure
+    .input(z.object({ response: z.record(z.unknown()), name: z.string().trim().max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await ctx.passkeys.register(ctx.user, input.response as never, input.name)
+        await note(ctx, 'auth.passkey_added', { target: input.name || 'Passkey' })
+        return result
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  rename: authedProcedure
+    .input(z.object({ id: z.string(), name: z.string().trim().min(1).max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.renamePasskey(input.id, ctx.user.id, input.name)
+      return { ok: true }
+    }),
+
+  remove: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    await ctx.repo.deletePasskey(input.id, ctx.user.id)
+    await note(ctx, 'auth.passkey_removed')
+    return { ok: true }
+  }),
+})
+
 const settingsRouter = router({
   get: adminProcedure.query(async ({ ctx }) => ctx.settings.view()),
 
   saveSmtp: adminProcedure.input(smtpSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveSmtp(input)
+    await note(ctx, 'settings.saved', { target: 'Email (SMTP)' })
     return ctx.settings.view()
   }),
 
   saveNtfy: adminProcedure.input(ntfySettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveNtfy(input)
+    await note(ctx, 'settings.saved', { target: 'Push (ntfy)' })
     return ctx.settings.view()
+  }),
+
+  /** Save the SSO config. Turning it on checks the provider answers first, so a
+   *  typo in the issuer fails here instead of on everyone's next sign-in. */
+  saveOidc: adminProcedure.input(oidcSettings).mutation(async ({ ctx, input }) => {
+    const secret = input.clientSecret || ctx.settings.oidc()?.clientSecret || ''
+    if (input.enabled) {
+      if (!input.issuer || !input.clientId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Single sign-on needs an issuer URL and a client ID.',
+        })
+      }
+      try {
+        await ctx.sso.probe({ ...input, clientSecret: secret })
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof SsoError ? err.message : 'Could not reach the identity provider.',
+        })
+      }
+    }
+    await ctx.settings.saveOidc(input)
+    await note(ctx, 'settings.saved', { target: 'Single sign-on' })
+    return ctx.settings.view()
+  }),
+
+  /** The audit log, newest first, one page at a time. */
+  audit: adminProcedure.input(auditListInput).query(async ({ ctx, input }) => {
+    const rows = await ctx.repo.listAuditEvents({
+      limit: input.limit,
+      before: input.before ? new Date(input.before) : undefined,
+      prefix: input.family === 'all' ? undefined : `${input.family}.`,
+    })
+    return rows.map(
+      (r): AuditEventView => ({
+        id: r.id,
+        at: r.at.toISOString(),
+        action: r.action,
+        actorId: r.actorId,
+        actorEmail: r.actorEmail,
+        target: r.target,
+        ip: r.ip,
+        detail: (() => {
+          try {
+            return r.detail ? (JSON.parse(r.detail) as Record<string, unknown>) : null
+          } catch {
+            return null
+          }
+        })(),
+      }),
+    )
+  }),
+
+  /** Discovery only: does this issuer answer as an OpenID provider? */
+  testOidc: adminProcedure.input(oidcSettings).mutation(async ({ ctx, input }) => {
+    const secret = input.clientSecret || ctx.settings.oidc()?.clientSecret || ''
+    try {
+      return await ctx.sso.probe({ ...input, clientSecret: secret })
+    } catch (err) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof SsoError ? err.message : 'Could not reach the identity provider.',
+      })
+    }
   }),
 
   saveRecaptcha: adminProcedure.input(recaptchaSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveRecaptcha(input)
+    await note(ctx, 'settings.saved', { target: 'reCAPTCHA' })
     return ctx.settings.view()
   }),
 
@@ -1357,12 +1651,14 @@ const settingsRouter = router({
       }
     }
     await ctx.settings.saveStorage(input)
+    await note(ctx, 'settings.saved', { target: 'Storage' })
     return ctx.settings.view()
   }),
 
   // ---- backups (admin) ----
   saveBackup: adminProcedure.input(backupSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveBackup(input)
+    await note(ctx, 'settings.saved', { target: 'Backup schedule' })
     await ctx.backup.reschedule() // apply the new frequency/enabled state now
     return ctx.settings.view()
   }),
@@ -1371,7 +1667,9 @@ const settingsRouter = router({
 
   backupNow: adminProcedure.mutation(async ({ ctx }) => {
     try {
-      return await ctx.backup.run()
+      const result = await ctx.backup.run()
+      await note(ctx, 'backup.created')
+      return result
     } catch (err) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -1384,6 +1682,7 @@ const settingsRouter = router({
     .input(z.object({ name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.backup.remove(input.name)
+      await note(ctx, 'backup.deleted', { target: input.name })
       return ctx.backup.list()
     }),
 
@@ -1405,7 +1704,12 @@ const settingsRouter = router({
 
   restoreRun: adminProcedure.input(restoreInput).mutation(async ({ ctx, input }) => {
     try {
-      return await ctx.restore.run(input)
+      const result = await ctx.restore.run(input)
+      await note(ctx, 'backup.restored', {
+        target: input.name,
+        detail: { spaces: input.spaces.length },
+      })
+      return result
     } catch (err) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -1935,6 +2239,8 @@ const importsRouter = router({
             pages: ctx.pages,
             publishing: ctx.publishing,
             attachments: ctx.attachments,
+            stash: ctx.importStash,
+            daily: ctx.daily,
           },
           ctx.user,
           input,
@@ -1982,6 +2288,12 @@ const locksRouter = router({
 
   /** Set or clear a lock. Both directions need the password. */
   set: authedProcedure.input(setLockInput).mutation(async ({ ctx, input }) => {
+    if (!ctx.user.passwordSet) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Locks use your account password. Set one in Settings → Account first.',
+      })
+    }
     if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
     }
@@ -2020,6 +2332,12 @@ const locksRouter = router({
 
   /** Open a locked target for this session. */
   unlock: authedProcedure.input(unlockInput).mutation(async ({ ctx, input }) => {
+    if (!ctx.user.passwordSet) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Locks use your account password. Set one in Settings → Account first.',
+      })
+    }
     if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
     }
@@ -2064,6 +2382,9 @@ export const appRouter = router({
   memos: memosRouter,
   tasks: tasksRouter,
   settings: settingsRouter,
+  passkeys: passkeysRouter,
+  tokens: tokensRouter,
+  system: systemRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,

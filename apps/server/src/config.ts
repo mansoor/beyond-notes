@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+const bool = (def: 'true' | 'false') =>
+  z
+    .string()
+    .default(def)
+    .transform((v) => v === 'true' || v === '1')
+
 const envSchema = z.object({
   DATABASE_URL: z.string().default('file:./data/beyond.db'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3800),
@@ -56,6 +62,54 @@ const envSchema = z.object({
   GRAPH_EMBED_THRESHOLD: z.coerce.number().min(0).max(1).default(0.55),
   // most semantic neighbours kept per page, so a dense space can't go N².
   GRAPH_EMBED_NEIGHBORS: z.coerce.number().int().min(1).max(20).default(4),
+  // OpenID Connect single sign-on (optional). Setting OIDC_ISSUER and
+  // OIDC_CLIENT_ID turns it on; Settings → Server can override all of it.
+  // Register <BASE_URL>/auth/oidc/callback as the redirect URI at the provider.
+  OIDC_ISSUER: z.string().default(''),
+  OIDC_CLIENT_ID: z.string().default(''),
+  OIDC_CLIENT_SECRET: z.string().default(''),
+  OIDC_SCOPES: z.string().default('openid email profile'),
+  OIDC_BUTTON_LABEL: z.string().default('Single sign-on'),
+  OIDC_AUTO_CREATE: bool('false'),
+  OIDC_ALLOWED_DOMAINS: z.string().default(''),
+  OIDC_REQUIRED_GROUP: z.string().default(''),
+  OIDC_ADMIN_GROUP: z.string().default(''),
+  OIDC_GROUPS_CLAIM: z.string().default('groups'),
+  OIDC_PASSWORD_LOGIN: bool('true'),
+  OIDC_AUTO_REDIRECT: bool('false'),
+  // Forward-auth (optional): a reverse proxy (Authelia, Authentik outpost,
+  // oauth2-proxy, Caddy/Traefik forward_auth) signs people in and passes their
+  // email in AUTH_PROXY_EMAIL_HEADER. Trusted ONLY from AUTH_PROXY_TRUSTED_IPS
+  // (IPs or CIDRs of the proxy); both must be set or it stays off.
+  AUTH_PROXY_EMAIL_HEADER: z.string().default(''),
+  AUTH_PROXY_NAME_HEADER: z.string().default(''),
+  AUTH_PROXY_GROUPS_HEADER: z.string().default(''),
+  AUTH_PROXY_TRUSTED_IPS: z.string().default(''),
+  AUTH_PROXY_AUTO_CREATE: bool('false'),
+  AUTH_PROXY_ADMIN_GROUP: z.string().default(''),
+  // where "Sign out" sends the browser (the proxy's logout), so the proxy
+  // doesn't just sign the person straight back in
+  AUTH_PROXY_LOGOUT_URL: z.string().default(''),
+  // Behind a reverse proxy, the proxy's IPs/CIDRs, so the client address in
+  // the audit log (and rate limits) is the real one from X-Forwarded-For.
+  // Empty = the proxy addresses from AUTH_PROXY_TRUSTED_IPS, if any.
+  TRUST_PROXY: z.string().default(''),
+  // days of audit log to keep (sign-ins, security and admin changes); 0 = forever
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(365),
+  // Content-Security-Policy and friends on the app. Only turn off to debug a
+  // reverse proxy that already sets its own.
+  SECURITY_HEADERS: bool('true'),
+  // where security reports go, served in /.well-known/security.txt
+  SECURITY_CONTACT: z
+    .string()
+    .default('https://github.com/mansoor/beyond-notes/security/advisories/new'),
+  // Prometheus metrics at /metrics, only with this token (Bearer). Empty = off.
+  METRICS_TOKEN: z.string().default(''),
+  // look for a newer release (at most twice a day) and say so in About
+  UPDATE_CHECK: bool('true'),
+  UPDATE_CHECK_URL: z
+    .string()
+    .default('https://api.github.com/repos/mansoor/beyond-notes/releases/latest'),
   NODE_ENV: z.string().default('development'),
 })
 

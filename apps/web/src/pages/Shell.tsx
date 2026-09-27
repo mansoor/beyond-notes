@@ -28,7 +28,9 @@ import { DatabasesNav } from './Data'
 export function Shell(props: { me: UserView; children: ReactNode }) {
   const utils = trpc.useUtils()
   const logout = trpc.auth.logout.useMutation({
-    onSuccess: () => utils.auth.status.invalidate(),
+    // behind a sign-in proxy, end the proxy's session too, or it signs us back in
+    onSuccess: (res) =>
+      res.redirect ? window.location.assign(res.redirect) : utils.auth.status.invalidate(),
   })
   const [theme, setTheme] = useState(currentTheme)
   const [searchOpen, setSearchOpen] = useState(false)

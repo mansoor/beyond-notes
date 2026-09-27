@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql as sqlOp } from 'drizzle-orm'
+import { and, desc, eq, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -6,6 +6,8 @@ export type UserRow = {
   email: string
   name: string
   passwordHash: string
+  /** false for an SSO-created account that has never set a password */
+  passwordSet: boolean
   role: 'admin' | 'member'
   totpSecret: string | null
   totpEnabled: boolean
@@ -36,6 +38,55 @@ export type SessionRow = {
   userId: string
   createdAt: Date
   expiresAt: Date
+}
+
+export type IdentityRow = {
+  id: string
+  userId: string
+  issuer: string
+  subject: string
+  email: string | null
+  createdAt: Date
+  lastLoginAt: Date | null
+}
+
+export type PasskeyRow = {
+  id: string
+  userId: string
+  name: string
+  /** base64url COSE public key */
+  publicKey: string
+  counter: number
+  /** JSON array of authenticator transports */
+  transports: string
+  backedUp: boolean
+  createdAt: Date
+  lastUsedAt: Date | null
+}
+
+export type AuditEventRow = {
+  id: string
+  at: Date
+  actorId: string | null
+  actorEmail: string | null
+  action: string
+  target: string | null
+  ip: string | null
+  /** JSON object */
+  detail: string | null
+}
+
+export type ApiTokenRow = {
+  id: string
+  userId: string
+  name: string
+  tokenHash: string
+  prefix: string
+  scope: 'read' | 'write'
+  createdAt: Date
+  expiresAt: Date | null
+  lastUsedAt: Date | null
+  revokedAt: Date | null
 }
 
 export type ResetTokenRow = {
@@ -281,6 +332,25 @@ export function createRepo(appDb: AppDb) {
   const t = appDb.tables as any
 
   return {
+    /** Totals for the metrics endpoint. Counted in the database, not in memory. */
+    async instanceCounts(): Promise<{
+      users: number
+      spaces: number
+      pages: number
+      attachments: number
+      attachmentBytes: number
+    }> {
+      const one = async (q: Promise<Array<{ n: unknown }>>) => Number((await q)[0]?.n ?? 0)
+      const [users, spaces, pages, attachments, attachmentBytes] = await Promise.all([
+        one(db.select({ n: sqlOp`count(*)` }).from(t.users)),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.spaces)),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.pages).where(isNull(t.pages.trashedAt))),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.attachments)),
+        one(db.select({ n: sqlOp`coalesce(sum(${t.attachments.size}), 0)` }).from(t.attachments)),
+      ])
+      return { users, spaces, pages, attachments, attachmentBytes }
+    },
+
     async countUsers(): Promise<number> {
       const rows = await db.select({ id: t.users.id }).from(t.users)
       return rows.length
@@ -310,6 +380,8 @@ export function createRepo(appDb: AppDb) {
         Pick<
           UserRow,
           | 'passwordHash'
+          | 'passwordSet'
+          | 'role'
           | 'totpSecret'
           | 'totpEnabled'
           | 'recoveryCodes'
@@ -328,6 +400,130 @@ export function createRepo(appDb: AppDb) {
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    async getIdentity(issuer: string, subject: string): Promise<IdentityRow | null> {
+      const rows = await db
+        .select()
+        .from(t.userIdentities)
+        .where(and(eq(t.userIdentities.issuer, issuer), eq(t.userIdentities.subject, subject)))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listIdentitiesForUser(userId: string): Promise<IdentityRow[]> {
+      return db.select().from(t.userIdentities).where(eq(t.userIdentities.userId, userId))
+    },
+
+    async insertIdentity(row: IdentityRow): Promise<void> {
+      await db.insert(t.userIdentities).values(row)
+    },
+
+    async touchIdentity(id: string, patch: { lastLoginAt: Date; email: string | null }) {
+      await db.update(t.userIdentities).set(patch).where(eq(t.userIdentities.id, id))
+    },
+
+    /** Scoped to the owner so one user can never unlink another's identity. */
+    async deleteIdentity(id: string, userId: string): Promise<void> {
+      await db
+        .delete(t.userIdentities)
+        .where(and(eq(t.userIdentities.id, id), eq(t.userIdentities.userId, userId)))
+    },
+
+    async listAllIdentities(): Promise<IdentityRow[]> {
+      return db.select().from(t.userIdentities)
+    },
+
+    async listPasskeysForUser(userId: string): Promise<PasskeyRow[]> {
+      return db.select().from(t.passkeys).where(eq(t.passkeys.userId, userId))
+    },
+
+    async listAllPasskeys(): Promise<PasskeyRow[]> {
+      return db.select().from(t.passkeys)
+    },
+
+    async getPasskey(id: string): Promise<PasskeyRow | null> {
+      const rows = await db.select().from(t.passkeys).where(eq(t.passkeys.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async insertPasskey(row: PasskeyRow): Promise<void> {
+      await db.insert(t.passkeys).values(row)
+    },
+
+    async recordPasskeyUse(id: string, counter: number, when: Date): Promise<void> {
+      await db.update(t.passkeys).set({ counter, lastUsedAt: when }).where(eq(t.passkeys.id, id))
+    },
+
+    /** Scoped to the owner, like deleteIdentity. */
+    async renamePasskey(id: string, userId: string, name: string): Promise<void> {
+      await db
+        .update(t.passkeys)
+        .set({ name })
+        .where(and(eq(t.passkeys.id, id), eq(t.passkeys.userId, userId)))
+    },
+
+    async deletePasskey(id: string, userId: string): Promise<void> {
+      await db.delete(t.passkeys).where(and(eq(t.passkeys.id, id), eq(t.passkeys.userId, userId)))
+    },
+
+    async insertAuditEvent(row: AuditEventRow): Promise<void> {
+      await db.insert(t.auditEvents).values(row)
+    },
+
+    /** Newest first. `before` pages backwards; `prefix` filters by action family. */
+    async listAuditEvents(opts: {
+      limit: number
+      before?: Date
+      prefix?: string
+    }): Promise<AuditEventRow[]> {
+      const where = [
+        opts.before ? lt(t.auditEvents.at, opts.before) : undefined,
+        opts.prefix ? like(t.auditEvents.action, `${opts.prefix}%`) : undefined,
+      ].filter(Boolean)
+      return db
+        .select()
+        .from(t.auditEvents)
+        .where(where.length ? and(...where) : undefined)
+        .orderBy(desc(t.auditEvents.at), desc(t.auditEvents.id))
+        .limit(opts.limit)
+    },
+
+    async deleteAuditEventsBefore(cutoff: Date): Promise<number> {
+      const rows = await db
+        .delete(t.auditEvents)
+        .where(lt(t.auditEvents.at, cutoff))
+        .returning({ id: t.auditEvents.id })
+      return rows.length
+    },
+
+    async insertApiToken(row: ApiTokenRow): Promise<void> {
+      await db.insert(t.apiTokens).values(row)
+    },
+
+    async getApiTokenByHash(tokenHash: string): Promise<ApiTokenRow | null> {
+      const rows = await db
+        .select()
+        .from(t.apiTokens)
+        .where(eq(t.apiTokens.tokenHash, tokenHash))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listApiTokensForUser(userId: string): Promise<ApiTokenRow[]> {
+      return db.select().from(t.apiTokens).where(eq(t.apiTokens.userId, userId))
+    },
+
+    async touchApiToken(id: string, when: Date): Promise<void> {
+      await db.update(t.apiTokens).set({ lastUsedAt: when }).where(eq(t.apiTokens.id, id))
+    },
+
+    /** Scoped to the owner, like the other self-service deletes. */
+    async revokeApiToken(id: string, userId: string, when: Date): Promise<void> {
+      await db
+        .update(t.apiTokens)
+        .set({ revokedAt: when })
+        .where(and(eq(t.apiTokens.id, id), eq(t.apiTokens.userId, userId)))
     },
 
     async insertResetToken(row: ResetTokenRow): Promise<void> {

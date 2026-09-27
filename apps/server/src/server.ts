@@ -6,7 +6,10 @@ import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
+import pkg from '../package.json'
+import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
+import { createAuditService } from './audit'
 import { createAuthService } from './auth'
 import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
@@ -16,13 +19,20 @@ import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
+import { registerHardening } from './hardening'
+import { ImportFormatError, type ImportKind, parseImport } from './importers'
+import { createImportStash } from './importstash'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
+import { createPasskeyService } from './passkeys'
+import { createProxyAuth, proxyAuthSettings } from './proxyauth'
 import { createPublicServer } from './public'
+import { createPublicApi } from './publicapi'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
+import { registerPublicApi } from './restapi'
 import { createRestoreService } from './restore'
 import { appRouter } from './routers'
 import {
@@ -34,9 +44,11 @@ import {
 } from './scheduler'
 import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
+import { SsoError, createSsoService, safeNext } from './sso'
 import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
-import { makeCreateContext } from './trpc'
+import { SESSION_COOKIE, makeCreateContext, sessionCookieOptions } from './trpc'
+import { createUpdateChecker } from './updates'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -58,7 +70,22 @@ function formResultPage(ok: boolean, message: string): string {
 }
 
 export async function buildServer(config: Config, appDb: AppDb) {
-  const server = Fastify({ logger: config.NODE_ENV !== 'test' })
+  const proxyList = (config.TRUST_PROXY || config.AUTH_PROXY_TRUSTED_IPS)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const server = Fastify({
+    logger: config.NODE_ENV !== 'test',
+    // only these hops may set X-Forwarded-For; everyone else's is ignored
+    trustProxy: proxyList.length ? proxyList : false,
+    // JSON bodies: a long page's autosave (content up to 2M characters) is well
+    // past Fastify's 1 MiB default. Uploads have their own, larger limits.
+    bodyLimit: 20 * 1024 * 1024,
+    // tRPC batches put every procedure name in one path param
+    // (/api/trpc/a.list,b.get,...); Fastify's default 100-char cap 404s a busy
+    // page's whole batch. tRPC's Fastify adapter docs recommend 5000.
+    maxParamLength: 5000,
+  })
 
   await server.register(fastifyCookie)
 
@@ -66,7 +93,36 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const secretsKey = loadOrCreateSecretsKey(config)
   const settings = createSettingsService(repo, config, { secretsKey })
   await settings.load()
-  const auth = createAuthService(repo)
+  const audit = createAuditService({
+    repo,
+    onError: (err) => server.log.error(err, 'audit write failed'),
+  })
+  const tokens = createApiTokenService({ repo })
+  const importStash = createImportStash()
+  const version = (pkg as { version: string }).version
+  const updates = createUpdateChecker({
+    current: version,
+    feedUrl: config.UPDATE_CHECK_URL,
+    enabled: config.UPDATE_CHECK && config.NODE_ENV !== 'test',
+  })
+  registerHardening(server, { config, repo, version })
+  const auth = createAuthService(repo, {
+    passwordLoginEnabled: () => settings.passwordLoginEnabled(),
+  })
+  const sso = createSsoService({ repo, auth, settings, baseUrl: config.BASE_URL })
+  const passkeys = createPasskeyService({
+    repo,
+    auth,
+    baseUrl: config.BASE_URL,
+    passwordLoginEnabled: () => settings.passwordLoginEnabled(),
+  })
+  const proxy = createProxyAuth({
+    settings: proxyAuthSettings(config),
+    repo,
+    auth,
+    log: (msg) => server.log.warn(msg),
+    onLogin: (user, ip) => void audit.record({ action: 'auth.proxy_login', actor: user, ip }),
+  })
   const embedder = createEmbedder(config)
   const pages = createPagesService(repo, {
     embedder,
@@ -121,10 +177,25 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
 
-  const userFromRequest = async (req: { cookies?: Record<string, string | undefined> }) => {
-    const token = req.cookies?.bn_session
-    return token ? auth.userForToken(token) : null
+  // Who a request is signed in as: a trusted proxy header first (forward-auth),
+  // then the session cookie. `res` given = a fresh proxy session gets its cookie.
+  const resolveSession = async (
+    req: { cookies?: Record<string, string | undefined>; headers: any; socket?: any },
+    res?: { setCookie: (name: string, value: string, opts: any) => unknown },
+  ) => {
+    const token = req.cookies?.[SESSION_COOKIE] ?? null
+    const proxied = await proxy.resolve(req, token)
+    if (!proxied) return { user: token ? await auth.userForToken(token) : null, token }
+    if (res && proxied.fresh && proxied.token && proxied.expiresAt) {
+      res.setCookie(SESSION_COOKIE, proxied.token, sessionCookieOptions(config, proxied.expiresAt))
+    }
+    return { user: proxied.user, token: proxied.token }
   }
+  const userFromRequest = async (req: {
+    cookies?: Record<string, string | undefined>
+    headers: any
+    socket?: any
+  }) => (await resolveSession(req)).user
 
   server.post('/api/upload', async (req, reply) => {
     const user = await userFromRequest(req)
@@ -341,6 +412,45 @@ export async function buildServer(config: Config, appDb: AppDb) {
     }
   })
 
+  // An export from another app (Notion zip, Obsidian vault zip, Evernote .enex):
+  // parsed into a review plan and held on the server until the import is
+  // approved, so the browser only ever handles titles and structure.
+  const IMPORT_MAX_BYTES = 200 * 1024 * 1024
+  server.post('/api/import/archive', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in to import' })
+    const kind = String((req.query as { kind?: string }).kind ?? 'auto')
+    if (!['auto', 'notion', 'obsidian', 'evernote'].includes(kind)) {
+      return reply.code(400).send({ error: 'unknown import kind' })
+    }
+    const file = await req.file({ limits: { fileSize: IMPORT_MAX_BYTES } })
+    if (!file) return reply.code(400).send({ error: 'no file' })
+    const data = await file.toBuffer()
+    if (file.file.truncated) {
+      return reply
+        .code(413)
+        .send({ error: 'That export is larger than 200 MB. Export a part of it at a time.' })
+    }
+    try {
+      const parsed = parseImport(kind as ImportKind | 'auto', file.filename, new Uint8Array(data))
+      const { id, nodes } = importStash.put(user.id, parsed)
+      return {
+        sourceLabel: parsed.sourceLabel,
+        suggestedName: parsed.suggestedName,
+        suggestedCategory: parsed.suggestedCategory,
+        imageBase: null,
+        imageCount: parsed.files.size,
+        stashId: id,
+        nodes,
+        warnings: parsed.warnings,
+      }
+    } catch (err) {
+      if (err instanceof ImportFormatError) return reply.code(400).send({ error: err.message })
+      server.log.error(err, 'import parse failed')
+      return reply.code(400).send({ error: 'That file could not be read as an export.' })
+    }
+  })
+
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
@@ -350,6 +460,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(404).send({ error: 'not found' })
     }
     const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
+    await audit.record({ action: 'export.space', actor: user, ip: req.ip, target: space.name })
     reply.header('content-disposition', `attachment; filename="${filename}"`)
     reply.type('application/zip')
     return reply.send(data)
@@ -366,6 +477,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(400).send({ error: 'bad name' })
     }
     if (!path) return reply.code(404).send({ error: 'not found' })
+    await audit.record({
+      action: 'backup.downloaded',
+      actor: user,
+      ip: req.ip,
+      target: String(req.params.name),
+    })
     reply.header('content-disposition', `attachment; filename="${String(req.params.name)}"`)
     reply.type('application/zip')
     return reply.send(createReadStream(path))
@@ -466,6 +583,68 @@ export async function buildServer(config: Config, appDb: AppDb) {
   server.get('/s/draft/:spaceId', serveDraftByPath)
   server.get('/s/draft/:spaceId/*', serveDraftByPath)
 
+  // Single sign-on. /login sends the browser to the identity provider; the
+  // provider sends it back to /callback. `?link=1` (signed in) attaches the
+  // provider identity to the current account instead of signing in.
+  const OIDC_STATE_COOKIE = 'bn_oidc'
+  const ssoFail = (reply: any, err: unknown, to: string) => {
+    const message = err instanceof SsoError ? err.message : 'Single sign-on failed.'
+    if (!(err instanceof SsoError)) server.log.error(err)
+    return reply.redirect(`${to}?sso_error=${encodeURIComponent(message)}`)
+  }
+  server.get('/auth/oidc/login', async (req, reply) => {
+    const q = req.query as { next?: string; link?: string }
+    const linking = q.link === '1'
+    const viewer = linking ? await userFromRequest(req) : null
+    if (linking && !viewer) return reply.redirect('/')
+    try {
+      const { url, state } = await sso.begin({
+        next: safeNext(q.next),
+        mode: linking ? 'link' : 'login',
+        userId: viewer?.id,
+      })
+      reply.setCookie(OIDC_STATE_COOKIE, state, {
+        path: '/auth/oidc',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.cookieSecure,
+        maxAge: 600,
+      })
+      return reply.redirect(url)
+    } catch (err) {
+      return ssoFail(reply, err, linking ? '/settings' : '/')
+    }
+  })
+  server.get('/auth/oidc/callback', async (req, reply) => {
+    const currentUrl = new URL(req.url, config.BASE_URL)
+    const cookieState = req.cookies?.[OIDC_STATE_COOKIE]
+    reply.clearCookie(OIDC_STATE_COOKIE, { path: '/auth/oidc' })
+    // a failed link should land back in Settings, not on the login page
+    const signedIn = await userFromRequest(req)
+    try {
+      const result = await sso.complete(currentUrl, cookieState)
+      if (result.kind === 'link') {
+        await audit.record({ action: 'auth.sso_linked', actor: result.user, ip: req.ip })
+        return reply.redirect('/settings?sso=linked')
+      }
+      await audit.record({ action: 'auth.sso_login', actor: result.user, ip: req.ip })
+      reply.setCookie(
+        SESSION_COOKIE,
+        result.session.token,
+        sessionCookieOptions(config, result.session.expiresAt),
+      )
+      return reply.redirect(result.next)
+    } catch (err) {
+      await audit.record({
+        action: 'auth.sso_failed',
+        actor: signedIn,
+        ip: req.ip,
+        detail: { reason: err instanceof SsoError ? err.code : 'ERROR' },
+      })
+      return ssoFail(reply, err, signedIn ? '/settings' : '/')
+    }
+  })
+
   server.get('/s/:host', serveByPath)
   server.get('/s/:host/*', serveByPath)
 
@@ -490,8 +669,23 @@ export async function buildServer(config: Config, appDb: AppDb) {
         locks,
         backup,
         restore,
+        sso,
+        proxy,
+        passkeys,
+        audit,
+        tokens,
+        importStash,
+        updates,
+        resolveSession,
       }),
     },
+  })
+
+  // personal-access-token surface: REST (/api/v1) and MCP (/api/mcp)
+  registerPublicApi(server, {
+    api: createPublicApi({ repo, pages, daily, tasks, locks }),
+    tokens,
+    version,
   })
 
   server.get('/healthz', async () => ({ ok: true, dialect: appDb.dialect }))
@@ -524,6 +718,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
       const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000)
       const purged = await pages.purgeExpiredTrash(cutoff)
       if (purged > 0) server.log.info(`trash purge: hard-deleted ${purged} page subtree(s)`)
+      // the audit log keeps its own, much longer, window
+      await audit.prune(config.AUDIT_RETENTION_DAYS)
     }
     server.addHook('onReady', async () => {
       await scheduler.runOnce()

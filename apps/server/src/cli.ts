@@ -1,6 +1,7 @@
 // Admin CLI. Shell access to the host IS the credential here:
 //   docker compose exec app node dist/cli.js user:reset-password <email> <new-password>
 //   docker compose exec app node dist/cli.js blobs:migrate fs s3
+//   docker compose exec app node dist/cli.js sso:disable
 import { thumbKey } from './attachments'
 import { createAuthService } from './auth'
 import { createFsBlobStore } from './blobstore'
@@ -157,8 +158,38 @@ async function main() {
       return
     }
 
+    if (cmd === 'sso:status') {
+      const sso = settings.effectiveOidc()
+      if (!sso) {
+        console.log('Single sign-on is off.')
+      } else {
+        console.log(
+          `Single sign-on is on (configured in ${sso.source === 'db' ? 'Settings' : 'env'}).`,
+        )
+        console.log(`  issuer:          ${sso.issuer}`)
+        console.log(`  client id:       ${sso.clientId}`)
+        console.log(`  password login:  ${sso.passwordLogin ? 'on' : 'admins only'}`)
+        console.log(`  auto-create:     ${sso.autoCreate ? 'on' : 'off'}`)
+      }
+      return
+    }
+
+    // Break-glass: a broken identity provider must never lock the owner out.
+    // Saves a disabled SSO group, which outranks env, and turns passwords back on.
+    if (cmd === 'sso:disable') {
+      const current = settings.oidc()?.issuer ? settings.oidc() : settings.envOidc()
+      if (!current) {
+        console.log('Single sign-on is already off.')
+        return
+      }
+      await settings.saveOidc({ ...current, enabled: false, passwordLogin: true })
+      console.log('Single sign-on is off and password sign-in is back on for everyone.')
+      console.log('Turn it on again from Settings → Server → Single sign-on.')
+      return
+    }
+
     console.error(
-      `Unknown command '${cmd ?? ''}'. Available: user:reset-password, blobs:migrate, export, import, import:markdown`,
+      `Unknown command '${cmd ?? ''}'. Available: user:reset-password, blobs:migrate, export, import, import:markdown, sso:status, sso:disable`,
     )
     process.exitCode = 1
   } finally {

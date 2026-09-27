@@ -2,11 +2,13 @@ import {
   type AnyPgColumn,
   boolean,
   customType,
+  index,
   integer,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 // drizzle pg-core has no built-in bytea; the blob store needs one.
@@ -23,6 +25,10 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
+  // false for an account created by single sign-on: its password_hash is a
+  // random, unknowable value, so "change password" skips the current-password
+  // check and lock screens ask the user to set one first.
+  passwordSet: boolean('password_set').notNull().default(true),
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
@@ -76,6 +82,85 @@ export const sessions = pgTable('sessions', {
     .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+// A sign-in identity from an external OpenID Connect provider, tied to a local
+// account. (issuer, subject) is the provider's stable id for the person; the
+// email is kept only for display, since it can change at the provider.
+export const userIdentities = pgTable(
+  'user_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    issuer: text('issuer').notNull(),
+    subject: text('subject').notNull(),
+    email: text('email'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
+)
+
+// A WebAuthn passkey. id is the credential id (base64url) the authenticator
+// hands back on sign-in; public_key is the COSE key it registered, also
+// base64url. The counter guards against cloned authenticators.
+export const passkeys = pgTable('passkeys', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  // JSON array of transports ("internal", "hybrid", "usb", ...)
+  transports: text('transports').notNull().default('[]'),
+  // synced (a password manager / iCloud keychain) vs bound to one device
+  backedUp: boolean('backed_up').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+})
+
+// Who did what, when, from where: sign-ins (and failed ones), security
+// changes and admin actions. actor_id has no foreign key on purpose, and the
+// email is copied in, so the trail survives the account being deleted.
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    at: timestamp('at', { withTimezone: true, mode: 'date' }).notNull(),
+    actorId: text('actor_id'),
+    actorEmail: text('actor_email'),
+    // dotted name, e.g. auth.login, auth.login_failed, settings.saved
+    action: text('action').notNull(),
+    target: text('target'),
+    ip: text('ip'),
+    // JSON object with anything else worth keeping
+    detail: text('detail'),
+  },
+  (t) => ({ at: index('audit_events_at').on(t.at) }),
+)
+
+// Personal access tokens for the REST API and the MCP server. Only the
+// sha256 of the token is stored; `prefix` (the first characters) is kept so
+// people can tell their tokens apart in Settings.
+export const apiTokens = pgTable('api_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  // read = look only; write = also create and change content
+  scope: text('scope', { enum: ['read', 'write'] })
+    .notNull()
+    .default('read'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
 })
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {

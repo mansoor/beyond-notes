@@ -18,7 +18,8 @@ export const loginInput = z.object({
 })
 
 export const changePasswordInput = z.object({
-  current: z.string().min(1).max(200),
+  // empty for an SSO-created account setting its first password
+  current: z.string().max(200),
   next: passwordSchema,
 })
 
@@ -38,6 +39,107 @@ export type SessionView = {
   createdAt: string
   expiresAt: string
   current: boolean
+}
+
+// ---- audit log ----
+
+export const auditAction = z.enum([
+  'auth.setup',
+  'auth.login',
+  'auth.login_failed',
+  'auth.logout',
+  'auth.sso_login',
+  'auth.sso_failed',
+  'auth.sso_linked',
+  'auth.sso_unlinked',
+  'auth.passkey_login',
+  'auth.passkey_failed',
+  'auth.proxy_login',
+  'auth.invite_accepted',
+  'auth.password_changed',
+  'auth.password_reset_requested',
+  'auth.password_reset',
+  'auth.totp_enabled',
+  'auth.totp_disabled',
+  'auth.passkey_added',
+  'auth.passkey_removed',
+  'auth.session_revoked',
+  'auth.token_created',
+  'auth.token_revoked',
+  'user.invited',
+  'user.invite_revoked',
+  'settings.saved',
+  'backup.created',
+  'backup.deleted',
+  'backup.downloaded',
+  'backup.restored',
+  'export.space',
+])
+export type AuditAction = z.infer<typeof auditAction>
+
+/** Families the viewer filters by; each is an action-name prefix. */
+export const auditFamily = z.enum(['all', 'auth', 'user', 'settings', 'backup', 'export'])
+export type AuditFamily = z.infer<typeof auditFamily>
+
+export const auditListInput = z.object({
+  family: auditFamily.default('all'),
+  /** ISO time of the last event already shown: returns older ones */
+  before: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+})
+
+export type AuditEventView = {
+  id: string
+  at: string
+  action: string
+  actorId: string | null
+  actorEmail: string | null
+  target: string | null
+  ip: string | null
+  detail: Record<string, unknown> | null
+}
+
+// ---- personal access tokens ----
+
+export const tokenScope = z.enum(['read', 'write'])
+export type TokenScopeKind = z.infer<typeof tokenScope>
+
+export const createApiTokenInput = z.object({
+  name: z.string().trim().min(1).max(60),
+  scope: tokenScope.default('read'),
+  // null = never expires
+  expiresInDays: z.number().int().min(1).max(3650).nullable().default(90),
+})
+
+export type ApiTokenView = {
+  id: string
+  name: string
+  /** the first characters, so tokens can be told apart */
+  prefix: string
+  scope: TokenScopeKind
+  createdAt: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+}
+
+/** A passkey on the signed-in account. */
+export type PasskeyView = {
+  id: string
+  name: string
+  /** synced through a password manager / keychain, vs tied to one device */
+  backedUp: boolean
+  createdAt: string
+  lastUsedAt: string | null
+}
+
+/** A single sign-on identity linked to the signed-in account. */
+export type IdentityView = {
+  id: string
+  /** the identity provider's host, for display */
+  provider: string
+  email: string | null
+  createdAt: string
+  lastLoginAt: string | null
 }
 
 export type SearchResult = {
@@ -89,6 +191,8 @@ export type UserView = {
   graphMobile: boolean
   /** the account's default app theme, applied on a device with no local choice */
   defaultTheme: AppTheme
+  /** false for an SSO-created account that has never set a password */
+  passwordSet: boolean
   createdAt: string
 }
 
@@ -124,6 +228,16 @@ export type AuthStatus = {
   // the embeddings layer is available on this deployment (the -ml image): gates
   // the graph's "similar meaning" edge option in Settings
   graphEmbeddings: boolean
+  // passkeys work at this address (https at BASE_URL's domain, or localhost)
+  passkeys: boolean
+  // single sign-on as the login page needs it; null when SSO is off
+  sso: {
+    label: string
+    /** false = SSO-only; the password form is hidden (admins can still use it) */
+    passwordLogin: boolean
+    /** send people straight to the provider instead of showing the login page */
+    autoRedirect: boolean
+  } | null
 }
 
 // ---- spaces & pages (M1) ----
@@ -648,6 +762,29 @@ export const recaptchaSettings = z.object({
 })
 export type RecaptchaSettings = z.infer<typeof recaptchaSettings>
 
+// OpenID Connect single sign-on, instance-wide. clientSecret is server-only.
+export const oidcSettings = z.object({
+  enabled: z.boolean().default(false),
+  issuer: z.string().trim().max(500).default(''),
+  clientId: z.string().trim().max(300).default(''),
+  // empty string on save = keep the stored secret
+  clientSecret: z.string().max(500).default(''),
+  scopes: z.string().trim().max(300).default('openid email profile'),
+  buttonLabel: z.string().trim().max(60).default('Single sign-on'),
+  // make an account for someone the provider vouches for who has none here
+  autoCreate: z.boolean().default(false),
+  // comma-separated email domains allowed to sign in; empty = any
+  allowedDomains: z.string().trim().max(500).default(''),
+  // provider group a person must be in to sign in at all; empty = no check
+  requiredGroup: z.string().trim().max(200).default(''),
+  // provider group whose members are admins here; empty = roles are managed here
+  adminGroup: z.string().trim().max(200).default(''),
+  groupsClaim: z.string().trim().max(100).default('groups'),
+  passwordLogin: z.boolean().default(true),
+  autoRedirect: z.boolean().default(false),
+})
+export type OidcSettings = z.infer<typeof oidcSettings>
+
 export const storageDriver = z.enum(['fs', 'db', 's3'])
 export type StorageDriver = z.infer<typeof storageDriver>
 
@@ -748,6 +885,13 @@ export type ServerSettingsView = {
   ntfy: NtfySettings
   storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
   recaptcha: { siteKey: string; hasSecret: boolean }
+  oidc: Omit<OidcSettings, 'clientSecret'> & { hasSecret: boolean }
+  /** where the effective SSO config comes from; 'off' = no issuer anywhere */
+  oidcSource: 'db' | 'env' | 'off'
+  /** the redirect URI to register at the identity provider */
+  oidcRedirectUri: string
+  /** forward-auth as configured by env (read-only in the UI); null = off */
+  proxyAuth: { emailHeader: string; trusted: string[]; autoCreate: boolean } | null
   backup: BackupSettings
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
@@ -1259,6 +1403,8 @@ export const importNodePlan = z.object({
   path: z.string().max(400).optional(),
   markdown: z.string().max(400_000),
   excerpt: z.string().max(400),
+  /** a daily note: goes into the Journal on this date instead of becoming a page */
+  journalDate: dateKey.optional(),
 })
 export type ImportNodePlan = z.infer<typeof importNodePlan>
 
@@ -1271,6 +1417,11 @@ export type ImportPlanView = {
   imageCount?: number
   /** proposed name when the import creates its own space */
   suggestedName: string
+  /** the kind of space that suits this source (notes vs. a wiki) */
+  suggestedCategory?: SpaceCategory
+  /** an uploaded export waiting on the server: nodes carry no content, the
+   *  apply step reads it from there by key */
+  stashId?: string | null
   nodes: ImportNodePlan[]
   warnings: string[]
 }
@@ -1304,7 +1455,11 @@ export const importApplyInput = z
     importImages: z.boolean().default(false),
     /** raw base the plan came with, for resolving relative image paths */
     imageBase: z.string().max(400).nullable().default(null),
-    nodes: z.array(importNodePlan).min(1).max(500),
+    /** an uploaded export held on the server (see ImportPlanView.stashId) */
+    stashId: z.string().max(64).optional(),
+    /** with a stash, merges are folded on the server: key -> the key it joins */
+    merges: z.record(z.string()).optional(),
+    nodes: z.array(importNodePlan).min(1).max(5000),
   })
   .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
     message: 'Choose either an existing space or a name for a new one.',
@@ -1312,6 +1467,8 @@ export const importApplyInput = z
 
 export type ImportResultView = {
   spaceId: string
+  /** daily notes added to the Journal */
+  journal?: number
   pages: number
   published: number
   /** images fetched and stored alongside the pages */

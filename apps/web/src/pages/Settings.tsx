@@ -1,6 +1,7 @@
-import type { GraphEdgeKind } from '@bn/schema'
-import { useState } from 'react'
+import type { AuditEventView, AuditFamily, GraphEdgeKind, OidcSettings } from '@bn/schema'
+import { useEffect, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { passkeyErrorMessage, passkeysSupported, startRegistration } from '../passkey'
 import {
   type HideableKind,
   JOURNAL_NAV_TOKEN,
@@ -25,9 +26,10 @@ const TABS = [
   'Users',
   'Storage',
   'Backup',
+  'Activity',
 ] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup']
+const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup', 'Activity']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
@@ -38,12 +40,17 @@ const TAB_ICONS: Record<Tab, string> = {
   Users: '👥',
   Storage: '🗄',
   Backup: '💾',
+  Activity: '📜',
 }
 
 export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
   const isAdmin = status.data?.me?.role === 'admin'
-  const [tab, setTab] = useState<Tab>('Account')
+  // the SSO link flow returns to /settings?sso=linked (or ?sso_error=…)
+  const [tab, setTab] = useState<Tab>(() => {
+    const q = new URLSearchParams(window.location.search)
+    return q.has('sso') || q.has('sso_error') ? 'Security' : 'Account'
+  })
   const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
@@ -93,6 +100,7 @@ export function SettingsPage() {
           {tab === 'Users' && isAdmin && <UsersTab />}
           {tab === 'Storage' && isAdmin && <StorageTab />}
           {tab === 'Backup' && isAdmin && <BackupTab />}
+          {tab === 'Activity' && isAdmin && <ActivityTab />}
         </div>
       </div>
     </div>
@@ -551,6 +559,10 @@ function ProfileCard() {
 }
 
 function ChangePasswordCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  // an account made by single sign-on has no password yet: set one, no "current"
+  const firstPassword = status.data?.me?.passwordSet === false
   const change = trpc.auth.changePassword.useMutation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -558,7 +570,8 @@ function ChangePasswordCard() {
   const [done, setDone] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
     if (next !== confirm) throw new Error('New passwords do not match.')
-    await change.mutateAsync({ current, next })
+    await change.mutateAsync({ current: firstPassword ? '' : current, next })
+    if (firstPassword) await utils.auth.status.invalidate()
     setCurrent('')
     setNext('')
     setConfirm('')
@@ -567,9 +580,16 @@ function ChangePasswordCard() {
   const mismatch = confirm !== '' && next !== confirm
 
   return (
-    <Card title="Change password">
+    <Card title={firstPassword ? 'Set a password' : 'Change password'}>
       <form onSubmit={onSubmit}>
-        <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        {firstPassword ? (
+          <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+            You sign in with single sign-on, so this account has no password. Set one to lock
+            notebooks and pages, or to sign in when single sign-on is unavailable.
+          </p>
+        ) : (
+          <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        )}
         <Field
           label="New password (10+ characters)"
           type="password"
@@ -585,10 +605,10 @@ function ChangePasswordCard() {
         <ErrorNote message={error} />
         {done && (
           <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
-            Password changed.
+            {firstPassword ? 'Password set.' : 'Password changed.'}
           </p>
         )}
-        <SubmitButton label="Change password" busy={busy} />
+        <SubmitButton label={firstPassword ? 'Set password' : 'Change password'} busy={busy} />
       </form>
     </Card>
   )
@@ -600,12 +620,258 @@ function SecurityTab() {
   return (
     <>
       <ChangePasswordCard />
+      <LinkedSignInsCard />
+      <PasskeysCard />
       <TwoFactorCard />
       <SessionsCard />
+      {isAdmin ? <SsoSettingsCard /> : null}
+      {isAdmin ? <ProxyAuthCard /> : null}
       {/* form spam protection is a security control, not a notification channel —
           it only lived on that tab because reCAPTCHA needed a home */}
       {isAdmin ? <RecaptchaCard /> : null}
     </>
+  )
+}
+
+/** Read ?sso=linked / ?sso_error=… once, then drop them from the address bar. */
+function takeSsoResult(): { ok: boolean; message: string } | null {
+  const q = new URLSearchParams(window.location.search)
+  const error = q.get('sso_error')
+  const linked = q.get('sso') === 'linked'
+  if (error === null && !linked) return null
+  window.history.replaceState(null, '', window.location.pathname)
+  return error !== null ? { ok: false, message: error } : { ok: true, message: 'Linked.' }
+}
+
+/** A sensible default name for a new passkey: the device it's being made on. */
+function guessDeviceName(): string {
+  const ua = navigator.userAgent
+  if (/iPhone/.test(ua)) return 'iPhone'
+  if (/iPad/.test(ua)) return 'iPad'
+  if (/Android/.test(ua)) return 'Android phone'
+  if (/Mac OS X/.test(ua)) return 'Mac'
+  if (/Windows/.test(ua)) return 'Windows Hello'
+  return 'Passkey'
+}
+
+/** Passkeys on this account: add one from this device, rename, or remove. */
+function PasskeysCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const list = trpc.passkeys.list.useQuery()
+  const options = trpc.passkeys.registrationOptions.useMutation()
+  const register = trpc.passkeys.register.useMutation()
+  const rename = trpc.passkeys.rename.useMutation()
+  const remove = trpc.passkeys.remove.useMutation()
+  const [name, setName] = useState(guessDeviceName)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [added, setAdded] = useState(false)
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
+  const available = Boolean(status.data?.passkeys) && passkeysSupported()
+  const rows = list.data ?? []
+
+  const add = async () => {
+    setBusy(true)
+    setError(null)
+    setAdded(false)
+    try {
+      const optionsJSON = await options.mutateAsync()
+      const response = await startRegistration({ optionsJSON })
+      await register.mutateAsync({
+        response: response as unknown as Record<string, unknown>,
+        name,
+      })
+      await utils.passkeys.list.invalidate()
+      setAdded(true)
+    } catch (err) {
+      setError(passkeyErrorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="Passkeys">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key instead of a
+        password. A passkey also counts as your second factor.
+      </p>
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-2 mb-3">
+          {rows.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              {editing?.id === p.id ? (
+                <form
+                  className="flex flex-1 gap-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!editing.name.trim()) return
+                    await rename.mutateAsync({ id: p.id, name: editing.name })
+                    await utils.passkeys.list.invalidate()
+                    setEditing(null)
+                  }}
+                >
+                  <input
+                    className="flex-1 rounded border px-2 py-1 text-sm"
+                    style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                    value={editing.name}
+                    maxLength={60}
+                    autoFocus
+                    onChange={(e) => setEditing({ id: p.id, name: e.target.value })}
+                  />
+                  <button type="submit" className="text-xs underline">
+                    Save
+                  </button>
+                </form>
+              ) : (
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{p.name}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    {p.backedUp ? 'Synced' : 'This device only'} · added{' '}
+                    {new Date(p.createdAt).toLocaleDateString()}
+                    {p.lastUsedAt
+                      ? ` · last used ${new Date(p.lastUsedAt).toLocaleDateString()}`
+                      : ''}
+                  </div>
+                </div>
+              )}
+              {editing?.id !== p.id && (
+                <div className="flex gap-3 shrink-0 text-xs">
+                  <button
+                    type="button"
+                    className="underline"
+                    style={{ color: 'var(--text-2)' }}
+                    onClick={() => setEditing({ id: p.id, name: p.name })}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="underline"
+                    style={{ color: 'var(--danger)' }}
+                    disabled={remove.isPending}
+                    onClick={async () => {
+                      await remove.mutateAsync({ id: p.id })
+                      await utils.passkeys.list.invalidate()
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {available ? (
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+          <div className="flex-1">
+            <Field label="Name for this passkey" value={name} onChange={setName} />
+          </div>
+          <button
+            type="button"
+            onClick={add}
+            disabled={busy}
+            className="mb-4 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'var(--accent)' }}
+          >
+            {busy ? 'Waiting for your device…' : 'Add a passkey'}
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          {status.data?.passkeys
+            ? 'This browser does not support passkeys.'
+            : 'Passkeys need the app to be opened over https at its own domain (the BASE_URL it is set up with).'}
+        </p>
+      )}
+      <ErrorNote message={error} />
+      {added && (
+        <p className="text-sm" style={{ color: 'var(--live)' }}>
+          Passkey added. You can sign in with it from the sign-in page.
+        </p>
+      )}
+    </Card>
+  )
+}
+
+/** Single sign-on identities on this account: link one, or unlink one. */
+function LinkedSignInsCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const identities = trpc.auth.identities.useQuery()
+  const unlink = trpc.auth.unlinkIdentity.useMutation()
+  const [result] = useState(takeSsoResult)
+  const [error, setError] = useState<string | null>(null)
+  const sso = status.data?.sso ?? null
+  const rows = identities.data ?? []
+  if (!sso && rows.length === 0) return null
+
+  return (
+    <Card title="Single sign-on">
+      {rows.length === 0 ? (
+        <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+          Link your account to {sso?.label} so you can sign in with it.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2 mb-3">
+          {rows.map((r) => (
+            <li
+              key={r.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">{r.email ?? r.provider}</div>
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {r.provider}
+                  {r.lastLoginAt
+                    ? ` · last used ${new Date(r.lastLoginAt).toLocaleDateString()}`
+                    : ''}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs underline shrink-0"
+                style={{ color: 'var(--danger)' }}
+                disabled={unlink.isPending}
+                onClick={async () => {
+                  setError(null)
+                  try {
+                    await unlink.mutateAsync({ id: r.id })
+                    await utils.auth.identities.invalidate()
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not unlink.')
+                  }
+                }}
+              >
+                Unlink
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {result && (
+        <p className="text-sm mb-3" style={{ color: result.ok ? 'var(--live)' : 'var(--danger)' }}>
+          {result.message}
+        </p>
+      )}
+      <ErrorNote message={error} />
+      {sso && (
+        <a
+          href="/auth/oidc/login?link=1&next=%2Fsettings"
+          className="inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+          style={{ background: 'var(--accent)' }}
+        >
+          {rows.length === 0 ? `Link ${sso.label}` : 'Link another'}
+        </a>
+      )}
+    </Card>
   )
 }
 
@@ -834,6 +1100,211 @@ function NotificationsTab(props: { isAdmin: boolean }) {
 }
 
 function IntegrationsTab() {
+  return (
+    <>
+      <ApiTokensCard />
+      <AssistantsCard />
+      <WebhooksCard />
+    </>
+  )
+}
+
+/** Copy to the clipboard, with a text fallback the viewer can select. */
+function CopyField(props: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border px-3 py-2"
+      style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+    >
+      <code className="text-xs flex-1 break-all select-all">{props.value}</code>
+      <button
+        type="button"
+        className="text-xs underline shrink-0"
+        style={{ color: 'var(--text-2)' }}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(props.value)
+            setCopied(true)
+          } catch {
+            setCopied(false)
+          }
+        }}
+      >
+        {copied ? 'Copied' : (props.label ?? 'Copy')}
+      </button>
+    </div>
+  )
+}
+
+const EXPIRY_CHOICES: { value: string; label: string; days: number | null }[] = [
+  { value: '30', label: '30 days', days: 30 },
+  { value: '90', label: '90 days', days: 90 },
+  { value: '365', label: '1 year', days: 365 },
+  { value: 'never', label: 'Never', days: null },
+]
+
+/** Personal access tokens for the REST API and MCP clients. */
+function ApiTokensCard() {
+  const utils = trpc.useUtils()
+  const list = trpc.tokens.list.useQuery()
+  const create = trpc.tokens.create.useMutation()
+  const revoke = trpc.tokens.revoke.useMutation({
+    onSuccess: () => utils.tokens.list.invalidate(),
+  })
+  const [name, setName] = useState('')
+  const [scope, setScope] = useState<'read' | 'write'>('read')
+  const [expiry, setExpiry] = useState('90')
+  const [fresh, setFresh] = useState<string | null>(null)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    const days = EXPIRY_CHOICES.find((c) => c.value === expiry)?.days ?? null
+    const res = await create.mutateAsync({ name, scope, expiresInDays: days })
+    setFresh(res.token)
+    setName('')
+    await utils.tokens.list.invalidate()
+  })
+  const rows = list.data ?? []
+  const selectStyle = { background: 'var(--bg)', borderColor: 'var(--border)' }
+
+  return (
+    <Card title="API tokens">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Let scripts and AI assistants read and write your notes as you. A read-only token can search
+        and read; a read and write token can also create pages and add to your journal, tasks and
+        inbox. Tokens never open locked notebooks or pages, and can’t change settings.
+      </p>
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 mb-3">
+        <input
+          className="w-full rounded-lg border px-3 py-1.5 text-sm"
+          style={selectStyle}
+          placeholder="What it’s for, e.g. Claude Desktop"
+          value={name}
+          maxLength={60}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-2">
+          <select
+            className="rounded-lg border px-3 py-1.5 text-sm"
+            style={selectStyle}
+            value={scope}
+            onChange={(e) => setScope(e.target.value as 'read' | 'write')}
+            aria-label="Access"
+          >
+            <option value="read">Read only</option>
+            <option value="write">Read and write</option>
+          </select>
+          <select
+            className="rounded-lg border px-3 py-1.5 text-sm"
+            style={selectStyle}
+            value={expiry}
+            onChange={(e) => setExpiry(e.target.value)}
+            aria-label="Expires"
+          >
+            {EXPIRY_CHOICES.map((c) => (
+              <option key={c.value} value={c.value}>
+                Expires: {c.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'var(--accent)' }}
+          >
+            Create token
+          </button>
+        </div>
+      </form>
+      <ErrorNote message={error} />
+      {fresh && (
+        <div className="mb-4">
+          <p className="text-sm mb-2" style={{ color: 'var(--live)' }}>
+            Copy this token now. It won’t be shown again.
+          </p>
+          <CopyField value={fresh} />
+        </div>
+      )}
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {rows.map((t) => (
+            <li
+              key={t.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">
+                  {t.name}{' '}
+                  <span className="text-xs font-normal" style={{ color: 'var(--text-3)' }}>
+                    {t.scope === 'write' ? 'read and write' : 'read only'}
+                  </span>
+                </div>
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  <code>{t.prefix}…</code>
+                  {t.lastUsedAt
+                    ? ` · last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
+                    : ' · never used'}
+                  {t.expiresAt
+                    ? ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`
+                    : ' · never expires'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs underline shrink-0"
+                style={{ color: 'var(--danger)' }}
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate({ id: t.id })}
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+/** How to point an AI assistant (MCP) or a script (REST) at this instance. */
+function AssistantsCard() {
+  const origin = window.location.origin
+  const mcpUrl = `${origin}/api/mcp`
+  return (
+    <Card title="Connect an AI assistant">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Beyond Notes is an MCP server, so Claude and other assistants can search your notes, read
+        pages and your journal, and (with a read and write token) save pages, tasks and inbox notes.
+        Use this address with an API token from above:
+      </p>
+      <CopyField value={mcpUrl} />
+      <p className="text-sm mt-4 mb-2" style={{ color: 'var(--text-2)' }}>
+        Claude Code:
+      </p>
+      <CopyField
+        value={`claude mcp add --transport http beyond-notes ${mcpUrl} --header "Authorization: Bearer <your token>"`}
+      />
+      <p className="text-sm mt-4" style={{ color: 'var(--text-2)' }}>
+        Other apps send the token as <code>Authorization: Bearer …</code>. For scripts there is also
+        a REST API; its description is at{' '}
+        <a
+          className="underline"
+          href="/api/v1/openapi.json"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: 'var(--accent)' }}
+        >
+          /api/v1/openapi.json
+        </a>
+        .
+      </p>
+    </Card>
+  )
+}
+
+/** Incoming webhooks: a URL per target that drops text in. */
+function WebhooksCard() {
   const utils = trpc.useUtils()
   const hooks = trpc.webhooks.list.useQuery()
   const create = trpc.webhooks.create.useMutation({
@@ -1506,6 +1977,235 @@ function NtfyCard() {
   )
 }
 
+const SSO_EMPTY: OidcSettings = {
+  enabled: false,
+  issuer: '',
+  clientId: '',
+  clientSecret: '',
+  scopes: 'openid email profile',
+  buttonLabel: 'Single sign-on',
+  autoCreate: false,
+  allowedDomains: '',
+  requiredGroup: '',
+  adminGroup: '',
+  groupsClaim: 'groups',
+  passwordLogin: true,
+  autoRedirect: false,
+}
+
+/** Instance-wide OpenID Connect settings (admin). */
+/** Forward-auth is env-only (trusting a header is a deployment decision), so
+ *  this just reports what the server is doing. */
+function ProxyAuthCard() {
+  const settings = trpc.settings.get.useQuery()
+  const p = settings.data?.proxyAuth
+  if (!p) return null
+  return (
+    <Card title="Sign-in through a reverse proxy — active (from env vars)">
+      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
+        Requests from {p.trusted.join(', ')} that carry the <code>{p.emailHeader}</code> header are
+        signed in as that email. The same header from any other address is ignored.
+      </p>
+      <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+        New people:{' '}
+        {p.autoCreate
+          ? 'an account is created on first visit'
+          : 'must already have an account here'}
+        . Change these with the <code>AUTH_PROXY_*</code> env vars.
+      </p>
+    </Card>
+  )
+}
+
+function SsoSettingsCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveOidc.useMutation()
+  const test = trpc.settings.testOidc.useMutation()
+  const s = settings.data?.oidc
+  const [form, setForm] = useState<OidcSettings>(SSO_EMPTY)
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const [probe, setProbe] = useState<{ ok: boolean; message: string } | null>(null)
+  const [copied, setCopied] = useState(false)
+  if (s && !loaded) {
+    const { hasSecret: _h, ...rest } = s
+    setForm({ ...rest, clientSecret: '' })
+    setLoaded(true)
+  }
+  const set = (patch: Partial<OidcSettings>) => {
+    setForm((f) => ({ ...f, ...patch }))
+    setDone(false)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await Promise.all([utils.settings.get.invalidate(), utils.auth.status.invalidate()])
+    setForm((f) => ({ ...f, clientSecret: '' }))
+    setDone(true)
+  })
+  const redirectUri = settings.data?.oidcRedirectUri ?? ''
+
+  const check = (
+    label: string,
+    key: 'enabled' | 'autoCreate' | 'passwordLogin' | 'autoRedirect',
+    hint?: string,
+  ) => (
+    <label className="flex items-start gap-2 mb-3 text-sm">
+      <input
+        type="checkbox"
+        className="mt-1"
+        checked={form[key]}
+        onChange={(e) => set({ [key]: e.target.checked })}
+      />
+      <span>
+        {label}
+        {hint && (
+          <span className="block text-xs" style={{ color: 'var(--text-3)' }}>
+            {hint}
+          </span>
+        )}
+      </span>
+    </label>
+  )
+
+  return (
+    <Card title={`Single sign-on (OpenID Connect) — ${sourceLabel(settings.data?.oidcSource)}`}>
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Let people sign in with your identity provider: Authentik, Authelia, Keycloak, Pocket ID,
+        Zitadel, Google, Microsoft Entra ID or any other OpenID Connect provider. Register this
+        redirect URI with it:
+      </p>
+      <div
+        className="flex items-center gap-2 mb-4 rounded-lg border px-3 py-2"
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+      >
+        <code className="text-xs flex-1 break-all">{redirectUri}</code>
+        <button
+          type="button"
+          className="text-xs underline shrink-0"
+          style={{ color: 'var(--text-2)' }}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(redirectUri)
+              setCopied(true)
+            } catch {
+              setCopied(false)
+            }
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <form onSubmit={onSubmit}>
+        {check('Turn on single sign-on', 'enabled')}
+        <Field
+          label="Issuer URL"
+          placeholder="https://auth.example.com/application/o/beyond-notes/"
+          value={form.issuer}
+          onChange={(v) => set({ issuer: v })}
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <Field label="Client ID" value={form.clientId} onChange={(v) => set({ clientId: v })} />
+          <Field
+            label={s?.hasSecret ? 'Client secret (blank = keep saved)' : 'Client secret'}
+            type="password"
+            value={form.clientSecret}
+            onChange={(v) => set({ clientSecret: v })}
+            hint="Leave empty for a public client; PKCE is always used."
+          />
+          <Field
+            label="Button label"
+            value={form.buttonLabel}
+            onChange={(v) => set({ buttonLabel: v })}
+            hint="Shown as “Continue with …” on the sign-in page."
+          />
+          <Field label="Scopes" value={form.scopes} onChange={(v) => set({ scopes: v })} />
+        </div>
+
+        <h3 className="text-sm font-semibold mt-2 mb-2">Who can sign in</h3>
+        {check(
+          'Create accounts for new people',
+          'autoCreate',
+          'Off: only people who already have an account here (matched by verified email) can sign in.',
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <Field
+            label="Allowed email domains"
+            placeholder="example.com, family.lan"
+            value={form.allowedDomains}
+            onChange={(v) => set({ allowedDomains: v })}
+            hint="Empty = any domain."
+          />
+          <Field
+            label="Required group"
+            value={form.requiredGroup}
+            onChange={(v) => set({ requiredGroup: v })}
+            hint="Only members of this provider group can sign in. Empty = no check."
+          />
+          <Field
+            label="Admin group"
+            value={form.adminGroup}
+            onChange={(v) => set({ adminGroup: v })}
+            hint="Members become admins, others members, on every sign-in. Empty = manage roles here."
+          />
+          <Field
+            label="Groups claim"
+            value={form.groupsClaim}
+            onChange={(v) => set({ groupsClaim: v })}
+            hint="The claim that lists a person's groups. Usually “groups”."
+          />
+        </div>
+
+        <h3 className="text-sm font-semibold mt-2 mb-2">Sign-in page</h3>
+        {check(
+          'Allow password sign-in',
+          'passwordLogin',
+          'Off: members must use single sign-on. Admins can still use a password from “Admin sign-in”, and the sso:disable command turns SSO off from the server.',
+        )}
+        {check(
+          'Go straight to the identity provider',
+          'autoRedirect',
+          'Skips the sign-in page. Add ?local to the address to reach it anyway.',
+        )}
+
+        <ErrorNote message={error} />
+        {probe && (
+          <p className="text-sm mb-3" style={{ color: probe.ok ? 'var(--live)' : 'var(--danger)' }}>
+            {probe.message}
+          </p>
+        )}
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved — applies immediately.
+          </p>
+        )}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            className="rounded-lg border px-4 py-2 text-sm sm:w-auto w-full disabled:opacity-60"
+            style={{ borderColor: 'var(--border)' }}
+            disabled={test.isPending || !form.issuer}
+            onClick={async () => {
+              setProbe(null)
+              try {
+                const r = await test.mutateAsync(form)
+                setProbe({ ok: true, message: `Connected to ${r.issuer}.` })
+              } catch (err) {
+                setProbe({ ok: false, message: err instanceof Error ? err.message : 'Failed.' })
+              }
+            }}
+          >
+            {test.isPending ? 'Testing…' : 'Test connection'}
+          </button>
+          <div className="flex-1">
+            <SubmitButton label="Save single sign-on" busy={busy} />
+          </div>
+        </div>
+      </form>
+    </Card>
+  )
+}
+
 function RecaptchaCard() {
   const utils = trpc.useUtils()
   const settings = trpc.settings.get.useQuery()
@@ -1756,6 +2456,190 @@ function UsersTab() {
             </li>
           ))}
         </ul>
+      )}
+    </Card>
+  )
+}
+
+const AUDIT_LABEL: Record<string, string> = {
+  'auth.setup': 'Set up this instance',
+  'auth.login': 'Signed in with a password',
+  'auth.login_failed': 'Failed sign-in',
+  'auth.logout': 'Signed out',
+  'auth.sso_login': 'Signed in with single sign-on',
+  'auth.sso_failed': 'Single sign-on failed',
+  'auth.sso_linked': 'Linked single sign-on',
+  'auth.sso_unlinked': 'Unlinked single sign-on',
+  'auth.passkey_login': 'Signed in with a passkey',
+  'auth.passkey_failed': 'Passkey sign-in failed',
+  'auth.proxy_login': 'Signed in through the proxy',
+  'auth.invite_accepted': 'Joined from an invite',
+  'auth.password_changed': 'Changed their password',
+  'auth.password_reset_requested': 'Asked for a password reset',
+  'auth.password_reset': 'Reset their password',
+  'auth.totp_enabled': 'Turned on 2FA',
+  'auth.totp_disabled': 'Turned off 2FA',
+  'auth.passkey_added': 'Added a passkey',
+  'auth.passkey_removed': 'Removed a passkey',
+  'auth.session_revoked': 'Signed out a device',
+  'auth.token_created': 'Made an API token',
+  'auth.token_revoked': 'Revoked an API token',
+  'user.invited': 'Invited someone',
+  'user.invite_revoked': 'Revoked an invite',
+  'settings.saved': 'Changed settings',
+  'backup.created': 'Made a backup',
+  'backup.deleted': 'Deleted a backup',
+  'backup.downloaded': 'Downloaded a backup',
+  'backup.restored': 'Restored from a backup',
+  'export.space': 'Exported a space',
+}
+
+/** Events an admin should notice when skimming. */
+const AUDIT_WARN = new Set([
+  'auth.login_failed',
+  'auth.sso_failed',
+  'auth.passkey_failed',
+  'auth.totp_disabled',
+  'backup.downloaded',
+  'backup.restored',
+])
+
+const AUDIT_REASON: Record<string, string> = {
+  BAD_CREDENTIALS: 'wrong email or password',
+  TOTP_INVALID: 'wrong 2FA code',
+  PASSWORD_LOGIN_DISABLED: 'password sign-in is turned off',
+  NOT_FOUND: 'passkey not registered here',
+  FAILED: 'passkey could not be verified',
+  DISABLED: 'single sign-on only',
+  NOT_ALLOWED: 'not allowed by the identity provider rules',
+  NO_ACCOUNT: 'no account here',
+  EMAIL_UNVERIFIED: 'email not verified by the provider',
+  EXPIRED: 'sign-in expired',
+  PROVIDER: 'identity provider error',
+}
+
+const AUDIT_FAMILIES: { value: AuditFamily; label: string }[] = [
+  { value: 'all', label: 'Everything' },
+  { value: 'auth', label: 'Sign-ins and security' },
+  { value: 'user', label: 'People and invites' },
+  { value: 'settings', label: 'Settings' },
+  { value: 'backup', label: 'Backups and restores' },
+  { value: 'export', label: 'Exports' },
+]
+
+function auditDetail(e: AuditEventView): string {
+  const parts: string[] = []
+  if (e.target) parts.push(e.target)
+  const d = e.detail ?? {}
+  if (typeof d.reason === 'string') parts.push(AUDIT_REASON[d.reason] ?? d.reason)
+  if (typeof d.role === 'string') parts.push(`as ${d.role}`)
+  if (typeof d.spaces === 'number' && d.spaces > 0) {
+    parts.push(`${d.spaces} space${d.spaces === 1 ? '' : 's'}`)
+  }
+  return parts.join(' · ')
+}
+
+const AUDIT_PAGE = 50
+
+/** The audit log (admin): newest first, filterable, loads older on demand. */
+function ActivityTab() {
+  const utils = trpc.useUtils()
+  const [family, setFamily] = useState<AuditFamily>('all')
+  const [rows, setRows] = useState<AuditEventView[]>([])
+  const [more, setMore] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = async (from: AuditEventView[], fam: AuditFamily) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const page = await utils.client.settings.audit.query({
+        family: fam,
+        limit: AUDIT_PAGE,
+        before: from.at(-1)?.at,
+      })
+      setRows([...from, ...page])
+      setMore(page.length === AUDIT_PAGE)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the activity log.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only when the filter changes
+  useEffect(() => {
+    void load([], family)
+  }, [family])
+
+  return (
+    <Card title="Activity">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Sign-ins (including failed ones), security changes and admin actions on this instance.
+      </p>
+      <select
+        className="mb-4 w-full sm:w-auto rounded-lg border px-3 py-2 text-sm"
+        style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
+        value={family}
+        onChange={(e) => setFamily(e.target.value as AuditFamily)}
+      >
+        {AUDIT_FAMILIES.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+      <ErrorNote message={error} />
+      {rows.length === 0 && !loading ? (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          Nothing recorded yet.
+        </p>
+      ) : (
+        <ul className="flex flex-col">
+          {rows.map((e) => {
+            const detail = auditDetail(e)
+            return (
+              <li
+                key={e.id}
+                className="flex gap-3 py-2.5 border-t first:border-t-0 text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span
+                  className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                  style={{
+                    background: AUDIT_WARN.has(e.action) ? 'var(--danger)' : 'var(--border)',
+                  }}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="font-medium">{AUDIT_LABEL[e.action] ?? e.action}</span>
+                    <time className="text-xs" style={{ color: 'var(--text-3)' }} dateTime={e.at}>
+                      {new Date(e.at).toLocaleString()}
+                    </time>
+                  </div>
+                  <div className="text-xs break-words" style={{ color: 'var(--text-2)' }}>
+                    {e.actorEmail ?? 'unknown'}
+                    {detail ? ` · ${detail}` : ''}
+                    {e.ip ? ` · ${e.ip}` : ''}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {more && (
+        <button
+          type="button"
+          className="mt-3 rounded-lg border px-4 py-2 text-sm disabled:opacity-60"
+          style={{ borderColor: 'var(--border)' }}
+          disabled={loading}
+          onClick={() => load(rows, family)}
+        >
+          {loading ? 'Loading…' : 'Show older'}
+        </button>
       )}
     </Card>
   )

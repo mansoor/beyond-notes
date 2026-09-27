@@ -9,18 +9,21 @@
  * first.
  */
 
-import { markdownToBlocks, slugify } from '@bn/renderer'
+import { dedupeBlockIds, markdownToBlocks, slugify } from '@bn/renderer'
 import type { ImportApplyInput, ImportNodePlan, ImportPlanView, ImportResultView } from '@bn/schema'
+import { foldMergedNodes } from '@bn/schema'
 import type { AttachmentsService } from './attachments'
+import type { DailyService } from './daily'
 import { type Fetcher, fetchRepoDocs, titleCase, titleFromPath } from './github'
 import { collectImageUrls, importImages, rewriteImageUrls } from './importimages'
 import { normalizeLevels, outlineMarkdown, rewriteAnchors } from './importplan'
+import type { ImportStash } from './importstash'
 import { reconcileLinks } from './links'
 import type { PagesService } from './pages'
 import type { PublishingService } from './publishing'
 import type { Repo, UserRow } from './repo'
 import { reconcileTags } from './tags'
-import { reconcileTasks } from './tasks'
+import { appendBlocksToContent, reconcileTasks } from './tasks'
 
 export class ImportError extends Error {}
 
@@ -158,7 +161,22 @@ export type ImportDeps = {
   publishing: PublishingService
   /** only needed when an import is asked to bring the images too */
   attachments?: AttachmentsService
+  /** uploaded exports (Notion, Obsidian, Evernote) waiting to be applied */
+  stash?: ImportStash
+  /** for daily notes, which go into the Journal */
+  daily?: DailyService
   now?: () => Date
+}
+
+/** Point (bn-page:KEY) links at the pages that were made; unknown keys become text. */
+function resolvePageLinks(markdown: string, target: (key: string) => string | null): string {
+  return markdown.replace(
+    /\[([^\]\n]*)\]\(bn-page:([^)\s]+)\)/g,
+    (_m, label: string, key: string) => {
+      const href = target(key)
+      return href ? `[${label}](${href})` : label
+    },
+  )
 }
 
 /**
@@ -171,7 +189,29 @@ export async function applyImportPlan(
   input: ImportApplyInput,
 ): Promise<ImportResultView> {
   const now = deps.now ?? (() => new Date())
-  const nodes = normalizeLevels(input.nodes)
+
+  // An uploaded export: the content never left the server, so take it from the
+  // stash by key, then fold the merges the reviewer asked for.
+  const stash = input.stashId ? (deps.stash?.get(input.stashId, user.id) ?? null) : null
+  if (input.stashId && !stash) {
+    throw new ImportError('That upload has expired. Upload the file again to import it.')
+  }
+  const sourceNodes = stash
+    ? foldMergedNodes(
+        input.nodes.map((n) => ({
+          ...n,
+          markdown: stash.markdown.get(n.key) ?? '',
+          journalDate: stash.journalDates.get(n.key),
+        })),
+        input.merges ?? {},
+      )
+    : input.nodes
+  // daily notes don't become pages; everything else is the tree
+  const journalNodes = sourceNodes.filter((n) => n.journalDate)
+  const nodes = normalizeLevels(sourceNodes.filter((n) => !n.journalDate))
+  if (nodes.length === 0 && journalNodes.length === 0) {
+    throw new ImportError('Nothing was left to import.')
+  }
 
   const space = input.spaceId
     ? await deps.repo.getSpace(input.spaceId)
@@ -223,7 +263,55 @@ export async function applyImportPlan(
   let images = 0
   const warnings: string[] = []
   let imageRewrites = new Map<string, string>()
-  if (input.importImages && deps.attachments) {
+
+  // Links between imported notes: a merged note's links go to the page it
+  // joined, a daily note's to its Journal day.
+  const pageOfKey = new Map(created.map(({ node, pageId }) => [node.key, `/p/${pageId}`]))
+  for (const j of journalNodes) pageOfKey.set(j.key, `/day/${j.journalDate}`)
+  const merges = input.merges ?? {}
+  const linkTarget = (key: string): string | null => {
+    let k = key
+    const seen = new Set<string>()
+    while (!pageOfKey.has(k) && merges[k] && !seen.has(k)) {
+      seen.add(k)
+      k = merges[k] as string
+    }
+    return pageOfKey.get(k) ?? null
+  }
+
+  // files carried inside an upload: store each one referenced, once
+  const fileHrefs = new Map<string, string>()
+  if (stash && deps.attachments) {
+    const wanted = new Set<string>()
+    for (const n of [...nodes, ...journalNodes]) {
+      for (const m of n.markdown.matchAll(/\(bn-file:([^)\s]+)\)/g)) if (m[1]) wanted.add(m[1])
+    }
+    for (const key of wanted) {
+      const file = deps.stash?.readFile(stash, key)
+      if (!file) continue
+      try {
+        const attachment = await deps.attachments.upload(user, {
+          filename: file.name,
+          mime: file.mime,
+          data: file.data,
+        })
+        fileHrefs.set(key, `/api/files/${attachment.id}`)
+        images++
+      } catch (err) {
+        warnings.push(`Left out ${file.name} (${(err as Error).message}).`)
+      }
+    }
+  }
+  const finish = (markdown: string) =>
+    resolvePageLinks(markdown, linkTarget).replace(
+      /(!?)\[([^\]\n]*)\]\(bn-file:([^)\s]+)\)/g,
+      (_m, bang: string, label: string, key: string) => {
+        const href = fileHrefs.get(key)
+        return href ? `${bang}[${label}](${href})` : label
+      },
+    )
+
+  if (input.importImages && deps.attachments && !stash) {
     const result = await importImages(
       { attachments: deps.attachments },
       user,
@@ -237,12 +325,33 @@ export async function applyImportPlan(
 
   // pass 2: content
   for (const { node, pageId } of created) {
-    const markdown = rewriteImageUrls(rewriteAnchors(node.markdown, anchors), imageRewrites)
+    const markdown = finish(rewriteImageUrls(rewriteAnchors(node.markdown, anchors), imageRewrites))
     const content = JSON.stringify(markdownToBlocks(markdown))
     await deps.repo.updateDocument(pageId, content, now())
     await reconcileTasks(deps.repo, pageId, content, now())
     await reconcileTags(deps.repo, pageId, content)
     await reconcileLinks(deps.repo, pageId, content)
+  }
+
+  // daily notes are appended to that day's Journal entry
+  let journal = 0
+  if (journalNodes.length && deps.daily) {
+    for (const node of journalNodes) {
+      const { page, doc } = await deps.daily.day(user, node.journalDate as string)
+      const existing = JSON.parse(doc.content) as Array<{ id?: string }>
+      const seen = new Set(existing.map((b) => b.id).filter((id): id is string => Boolean(id)))
+      const blocks = dedupeBlockIds(markdownToBlocks(finish(node.markdown)), seen)
+      const content = appendBlocksToContent(doc.content, blocks as never)
+      await deps.repo.updateDocument(page.id, content, now())
+      await reconcileTasks(deps.repo, page.id, content, now())
+      await reconcileTags(deps.repo, page.id, content)
+      await reconcileLinks(deps.repo, page.id, content)
+      journal++
+    }
+  } else if (journalNodes.length) {
+    warnings.push(
+      `${journalNodes.length} daily notes were skipped (the Journal is not available here).`,
+    )
   }
 
   let published = 0
@@ -253,8 +362,11 @@ export async function applyImportPlan(
     }
   }
 
+  if (stash) deps.stash?.drop(stash.id)
+
   return {
     spaceId: space.id,
+    journal,
     pages: created.length,
     published,
     archived,

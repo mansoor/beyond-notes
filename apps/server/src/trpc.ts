@@ -1,24 +1,48 @@
 import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
+import type { ApiTokenService } from './apitokens'
 import type { AttachmentsService } from './attachments'
+import type { AuditService } from './audit'
 import type { AuthService } from './auth'
 import type { BackupService } from './backup'
 import type { Config } from './config'
 import type { DailyService } from './daily'
+import type { ImportStash } from './importstash'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
+import type { PasskeyService } from './passkeys'
+import type { ProxyAuth } from './proxyauth'
 import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
 import type { RestoreService } from './restore'
 import type { SettingsService } from './settings'
+import type { SsoService } from './sso'
 import type { TablesService } from './tables'
 import type { TasksService } from './tasks'
+import type { UpdateChecker } from './updates'
 import type { WebhooksService } from './webhooks'
 
 export const SESSION_COOKIE = 'bn_session'
+
+/** The one set of options every session cookie is written with. */
+export function sessionCookieOptions(config: Config, expires: Date) {
+  return {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: config.cookieSecure,
+    expires,
+  }
+}
+
+/** Who a request is signed in as, and with which session token. */
+export type ResolveSession = (
+  req: CreateFastifyContextOptions['req'],
+  res: CreateFastifyContextOptions['res'],
+) => Promise<{ user: UserRow | null; token: string | null }>
 
 export type Context = {
   req: CreateFastifyContextOptions['req']
@@ -39,6 +63,13 @@ export type Context = {
   locks: LockService
   backup: BackupService
   restore: RestoreService
+  sso: SsoService
+  proxy: ProxyAuth
+  passkeys: PasskeyService
+  audit: AuditService
+  tokens: ApiTokenService
+  importStash: ImportStash
+  updates: UpdateChecker
   user: UserRow | null
   sessionToken: string | null
 }
@@ -60,12 +91,19 @@ export function makeCreateContext(deps: {
   locks: LockService
   backup: BackupService
   restore: RestoreService
+  sso: SsoService
+  proxy: ProxyAuth
+  passkeys: PasskeyService
+  audit: AuditService
+  tokens: ApiTokenService
+  importStash: ImportStash
+  updates: UpdateChecker
+  resolveSession: ResolveSession
 }) {
+  const { resolveSession, ...services } = deps
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
-    const sessionToken =
-      (req.cookies as Record<string, string | undefined>)?.[SESSION_COOKIE] ?? null
-    const user = sessionToken ? await deps.auth.userForToken(sessionToken) : null
-    return { req, res, ...deps, user, sessionToken }
+    const { user, token } = await resolveSession(req, res)
+    return { req, res, ...services, user, sessionToken: token }
   }
 }
 

@@ -246,6 +246,34 @@
       "when": 1785155467037,
       "tag": "0034_flippant_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1790468502203,
+      "tag": "0035_left_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1790470454443,
+      "tag": "0036_premium_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1790470974740,
+      "tag": "0037_worthless_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1790471580877,
+      "tag": "0038_special_dracula",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,16 @@ import './styles.css'
 // default theme on first login.
 previewTheme(currentTheme())
 
+// the offline shell. Registered from the bundle, not an inline <script>, so
+// the app's Content-Security-Policy can forbid inline scripts outright.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // unsupported or blocked (private mode, some webviews): the app works without it
+    })
+  })
+}
+
 function App() {
   const [queryClient] = useState(
     () =>
