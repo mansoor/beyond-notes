@@ -18,7 +18,8 @@ export const loginInput = z.object({
 })
 
 export const changePasswordInput = z.object({
-  current: z.string().min(1).max(200),
+  // empty for an SSO-created account setting its first password
+  current: z.string().max(200),
   next: passwordSchema,
 })
 
@@ -38,6 +39,16 @@ export type SessionView = {
   createdAt: string
   expiresAt: string
   current: boolean
+}
+
+/** A single sign-on identity linked to the signed-in account. */
+export type IdentityView = {
+  id: string
+  /** the identity provider's host, for display */
+  provider: string
+  email: string | null
+  createdAt: string
+  lastLoginAt: string | null
 }
 
 export type SearchResult = {
@@ -89,6 +100,8 @@ export type UserView = {
   graphMobile: boolean
   /** the account's default app theme, applied on a device with no local choice */
   defaultTheme: AppTheme
+  /** false for an SSO-created account that has never set a password */
+  passwordSet: boolean
   createdAt: string
 }
 
@@ -124,6 +137,14 @@ export type AuthStatus = {
   // the embeddings layer is available on this deployment (the -ml image): gates
   // the graph's "similar meaning" edge option in Settings
   graphEmbeddings: boolean
+  // single sign-on as the login page needs it; null when SSO is off
+  sso: {
+    label: string
+    /** false = SSO-only; the password form is hidden (admins can still use it) */
+    passwordLogin: boolean
+    /** send people straight to the provider instead of showing the login page */
+    autoRedirect: boolean
+  } | null
 }
 
 // ---- spaces & pages (M1) ----
@@ -648,6 +669,29 @@ export const recaptchaSettings = z.object({
 })
 export type RecaptchaSettings = z.infer<typeof recaptchaSettings>
 
+// OpenID Connect single sign-on, instance-wide. clientSecret is server-only.
+export const oidcSettings = z.object({
+  enabled: z.boolean().default(false),
+  issuer: z.string().trim().max(500).default(''),
+  clientId: z.string().trim().max(300).default(''),
+  // empty string on save = keep the stored secret
+  clientSecret: z.string().max(500).default(''),
+  scopes: z.string().trim().max(300).default('openid email profile'),
+  buttonLabel: z.string().trim().max(60).default('Single sign-on'),
+  // make an account for someone the provider vouches for who has none here
+  autoCreate: z.boolean().default(false),
+  // comma-separated email domains allowed to sign in; empty = any
+  allowedDomains: z.string().trim().max(500).default(''),
+  // provider group a person must be in to sign in at all; empty = no check
+  requiredGroup: z.string().trim().max(200).default(''),
+  // provider group whose members are admins here; empty = roles are managed here
+  adminGroup: z.string().trim().max(200).default(''),
+  groupsClaim: z.string().trim().max(100).default('groups'),
+  passwordLogin: z.boolean().default(true),
+  autoRedirect: z.boolean().default(false),
+})
+export type OidcSettings = z.infer<typeof oidcSettings>
+
 export const storageDriver = z.enum(['fs', 'db', 's3'])
 export type StorageDriver = z.infer<typeof storageDriver>
 
@@ -748,6 +792,11 @@ export type ServerSettingsView = {
   ntfy: NtfySettings
   storage: Omit<StorageSettings, 's3SecretKey'> & { hasSecret: boolean }
   recaptcha: { siteKey: string; hasSecret: boolean }
+  oidc: Omit<OidcSettings, 'clientSecret'> & { hasSecret: boolean }
+  /** where the effective SSO config comes from; 'off' = no issuer anywhere */
+  oidcSource: 'db' | 'env' | 'off'
+  /** the redirect URI to register at the identity provider */
+  oidcRedirectUri: string
   backup: BackupSettings
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'

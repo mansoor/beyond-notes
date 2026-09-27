@@ -6,6 +6,8 @@ export type UserRow = {
   email: string
   name: string
   passwordHash: string
+  /** false for an SSO-created account that has never set a password */
+  passwordSet: boolean
   role: 'admin' | 'member'
   totpSecret: string | null
   totpEnabled: boolean
@@ -36,6 +38,16 @@ export type SessionRow = {
   userId: string
   createdAt: Date
   expiresAt: Date
+}
+
+export type IdentityRow = {
+  id: string
+  userId: string
+  issuer: string
+  subject: string
+  email: string | null
+  createdAt: Date
+  lastLoginAt: Date | null
 }
 
 export type ResetTokenRow = {
@@ -310,6 +322,8 @@ export function createRepo(appDb: AppDb) {
         Pick<
           UserRow,
           | 'passwordHash'
+          | 'passwordSet'
+          | 'role'
           | 'totpSecret'
           | 'totpEnabled'
           | 'recoveryCodes'
@@ -328,6 +342,34 @@ export function createRepo(appDb: AppDb) {
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    async getIdentity(issuer: string, subject: string): Promise<IdentityRow | null> {
+      const rows = await db
+        .select()
+        .from(t.userIdentities)
+        .where(and(eq(t.userIdentities.issuer, issuer), eq(t.userIdentities.subject, subject)))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listIdentitiesForUser(userId: string): Promise<IdentityRow[]> {
+      return db.select().from(t.userIdentities).where(eq(t.userIdentities.userId, userId))
+    },
+
+    async insertIdentity(row: IdentityRow): Promise<void> {
+      await db.insert(t.userIdentities).values(row)
+    },
+
+    async touchIdentity(id: string, patch: { lastLoginAt: Date; email: string | null }) {
+      await db.update(t.userIdentities).set(patch).where(eq(t.userIdentities.id, id))
+    },
+
+    /** Scoped to the owner so one user can never unlink another's identity. */
+    async deleteIdentity(id: string, userId: string): Promise<void> {
+      await db
+        .delete(t.userIdentities)
+        .where(and(eq(t.userIdentities.id, id), eq(t.userIdentities.userId, userId)))
     },
 
     async insertResetToken(row: ResetTokenRow): Promise<void> {

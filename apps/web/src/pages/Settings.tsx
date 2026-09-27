@@ -1,4 +1,4 @@
-import type { GraphEdgeKind } from '@bn/schema'
+import type { GraphEdgeKind, OidcSettings } from '@bn/schema'
 import { useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
 import {
@@ -43,7 +43,11 @@ const TAB_ICONS: Record<Tab, string> = {
 export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
   const isAdmin = status.data?.me?.role === 'admin'
-  const [tab, setTab] = useState<Tab>('Account')
+  // the SSO link flow returns to /settings?sso=linked (or ?sso_error=…)
+  const [tab, setTab] = useState<Tab>(() => {
+    const q = new URLSearchParams(window.location.search)
+    return q.has('sso') || q.has('sso_error') ? 'Security' : 'Account'
+  })
   const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
 
   return (
@@ -551,6 +555,10 @@ function ProfileCard() {
 }
 
 function ChangePasswordCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  // an account made by single sign-on has no password yet: set one, no "current"
+  const firstPassword = status.data?.me?.passwordSet === false
   const change = trpc.auth.changePassword.useMutation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -558,7 +566,8 @@ function ChangePasswordCard() {
   const [done, setDone] = useState(false)
   const { busy, error, onSubmit } = useSubmit(async () => {
     if (next !== confirm) throw new Error('New passwords do not match.')
-    await change.mutateAsync({ current, next })
+    await change.mutateAsync({ current: firstPassword ? '' : current, next })
+    if (firstPassword) await utils.auth.status.invalidate()
     setCurrent('')
     setNext('')
     setConfirm('')
@@ -567,9 +576,16 @@ function ChangePasswordCard() {
   const mismatch = confirm !== '' && next !== confirm
 
   return (
-    <Card title="Change password">
+    <Card title={firstPassword ? 'Set a password' : 'Change password'}>
       <form onSubmit={onSubmit}>
-        <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        {firstPassword ? (
+          <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+            You sign in with single sign-on, so this account has no password. Set one to lock
+            notebooks and pages, or to sign in when single sign-on is unavailable.
+          </p>
+        ) : (
+          <Field label="Current password" type="password" value={current} onChange={setCurrent} />
+        )}
         <Field
           label="New password (10+ characters)"
           type="password"
@@ -585,10 +601,10 @@ function ChangePasswordCard() {
         <ErrorNote message={error} />
         {done && (
           <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
-            Password changed.
+            {firstPassword ? 'Password set.' : 'Password changed.'}
           </p>
         )}
-        <SubmitButton label="Change password" busy={busy} />
+        <SubmitButton label={firstPassword ? 'Set password' : 'Change password'} busy={busy} />
       </form>
     </Card>
   )
@@ -600,12 +616,99 @@ function SecurityTab() {
   return (
     <>
       <ChangePasswordCard />
+      <LinkedSignInsCard />
       <TwoFactorCard />
       <SessionsCard />
+      {isAdmin ? <SsoSettingsCard /> : null}
       {/* form spam protection is a security control, not a notification channel —
           it only lived on that tab because reCAPTCHA needed a home */}
       {isAdmin ? <RecaptchaCard /> : null}
     </>
+  )
+}
+
+/** Read ?sso=linked / ?sso_error=… once, then drop them from the address bar. */
+function takeSsoResult(): { ok: boolean; message: string } | null {
+  const q = new URLSearchParams(window.location.search)
+  const error = q.get('sso_error')
+  const linked = q.get('sso') === 'linked'
+  if (error === null && !linked) return null
+  window.history.replaceState(null, '', window.location.pathname)
+  return error !== null ? { ok: false, message: error } : { ok: true, message: 'Linked.' }
+}
+
+/** Single sign-on identities on this account: link one, or unlink one. */
+function LinkedSignInsCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const identities = trpc.auth.identities.useQuery()
+  const unlink = trpc.auth.unlinkIdentity.useMutation()
+  const [result] = useState(takeSsoResult)
+  const [error, setError] = useState<string | null>(null)
+  const sso = status.data?.sso ?? null
+  const rows = identities.data ?? []
+  if (!sso && rows.length === 0) return null
+
+  return (
+    <Card title="Single sign-on">
+      {rows.length === 0 ? (
+        <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+          Link your account to {sso?.label} so you can sign in with it.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2 mb-3">
+          {rows.map((r) => (
+            <li
+              key={r.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">{r.email ?? r.provider}</div>
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {r.provider}
+                  {r.lastLoginAt
+                    ? ` · last used ${new Date(r.lastLoginAt).toLocaleDateString()}`
+                    : ''}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs underline shrink-0"
+                style={{ color: 'var(--danger)' }}
+                disabled={unlink.isPending}
+                onClick={async () => {
+                  setError(null)
+                  try {
+                    await unlink.mutateAsync({ id: r.id })
+                    await utils.auth.identities.invalidate()
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not unlink.')
+                  }
+                }}
+              >
+                Unlink
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {result && (
+        <p className="text-sm mb-3" style={{ color: result.ok ? 'var(--live)' : 'var(--danger)' }}>
+          {result.message}
+        </p>
+      )}
+      <ErrorNote message={error} />
+      {sso && (
+        <a
+          href="/auth/oidc/login?link=1&next=%2Fsettings"
+          className="inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+          style={{ background: 'var(--accent)' }}
+        >
+          {rows.length === 0 ? `Link ${sso.label}` : 'Link another'}
+        </a>
+      )}
+    </Card>
   )
 }
 
@@ -1501,6 +1604,212 @@ function NtfyCard() {
           </p>
         )}
         <SubmitButton label="Save ntfy" busy={busy} />
+      </form>
+    </Card>
+  )
+}
+
+const SSO_EMPTY: OidcSettings = {
+  enabled: false,
+  issuer: '',
+  clientId: '',
+  clientSecret: '',
+  scopes: 'openid email profile',
+  buttonLabel: 'Single sign-on',
+  autoCreate: false,
+  allowedDomains: '',
+  requiredGroup: '',
+  adminGroup: '',
+  groupsClaim: 'groups',
+  passwordLogin: true,
+  autoRedirect: false,
+}
+
+/** Instance-wide OpenID Connect settings (admin). */
+function SsoSettingsCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveOidc.useMutation()
+  const test = trpc.settings.testOidc.useMutation()
+  const s = settings.data?.oidc
+  const [form, setForm] = useState<OidcSettings>(SSO_EMPTY)
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const [probe, setProbe] = useState<{ ok: boolean; message: string } | null>(null)
+  const [copied, setCopied] = useState(false)
+  if (s && !loaded) {
+    const { hasSecret: _h, ...rest } = s
+    setForm({ ...rest, clientSecret: '' })
+    setLoaded(true)
+  }
+  const set = (patch: Partial<OidcSettings>) => {
+    setForm((f) => ({ ...f, ...patch }))
+    setDone(false)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    await Promise.all([utils.settings.get.invalidate(), utils.auth.status.invalidate()])
+    setForm((f) => ({ ...f, clientSecret: '' }))
+    setDone(true)
+  })
+  const redirectUri = settings.data?.oidcRedirectUri ?? ''
+
+  const check = (
+    label: string,
+    key: 'enabled' | 'autoCreate' | 'passwordLogin' | 'autoRedirect',
+    hint?: string,
+  ) => (
+    <label className="flex items-start gap-2 mb-3 text-sm">
+      <input
+        type="checkbox"
+        className="mt-1"
+        checked={form[key]}
+        onChange={(e) => set({ [key]: e.target.checked })}
+      />
+      <span>
+        {label}
+        {hint && (
+          <span className="block text-xs" style={{ color: 'var(--text-3)' }}>
+            {hint}
+          </span>
+        )}
+      </span>
+    </label>
+  )
+
+  return (
+    <Card title={`Single sign-on (OpenID Connect) — ${sourceLabel(settings.data?.oidcSource)}`}>
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Let people sign in with your identity provider: Authentik, Authelia, Keycloak, Pocket ID,
+        Zitadel, Google, Microsoft Entra ID or any other OpenID Connect provider. Register this
+        redirect URI with it:
+      </p>
+      <div
+        className="flex items-center gap-2 mb-4 rounded-lg border px-3 py-2"
+        style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+      >
+        <code className="text-xs flex-1 break-all">{redirectUri}</code>
+        <button
+          type="button"
+          className="text-xs underline shrink-0"
+          style={{ color: 'var(--text-2)' }}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(redirectUri)
+              setCopied(true)
+            } catch {
+              setCopied(false)
+            }
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <form onSubmit={onSubmit}>
+        {check('Turn on single sign-on', 'enabled')}
+        <Field
+          label="Issuer URL"
+          placeholder="https://auth.example.com/application/o/beyond-notes/"
+          value={form.issuer}
+          onChange={(v) => set({ issuer: v })}
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <Field label="Client ID" value={form.clientId} onChange={(v) => set({ clientId: v })} />
+          <Field
+            label={s?.hasSecret ? 'Client secret (blank = keep saved)' : 'Client secret'}
+            type="password"
+            value={form.clientSecret}
+            onChange={(v) => set({ clientSecret: v })}
+            hint="Leave empty for a public client; PKCE is always used."
+          />
+          <Field
+            label="Button label"
+            value={form.buttonLabel}
+            onChange={(v) => set({ buttonLabel: v })}
+            hint="Shown as “Continue with …” on the sign-in page."
+          />
+          <Field label="Scopes" value={form.scopes} onChange={(v) => set({ scopes: v })} />
+        </div>
+
+        <h3 className="text-sm font-semibold mt-2 mb-2">Who can sign in</h3>
+        {check(
+          'Create accounts for new people',
+          'autoCreate',
+          'Off: only people who already have an account here (matched by verified email) can sign in.',
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <Field
+            label="Allowed email domains"
+            placeholder="example.com, family.lan"
+            value={form.allowedDomains}
+            onChange={(v) => set({ allowedDomains: v })}
+            hint="Empty = any domain."
+          />
+          <Field
+            label="Required group"
+            value={form.requiredGroup}
+            onChange={(v) => set({ requiredGroup: v })}
+            hint="Only members of this provider group can sign in. Empty = no check."
+          />
+          <Field
+            label="Admin group"
+            value={form.adminGroup}
+            onChange={(v) => set({ adminGroup: v })}
+            hint="Members become admins, others members, on every sign-in. Empty = manage roles here."
+          />
+          <Field
+            label="Groups claim"
+            value={form.groupsClaim}
+            onChange={(v) => set({ groupsClaim: v })}
+            hint="The claim that lists a person's groups. Usually “groups”."
+          />
+        </div>
+
+        <h3 className="text-sm font-semibold mt-2 mb-2">Sign-in page</h3>
+        {check(
+          'Allow password sign-in',
+          'passwordLogin',
+          'Off: members must use single sign-on. Admins can still use a password from “Admin sign-in”, and the sso:disable command turns SSO off from the server.',
+        )}
+        {check(
+          'Go straight to the identity provider',
+          'autoRedirect',
+          'Skips the sign-in page. Add ?local to the address to reach it anyway.',
+        )}
+
+        <ErrorNote message={error} />
+        {probe && (
+          <p className="text-sm mb-3" style={{ color: probe.ok ? 'var(--live)' : 'var(--danger)' }}>
+            {probe.message}
+          </p>
+        )}
+        {done && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved — applies immediately.
+          </p>
+        )}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            className="rounded-lg border px-4 py-2 text-sm sm:w-auto w-full disabled:opacity-60"
+            style={{ borderColor: 'var(--border)' }}
+            disabled={test.isPending || !form.issuer}
+            onClick={async () => {
+              setProbe(null)
+              try {
+                const r = await test.mutateAsync(form)
+                setProbe({ ok: true, message: `Connected to ${r.issuer}.` })
+              } catch (err) {
+                setProbe({ ok: false, message: err instanceof Error ? err.message : 'Failed.' })
+              }
+            }}
+          >
+            {test.isPending ? 'Testing…' : 'Test connection'}
+          </button>
+          <div className="flex-1">
+            <SubmitButton label="Save single sign-on" busy={busy} />
+          </div>
+        </div>
       </form>
     </Card>
   )

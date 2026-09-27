@@ -8,6 +8,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': 'http://127.0.0.1:3800',
+      // single sign-on redirects (/auth/oidc/login, /auth/oidc/callback)
+      '/auth': 'http://127.0.0.1:3800',
       // published-site dev escape (/s/<host>/...). Regex-anchored: a bare '/s'
       // prefix would also swallow /src/*, which is how Vite serves the app.
       '^/s/.*': 'http://127.0.0.1:3800',

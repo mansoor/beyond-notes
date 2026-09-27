@@ -18,7 +18,8 @@ export class AuthError extends Error {
       | 'INVITE_INVALID'
       | 'TOTP_REQUIRED'
       | 'TOTP_INVALID'
-      | 'RESET_INVALID',
+      | 'RESET_INVALID'
+      | 'PASSWORD_LOGIN_DISABLED',
     message: string,
   ) {
     super(message)
@@ -61,11 +62,41 @@ export class LoginLimiter {
   }
 }
 
+/** A fresh account with every preference at its default. */
+export function newUserRow(
+  fields: Pick<UserRow, 'id' | 'email' | 'name' | 'passwordHash' | 'role' | 'createdAt'> &
+    Partial<Pick<UserRow, 'passwordSet'>>,
+): UserRow {
+  return {
+    passwordSet: true,
+    totpSecret: null,
+    totpEnabled: false,
+    recoveryCodes: null,
+    emailNotifications: false,
+    sidebarHidden: '[]',
+    taskDays: 7,
+    reminderDays: 7,
+    confirmDelete: true,
+    linkCaptureFull: true,
+    graphEnabled: true,
+    graphEdges: '["concept","link","tag","relation","semantic"]',
+    graphMobile: true,
+    defaultTheme: 'light',
+    ...fields,
+  }
+}
+
 export function createAuthService(
   repo: Repo,
-  opts: { now?: () => Date; limiter?: LoginLimiter } = {},
+  opts: {
+    now?: () => Date
+    limiter?: LoginLimiter
+    /** false while an admin has turned password sign-in off in favour of SSO */
+    passwordLoginEnabled?: () => boolean
+  } = {},
 ) {
   const now = opts.now ?? (() => new Date())
+  const passwordLoginEnabled = opts.passwordLoginEnabled ?? (() => true)
   const limiter = opts.limiter ?? new LoginLimiter()
 
   async function consumeRecoveryCode(user: UserRow, code: string): Promise<boolean> {
@@ -97,27 +128,14 @@ export function createAuthService(
       if ((await repo.countUsers()) > 0) {
         throw new AuthError('SETUP_ALREADY_DONE', 'This instance is already set up.')
       }
-      const user: UserRow = {
+      const user = newUserRow({
         id: nanoid(),
         email: input.email,
         name: input.name,
         passwordHash: await argonHash(input.password),
         role: 'admin',
-        totpSecret: null,
-        totpEnabled: false,
-        recoveryCodes: null,
-        emailNotifications: false,
-        sidebarHidden: '[]',
-        taskDays: 7,
-        reminderDays: 7,
-        confirmDelete: true,
-        linkCaptureFull: true,
-        graphEnabled: true,
-        graphEdges: '["concept","link","tag","relation","semantic"]',
-        graphMobile: true,
-        defaultTheme: 'light',
         createdAt: now(),
-      }
+      })
       await repo.insertUser(user)
       return { user, session: await createSession(user.id) }
     },
@@ -129,6 +147,14 @@ export function createAuthService(
       if (!user || !ok) {
         limiter.recordFailure(input.email)
         throw new AuthError('BAD_CREDENTIALS', 'Wrong email or password.')
+      }
+      // SSO-only mode. Admins keep the password route so a broken identity
+      // provider can never lock the owner out of their own instance.
+      if (!passwordLoginEnabled() && user.role !== 'admin') {
+        throw new AuthError(
+          'PASSWORD_LOGIN_DISABLED',
+          'Password sign-in is turned off here. Use single sign-on instead.',
+        )
       }
       if (user.totpEnabled && user.totpSecret) {
         if (!input.totpCode) {
@@ -171,7 +197,7 @@ export function createAuthService(
     },
 
     async totpDisable(user: UserRow, password: string) {
-      if (!(await argonVerify(user.passwordHash, password))) {
+      if (!user.passwordSet || !(await argonVerify(user.passwordHash, password))) {
         throw new AuthError('BAD_CREDENTIALS', 'Wrong password.')
       }
       await repo.updateUser(user.id, { totpSecret: null, totpEnabled: false, recoveryCodes: null })
@@ -209,7 +235,7 @@ export function createAuthService(
       if (!row || !valid || !(await repo.markResetTokenUsed(row.id, now()))) {
         throw new AuthError('RESET_INVALID', 'This reset link is not valid any more.')
       }
-      await repo.updateUser(row.userId, { passwordHash: await argonHash(next) })
+      await repo.updateUser(row.userId, { passwordHash: await argonHash(next), passwordSet: true })
       // outstanding sibling tokens die with the reset, not on their own clock
       await repo.deleteResetTokensForUser(row.userId)
       for (const session of await repo.listSessionsForUser(row.userId)) {
@@ -233,14 +259,38 @@ export function createAuthService(
      * rather than throwing: the caller decides what a wrong password means.
      */
     async checkPassword(user: UserRow, password: string): Promise<boolean> {
+      if (!user.passwordSet) return false
       return argonVerify(user.passwordHash, password)
     },
 
+    /** An SSO-created account has no password to confirm, so its first one is
+     *  set without `current`. */
     async changePassword(user: UserRow, current: string, next: string) {
-      if (!(await argonVerify(user.passwordHash, current))) {
+      if (user.passwordSet && !(await argonVerify(user.passwordHash, current))) {
         throw new AuthError('BAD_CREDENTIALS', 'Current password is wrong.')
       }
-      await repo.updateUser(user.id, { passwordHash: await argonHash(next) })
+      await repo.updateUser(user.id, { passwordHash: await argonHash(next), passwordSet: true })
+    },
+
+    /** A session for someone the identity provider already vouched for. */
+    async sessionFor(userId: string) {
+      return createSession(userId)
+    },
+
+    /** An account made on first single sign-on. Its password is random and
+     *  never shown, so it can't be used until the person sets one. */
+    async createSsoUser(input: { email: string; name: string; role: 'admin' | 'member' }) {
+      const user = newUserRow({
+        id: nanoid(),
+        email: input.email,
+        name: input.name,
+        passwordHash: await argonHash(randomBytes(32).toString('base64url')),
+        passwordSet: false,
+        role: input.role,
+        createdAt: now(),
+      })
+      await repo.insertUser(user)
+      return user
     },
 
     /** CLI rescue path: no current password needed; requires shell access to the host. */
@@ -249,6 +299,7 @@ export function createAuthService(
       if (!user) return false
       await repo.updateUser(user.id, {
         passwordHash: await argonHash(next),
+        passwordSet: true,
         totpSecret: null,
         totpEnabled: false,
         recoveryCodes: null,
@@ -328,27 +379,14 @@ export function createAuthService(
       if (await repo.getUserByEmail(input.email)) {
         throw new AuthError('EMAIL_TAKEN', 'An account with this email already exists.')
       }
-      const user: UserRow = {
+      const user = newUserRow({
         id: nanoid(),
         email: input.email,
         name: input.name,
         passwordHash: await argonHash(input.password),
         role: invite.role,
-        totpSecret: null,
-        totpEnabled: false,
-        recoveryCodes: null,
-        emailNotifications: false,
-        sidebarHidden: '[]',
-        taskDays: 7,
-        reminderDays: 7,
-        confirmDelete: true,
-        linkCaptureFull: true,
-        graphEnabled: true,
-        graphEdges: '["concept","link","tag","relation","semantic"]',
-        graphMobile: true,
-        defaultTheme: 'light',
         createdAt: now(),
-      }
+      })
       await repo.insertUser(user)
       await repo.markInviteUsed(invite.id, user.id, now())
       return { user, session: await createSession(user.id) }

@@ -1,12 +1,14 @@
 import {
   type BackupSettings,
   type NtfySettings,
+  type OidcSettings,
   type RecaptchaSettings,
   type ServerSettingsView,
   type SmtpSettings,
   type StorageSettings,
   backupSettings,
   ntfySettings,
+  oidcSettings,
   recaptchaSettings,
   smtpSettings,
   storageSettings,
@@ -94,6 +96,53 @@ export function createSettingsService(
 
     recaptcha(): RecaptchaSettings | null {
       return parse('recaptcha', recaptchaSettings)
+    },
+
+    oidc(): OidcSettings | null {
+      return parse('oidc', oidcSettings)
+    },
+
+    /** SSO config from env, as a settings group (enabled when an issuer is set). */
+    envOidc(): OidcSettings | null {
+      if (!config.OIDC_ISSUER || !config.OIDC_CLIENT_ID) return null
+      return {
+        enabled: true,
+        issuer: config.OIDC_ISSUER,
+        clientId: config.OIDC_CLIENT_ID,
+        clientSecret: config.OIDC_CLIENT_SECRET,
+        scopes: config.OIDC_SCOPES,
+        buttonLabel: config.OIDC_BUTTON_LABEL,
+        autoCreate: config.OIDC_AUTO_CREATE,
+        allowedDomains: config.OIDC_ALLOWED_DOMAINS,
+        requiredGroup: config.OIDC_REQUIRED_GROUP,
+        adminGroup: config.OIDC_ADMIN_GROUP,
+        groupsClaim: config.OIDC_GROUPS_CLAIM,
+        passwordLogin: config.OIDC_PASSWORD_LOGIN,
+        autoRedirect: config.OIDC_AUTO_REDIRECT,
+      }
+    },
+
+    /**
+     * The SSO config in force, or null when SSO is off. A saved DB group with an
+     * issuer wins outright, including its `enabled: false`, so an admin (or the
+     * CLI) can switch off SSO that env turned on.
+     */
+    effectiveOidc(): (OidcSettings & { source: 'db' | 'env' }) | null {
+      const db = this.oidc()
+      const picked = db?.issuer
+        ? { ...db, source: 'db' as const }
+        : (() => {
+            const env = this.envOidc()
+            return env ? { ...env, source: 'env' as const } : null
+          })()
+      if (!picked?.enabled || !picked.issuer || !picked.clientId) return null
+      return picked
+    },
+
+    /** Password sign-in stays on unless SSO is actually working and says otherwise. */
+    passwordLoginEnabled(): boolean {
+      const sso = this.effectiveOidc()
+      return sso ? sso.passwordLogin : true
     },
 
     /** Effective reCAPTCHA keys, or null when not fully configured. */
@@ -184,6 +233,10 @@ export function createSettingsService(
           : {}),
       }
       const recaptcha = this.recaptcha() ?? recaptchaSettings.parse({})
+      const dbOidc = this.oidc()
+      const oidc = dbOidc?.issuer ? dbOidc : (this.envOidc() ?? oidcSettings.parse({}))
+      const { clientSecret: _c, ...oidcRest } = oidc
+      const oidcEff = this.effectiveOidc()
       const { pass: _p, ...smtpRest } = smtp
       const { s3SecretKey: _s, ...storageRest } = storage
       const mail = this.effectiveSmtp()
@@ -196,6 +249,9 @@ export function createSettingsService(
           hasSecret: Boolean(storage.s3SecretKey || config.S3_SECRET_KEY),
         },
         recaptcha: { siteKey: recaptcha.siteKey, hasSecret: Boolean(recaptcha.secretKey) },
+        oidc: { ...oidcRest, hasSecret: Boolean(oidc.clientSecret) },
+        oidcSource: oidcEff?.source ?? 'off',
+        oidcRedirectUri: `${config.BASE_URL.replace(/\/+$/, '')}/auth/oidc/callback`,
         backup: this.backup(),
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',
@@ -221,6 +277,16 @@ export function createSettingsService(
       await this.put('storage', {
         ...input,
         s3SecretKey: input.s3SecretKey || prev?.s3SecretKey || config.S3_SECRET_KEY || '',
+      })
+    },
+
+    /** Saving from the UI always writes a DB group, which then outranks env. */
+    async saveOidc(input: OidcSettings): Promise<void> {
+      const prev = this.oidc()
+      await this.put('oidc', {
+        ...input,
+        clientSecret:
+          input.clientSecret || prev?.clientSecret || this.envOidc()?.clientSecret || '',
       })
     },
 

@@ -14,6 +14,7 @@ import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
 import type { RestoreService } from './restore'
 import type { SettingsService } from './settings'
+import type { SsoService } from './sso'
 import type { TablesService } from './tables'
 import type { TasksService } from './tasks'
 import type { WebhooksService } from './webhooks'
@@ -39,6 +40,7 @@ export type Context = {
   locks: LockService
   backup: BackupService
   restore: RestoreService
+  sso: SsoService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -60,6 +62,7 @@ export function makeCreateContext(deps: {
   locks: LockService
   backup: BackupService
   restore: RestoreService
+  sso: SsoService
 }) {
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
     const sessionToken =

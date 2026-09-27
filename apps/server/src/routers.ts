@@ -10,6 +10,7 @@ import type {
   DbTableView,
   DocumentView,
   GalleryItemView,
+  IdentityView,
   ImportPlanView,
   ImportResultView,
   InviteView,
@@ -69,6 +70,7 @@ import {
   movePageInput,
   moveTableInput,
   ntfySettings,
+  oidcSettings,
   pageTagInput,
   promoteToJournalInput,
   promoteToNoteInput,
@@ -126,6 +128,7 @@ import type {
   UserRow,
   WebhookRow,
 } from './repo'
+import { SsoError } from './sso'
 import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
 import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
@@ -166,6 +169,7 @@ function toUserView(u: UserRow): UserView {
     graphEdges: parseGraphEdges(u.graphEdges),
     graphMobile: u.graphMobile,
     defaultTheme: u.defaultTheme,
+    passwordSet: u.passwordSet,
     name: u.name,
     role: u.role,
     emailNotifications: u.emailNotifications,
@@ -304,6 +308,16 @@ const authRouter = router({
       me: ctx.user ? toUserView(ctx.user) : null,
       mailConfigured: ctx.mailer.configured,
       graphEmbeddings: ctx.config.GRAPH_EMBEDDINGS,
+      sso: (() => {
+        const sso = ctx.settings.effectiveOidc()
+        return sso
+          ? {
+              label: sso.buttonLabel || 'Single sign-on',
+              passwordLogin: sso.passwordLogin,
+              autoRedirect: sso.autoRedirect,
+            }
+          : null
+      })(),
     }
   }),
 
@@ -504,6 +518,42 @@ const authRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.auth.revokeSession(ctx.user, input.sessionId)
+      return { ok: true }
+    }),
+
+  /** Single sign-on identities linked to this account. */
+  identities: authedProcedure.query(async ({ ctx }): Promise<IdentityView[]> => {
+    const rows = await ctx.repo.listIdentitiesForUser(ctx.user.id)
+    return rows.map((r) => {
+      let provider = r.issuer
+      try {
+        provider = new URL(r.issuer).host
+      } catch {
+        // not a URL; show it as is
+      }
+      return {
+        id: r.id,
+        provider,
+        email: r.email,
+        createdAt: r.createdAt.toISOString(),
+        lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
+      }
+    })
+  }),
+
+  /** Unlinking the only way in would lock the account out, so an account with
+   *  no password must keep at least one identity. */
+  unlinkIdentity: authedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.repo.listIdentitiesForUser(ctx.user.id)
+      if (!ctx.user.passwordSet && rows.length <= 1) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Set a password first, or you would have no way to sign in.',
+        })
+      }
+      await ctx.repo.deleteIdentity(input.id, ctx.user.id)
       return { ok: true }
     }),
 })
@@ -1325,6 +1375,43 @@ const settingsRouter = router({
     return ctx.settings.view()
   }),
 
+  /** Save the SSO config. Turning it on checks the provider answers first, so a
+   *  typo in the issuer fails here instead of on everyone's next sign-in. */
+  saveOidc: adminProcedure.input(oidcSettings).mutation(async ({ ctx, input }) => {
+    const secret = input.clientSecret || ctx.settings.oidc()?.clientSecret || ''
+    if (input.enabled) {
+      if (!input.issuer || !input.clientId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Single sign-on needs an issuer URL and a client ID.',
+        })
+      }
+      try {
+        await ctx.sso.probe({ ...input, clientSecret: secret })
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof SsoError ? err.message : 'Could not reach the identity provider.',
+        })
+      }
+    }
+    await ctx.settings.saveOidc(input)
+    return ctx.settings.view()
+  }),
+
+  /** Discovery only: does this issuer answer as an OpenID provider? */
+  testOidc: adminProcedure.input(oidcSettings).mutation(async ({ ctx, input }) => {
+    const secret = input.clientSecret || ctx.settings.oidc()?.clientSecret || ''
+    try {
+      return await ctx.sso.probe({ ...input, clientSecret: secret })
+    } catch (err) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof SsoError ? err.message : 'Could not reach the identity provider.',
+      })
+    }
+  }),
+
   saveRecaptcha: adminProcedure.input(recaptchaSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveRecaptcha(input)
     return ctx.settings.view()
@@ -1982,6 +2069,12 @@ const locksRouter = router({
 
   /** Set or clear a lock. Both directions need the password. */
   set: authedProcedure.input(setLockInput).mutation(async ({ ctx, input }) => {
+    if (!ctx.user.passwordSet) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Locks use your account password. Set one in Settings → Account first.',
+      })
+    }
     if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
     }
@@ -2020,6 +2113,12 @@ const locksRouter = router({
 
   /** Open a locked target for this session. */
   unlock: authedProcedure.input(unlockInput).mutation(async ({ ctx, input }) => {
+    if (!ctx.user.passwordSet) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Locks use your account password. Set one in Settings → Account first.',
+      })
+    }
     if (!(await ctx.auth.checkPassword(ctx.user, input.password))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'That password is not right.' })
     }

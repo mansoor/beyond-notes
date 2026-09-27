@@ -5,6 +5,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 // Mirrors pg.ts exactly; dates are stored as integer epoch-ms and surfaced as Date.
@@ -14,6 +15,10 @@ export const users = sqliteTable('users', {
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
+  // false for an account created by single sign-on: its password_hash is a
+  // random, unknowable value, so "change password" skips the current-password
+  // check and lock screens ask the user to set one first.
+  passwordSet: integer('password_set', { mode: 'boolean' }).notNull().default(true),
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
@@ -64,6 +69,25 @@ export const sessions = sqliteTable('sessions', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// A sign-in identity from an external OpenID Connect provider, tied to a local
+// account. (issuer, subject) is the provider's stable id for the person; the
+// email is kept only for display, since it can change at the provider.
+export const userIdentities = sqliteTable(
+  'user_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    issuer: text('issuer').notNull(),
+    subject: text('subject').notNull(),
+    email: text('email'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
+)
 
 export const passwordResetTokens = sqliteTable('password_reset_tokens', {
   id: text('id').primaryKey(),

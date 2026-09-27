@@ -7,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 // drizzle pg-core has no built-in bytea; the blob store needs one.
@@ -23,6 +24,10 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
+  // false for an account created by single sign-on: its password_hash is a
+  // random, unknowable value, so "change password" skips the current-password
+  // check and lock screens ask the user to set one first.
+  passwordSet: boolean('password_set').notNull().default(true),
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
@@ -77,6 +82,25 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
+
+// A sign-in identity from an external OpenID Connect provider, tied to a local
+// account. (issuer, subject) is the provider's stable id for the person; the
+// email is kept only for display, since it can change at the provider.
+export const userIdentities = pgTable(
+  'user_identities',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    issuer: text('issuer').notNull(),
+    subject: text('subject').notNull(),
+    email: text('email'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
+)
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   // sha256 hex of the raw emailed token; the raw token is never stored

@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+const bool = (def: 'true' | 'false') =>
+  z
+    .string()
+    .default(def)
+    .transform((v) => v === 'true' || v === '1')
+
 const envSchema = z.object({
   DATABASE_URL: z.string().default('file:./data/beyond.db'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3800),
@@ -56,6 +62,21 @@ const envSchema = z.object({
   GRAPH_EMBED_THRESHOLD: z.coerce.number().min(0).max(1).default(0.55),
   // most semantic neighbours kept per page, so a dense space can't go N².
   GRAPH_EMBED_NEIGHBORS: z.coerce.number().int().min(1).max(20).default(4),
+  // OpenID Connect single sign-on (optional). Setting OIDC_ISSUER and
+  // OIDC_CLIENT_ID turns it on; Settings → Server can override all of it.
+  // Register <BASE_URL>/auth/oidc/callback as the redirect URI at the provider.
+  OIDC_ISSUER: z.string().default(''),
+  OIDC_CLIENT_ID: z.string().default(''),
+  OIDC_CLIENT_SECRET: z.string().default(''),
+  OIDC_SCOPES: z.string().default('openid email profile'),
+  OIDC_BUTTON_LABEL: z.string().default('Single sign-on'),
+  OIDC_AUTO_CREATE: bool('false'),
+  OIDC_ALLOWED_DOMAINS: z.string().default(''),
+  OIDC_REQUIRED_GROUP: z.string().default(''),
+  OIDC_ADMIN_GROUP: z.string().default(''),
+  OIDC_GROUPS_CLAIM: z.string().default('groups'),
+  OIDC_PASSWORD_LOGIN: bool('true'),
+  OIDC_AUTO_REDIRECT: bool('false'),
   NODE_ENV: z.string().default('development'),
 })
 

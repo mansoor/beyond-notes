@@ -34,9 +34,10 @@ import {
 } from './scheduler'
 import { loadOrCreateSecretsKey } from './secrets'
 import { createSettingsService } from './settings'
+import { SsoError, createSsoService, safeNext } from './sso'
 import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
-import { makeCreateContext } from './trpc'
+import { SESSION_COOKIE, makeCreateContext } from './trpc'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -58,7 +59,13 @@ function formResultPage(ok: boolean, message: string): string {
 }
 
 export async function buildServer(config: Config, appDb: AppDb) {
-  const server = Fastify({ logger: config.NODE_ENV !== 'test' })
+  const server = Fastify({
+    logger: config.NODE_ENV !== 'test',
+    // tRPC batches put every procedure name in one path param
+    // (/api/trpc/a.list,b.get,...); Fastify's default 100-char cap 404s a busy
+    // page's whole batch. tRPC's Fastify adapter docs recommend 5000.
+    maxParamLength: 5000,
+  })
 
   await server.register(fastifyCookie)
 
@@ -66,7 +73,10 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const secretsKey = loadOrCreateSecretsKey(config)
   const settings = createSettingsService(repo, config, { secretsKey })
   await settings.load()
-  const auth = createAuthService(repo)
+  const auth = createAuthService(repo, {
+    passwordLoginEnabled: () => settings.passwordLoginEnabled(),
+  })
+  const sso = createSsoService({ repo, auth, settings, baseUrl: config.BASE_URL })
   const embedder = createEmbedder(config)
   const pages = createPagesService(repo, {
     embedder,
@@ -466,6 +476,60 @@ export async function buildServer(config: Config, appDb: AppDb) {
   server.get('/s/draft/:spaceId', serveDraftByPath)
   server.get('/s/draft/:spaceId/*', serveDraftByPath)
 
+  // Single sign-on. /login sends the browser to the identity provider; the
+  // provider sends it back to /callback. `?link=1` (signed in) attaches the
+  // provider identity to the current account instead of signing in.
+  const OIDC_STATE_COOKIE = 'bn_oidc'
+  const ssoFail = (reply: any, err: unknown, to: string) => {
+    const message = err instanceof SsoError ? err.message : 'Single sign-on failed.'
+    if (!(err instanceof SsoError)) server.log.error(err)
+    return reply.redirect(`${to}?sso_error=${encodeURIComponent(message)}`)
+  }
+  server.get('/auth/oidc/login', async (req, reply) => {
+    const q = req.query as { next?: string; link?: string }
+    const linking = q.link === '1'
+    const viewer = linking ? await userFromRequest(req) : null
+    if (linking && !viewer) return reply.redirect('/')
+    try {
+      const { url, state } = await sso.begin({
+        next: safeNext(q.next),
+        mode: linking ? 'link' : 'login',
+        userId: viewer?.id,
+      })
+      reply.setCookie(OIDC_STATE_COOKIE, state, {
+        path: '/auth/oidc',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.cookieSecure,
+        maxAge: 600,
+      })
+      return reply.redirect(url)
+    } catch (err) {
+      return ssoFail(reply, err, linking ? '/settings' : '/')
+    }
+  })
+  server.get('/auth/oidc/callback', async (req, reply) => {
+    const currentUrl = new URL(req.url, config.BASE_URL)
+    const cookieState = req.cookies?.[OIDC_STATE_COOKIE]
+    reply.clearCookie(OIDC_STATE_COOKIE, { path: '/auth/oidc' })
+    // a failed link should land back in Settings, not on the login page
+    const signedIn = await userFromRequest(req)
+    try {
+      const result = await sso.complete(currentUrl, cookieState)
+      if (result.kind === 'link') return reply.redirect('/settings?sso=linked')
+      reply.setCookie(SESSION_COOKIE, result.session.token, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.cookieSecure,
+        expires: result.session.expiresAt,
+      })
+      return reply.redirect(result.next)
+    } catch (err) {
+      return ssoFail(reply, err, signedIn ? '/settings' : '/')
+    }
+  })
+
   server.get('/s/:host', serveByPath)
   server.get('/s/:host/*', serveByPath)
 
@@ -490,6 +554,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         locks,
         backup,
         restore,
+        sso,
       }),
     },
   })
