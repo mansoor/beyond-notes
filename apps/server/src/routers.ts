@@ -1,9 +1,9 @@
 import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
+  ApiTokenView,
   ArchivedPageView,
   ArchivedTableView,
-  ApiTokenView,
   AuditEventView,
   AuthStatus,
   BacklinkView,
@@ -42,13 +42,13 @@ import type {
 import {
   type AuditAction,
   acceptInviteInput,
-  createApiTokenInput,
   appTheme,
   archiveTableInput,
   auditListInput,
   backupSettings,
   captureMemoInput,
   changePasswordInput,
+  createApiTokenInput,
   createDatabaseInput,
   createDayNoteInput,
   createInviteInput,
@@ -2234,6 +2234,8 @@ const importsRouter = router({
             pages: ctx.pages,
             publishing: ctx.publishing,
             attachments: ctx.attachments,
+            stash: ctx.importStash,
+            daily: ctx.daily,
           },
           ctx.user,
           input,

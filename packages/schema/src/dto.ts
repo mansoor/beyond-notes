@@ -1403,6 +1403,8 @@ export const importNodePlan = z.object({
   path: z.string().max(400).optional(),
   markdown: z.string().max(400_000),
   excerpt: z.string().max(400),
+  /** a daily note: goes into the Journal on this date instead of becoming a page */
+  journalDate: dateKey.optional(),
 })
 export type ImportNodePlan = z.infer<typeof importNodePlan>
 
@@ -1415,6 +1417,11 @@ export type ImportPlanView = {
   imageCount?: number
   /** proposed name when the import creates its own space */
   suggestedName: string
+  /** the kind of space that suits this source (notes vs. a wiki) */
+  suggestedCategory?: SpaceCategory
+  /** an uploaded export waiting on the server: nodes carry no content, the
+   *  apply step reads it from there by key */
+  stashId?: string | null
   nodes: ImportNodePlan[]
   warnings: string[]
 }
@@ -1448,7 +1455,11 @@ export const importApplyInput = z
     importImages: z.boolean().default(false),
     /** raw base the plan came with, for resolving relative image paths */
     imageBase: z.string().max(400).nullable().default(null),
-    nodes: z.array(importNodePlan).min(1).max(500),
+    /** an uploaded export held on the server (see ImportPlanView.stashId) */
+    stashId: z.string().max(64).optional(),
+    /** with a stash, merges are folded on the server: key -> the key it joins */
+    merges: z.record(z.string()).optional(),
+    nodes: z.array(importNodePlan).min(1).max(5000),
   })
   .refine((v) => Boolean(v.spaceId) !== Boolean(v.newSpaceName), {
     message: 'Choose either an existing space or a name for a new one.',
@@ -1456,6 +1467,8 @@ export const importApplyInput = z
 
 export type ImportResultView = {
   spaceId: string
+  /** daily notes added to the Journal */
+  journal?: number
   pages: number
   published: number
   /** images fetched and stored alongside the pages */

@@ -8,6 +8,7 @@ import type { AuthService } from './auth'
 import type { BackupService } from './backup'
 import type { Config } from './config'
 import type { DailyService } from './daily'
+import type { ImportStash } from './importstash'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
@@ -66,6 +67,7 @@ export type Context = {
   passkeys: PasskeyService
   audit: AuditService
   tokens: ApiTokenService
+  importStash: ImportStash
   user: UserRow | null
   sessionToken: string | null
 }
@@ -92,6 +94,7 @@ export function makeCreateContext(deps: {
   passkeys: PasskeyService
   audit: AuditService
   tokens: ApiTokenService
+  importStash: ImportStash
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

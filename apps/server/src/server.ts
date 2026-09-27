@@ -19,6 +19,8 @@ import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
+import { ImportFormatError, type ImportKind, parseImport } from './importers'
+import { createImportStash } from './importstash'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
@@ -74,6 +76,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
     logger: config.NODE_ENV !== 'test',
     // only these hops may set X-Forwarded-For; everyone else's is ignored
     trustProxy: proxyList.length ? proxyList : false,
+    // JSON bodies: a long page's autosave (content up to 2M characters) is well
+    // past Fastify's 1 MiB default. Uploads have their own, larger limits.
+    bodyLimit: 20 * 1024 * 1024,
     // tRPC batches put every procedure name in one path param
     // (/api/trpc/a.list,b.get,...); Fastify's default 100-char cap 404s a busy
     // page's whole batch. tRPC's Fastify adapter docs recommend 5000.
@@ -91,6 +96,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     onError: (err) => server.log.error(err, 'audit write failed'),
   })
   const tokens = createApiTokenService({ repo })
+  const importStash = createImportStash()
   const auth = createAuthService(repo, {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
@@ -397,6 +403,45 @@ export async function buildServer(config: Config, appDb: AppDb) {
     }
   })
 
+  // An export from another app (Notion zip, Obsidian vault zip, Evernote .enex):
+  // parsed into a review plan and held on the server until the import is
+  // approved, so the browser only ever handles titles and structure.
+  const IMPORT_MAX_BYTES = 200 * 1024 * 1024
+  server.post('/api/import/archive', async (req: any, reply) => {
+    const user = await userFromRequest(req)
+    if (!user) return reply.code(401).send({ error: 'sign in to import' })
+    const kind = String((req.query as { kind?: string }).kind ?? 'auto')
+    if (!['auto', 'notion', 'obsidian', 'evernote'].includes(kind)) {
+      return reply.code(400).send({ error: 'unknown import kind' })
+    }
+    const file = await req.file({ limits: { fileSize: IMPORT_MAX_BYTES } })
+    if (!file) return reply.code(400).send({ error: 'no file' })
+    const data = await file.toBuffer()
+    if (file.file.truncated) {
+      return reply
+        .code(413)
+        .send({ error: 'That export is larger than 200 MB. Export a part of it at a time.' })
+    }
+    try {
+      const parsed = parseImport(kind as ImportKind | 'auto', file.filename, new Uint8Array(data))
+      const { id, nodes } = importStash.put(user.id, parsed)
+      return {
+        sourceLabel: parsed.sourceLabel,
+        suggestedName: parsed.suggestedName,
+        suggestedCategory: parsed.suggestedCategory,
+        imageBase: null,
+        imageCount: parsed.files.size,
+        stashId: id,
+        nodes,
+        warnings: parsed.warnings,
+      }
+    } catch (err) {
+      if (err instanceof ImportFormatError) return reply.code(400).send({ error: err.message })
+      server.log.error(err, 'import parse failed')
+      return reply.code(400).send({ error: 'That file could not be read as an export.' })
+    }
+  })
+
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
@@ -620,6 +665,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         passkeys,
         audit,
         tokens,
+        importStash,
         resolveSession,
       }),
     },

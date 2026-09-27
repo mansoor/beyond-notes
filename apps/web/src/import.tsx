@@ -1,24 +1,56 @@
 /**
- * The wiki importer's two-step dialog: choose a source, then review the proposed
+ * The importer's two-step dialog: choose a source, then review the proposed
  * structure before anything is written. Every row can be renamed, re-nested,
  * reordered or dropped — the plan the user approves is exactly what gets
  * created, which is why the preview call writes nothing.
  */
 
-import type { ImportNodePlan, ImportPlanView, MergeMap, SpaceView } from '@bn/schema'
+import type { ImportNodePlan, ImportPlanView, MergeMap, SpaceCategory, SpaceView } from '@bn/schema'
 import { foldMergedNodes } from '@bn/schema'
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactNode, useRef, useState } from 'react'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from './components'
 import { trpc } from './trpc'
 
-type Source = 'markdown' | 'github'
+type Source = 'github' | 'markdown' | 'notion' | 'obsidian' | 'evernote'
+
+/** Exports from other apps: uploaded as a file and read on the server. */
+const UPLOADS: Record<
+  'notion' | 'obsidian' | 'evernote',
+  { label: string; accept: string; how: string }
+> = {
+  notion: {
+    label: 'Notion',
+    accept: '.zip,application/zip',
+    how: 'In Notion: Settings → Export content (or ⋯ → Export on a page), format “Markdown & CSV”, include subpages. Upload the .zip it gives you.',
+  },
+  obsidian: {
+    label: 'Obsidian',
+    accept: '.zip,application/zip',
+    how: 'Zip your vault folder and upload it. Folders become nested pages, [[links]] and embedded images keep working, and daily notes (YYYY-MM-DD) go into your Journal. Any zip of Markdown files works the same way.',
+  },
+  evernote: {
+    label: 'Evernote',
+    accept: '.enex,application/xml,text/xml',
+    how: 'In Evernote: right-click a notebook → Export notebook, format ENEX. Each note becomes a page, with its images, checklists and tags.',
+  },
+}
+const isUpload = (s: Source): s is keyof typeof UPLOADS => s in UPLOADS
+
+async function uploadExport(kind: keyof typeof UPLOADS, file: File): Promise<ImportPlanView> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`/api/import/archive?kind=${kind}`, { method: 'POST', body: form })
+  const body = (await res.json().catch(() => ({}))) as ImportPlanView & { error?: string }
+  if (!res.ok) throw new Error(body.error ?? `Upload failed (${res.status}).`)
+  return body
+}
 
 export function ImportModal(props: { space?: SpaceView; onClose: () => void }) {
   const [plan, setPlan] = useState<ImportPlanView | null>(null)
   return (
     <Modal
-      title={props.space ? `Import into ${props.space.name}` : 'Import a wiki'}
+      title={props.space ? `Import into ${props.space.name}` : 'Import'}
       onClose={props.onClose}
       dirty={plan !== null}
       width="lg"
@@ -47,11 +79,18 @@ function SourceStep(props: { onPlan: (plan: ImportPlanView) => void }) {
   const [markdown, setMarkdown] = useState('')
   const [filename, setFilename] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const archiveRef = useRef<HTMLInputElement>(null)
+  const [archive, setArchive] = useState<File | null>(null)
 
   const fromMarkdown = trpc.imports.previewMarkdown.useMutation()
   const fromGithub = trpc.imports.previewGithub.useMutation()
 
   const { busy, error, onSubmit } = useSubmit(async () => {
+    if (isUpload(source)) {
+      if (!archive) throw new Error('Choose the file to import first.')
+      props.onPlan(await uploadExport(source, archive))
+      return
+    }
     const plan =
       source === 'github'
         ? await fromGithub.mutateAsync({ url, token, includeDocs })
@@ -67,24 +106,60 @@ function SourceStep(props: { onPlan: (plan: ImportPlanView) => void }) {
 
   return (
     <form onSubmit={onSubmit}>
-      <div className="flex gap-1 mb-4">
-        {(['github', 'markdown'] as Source[]).map((s) => (
+      <div className="flex flex-wrap gap-1 mb-4">
+        {(['notion', 'obsidian', 'evernote', 'github', 'markdown'] as Source[]).map((s) => (
           <button
             key={s}
             type="button"
-            onClick={() => setSource(s)}
+            onClick={() => {
+              setSource(s)
+              setArchive(null)
+            }}
             className="px-3 py-1.5 rounded-lg text-sm border"
             style={{
               borderColor: source === s ? 'var(--accent)' : 'var(--border)',
               color: source === s ? 'var(--accent)' : 'var(--text-2)',
             }}
           >
-            {s === 'github' ? 'GitHub repository' : 'Markdown file'}
+            {isUpload(s)
+              ? UPLOADS[s].label
+              : s === 'github'
+                ? 'GitHub repository'
+                : 'Markdown file'}
           </button>
         ))}
       </div>
 
-      {source === 'github' ? (
+      {isUpload(source) ? (
+        <div className="mb-4">
+          <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+            {UPLOADS[source].how}
+          </p>
+          <input
+            ref={archiveRef}
+            type="file"
+            accept={UPLOADS[source].accept}
+            className="hidden"
+            onChange={(e) => setArchive(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => archiveRef.current?.click()}
+            className="rounded-lg border px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            Choose {source === 'evernote' ? 'an .enex' : 'a .zip'} file…
+          </button>
+          {archive ? (
+            <span className="ml-2 text-sm" style={{ color: 'var(--text-2)' }}>
+              {archive.name} ({Math.max(1, Math.round(archive.size / 1024 / 1024))} MB)
+            </span>
+          ) : null}
+          <p className="text-xs mt-2" style={{ color: 'var(--text-3)' }}>
+            Up to 200 MB. Larger exports can be split and imported in parts.
+          </p>
+        </div>
+      ) : source === 'github' ? (
         <>
           <label className="block mb-3">
             <span className="block text-sm font-medium mb-1">Repository URL</span>
@@ -164,7 +239,12 @@ function SourceStep(props: { onPlan: (plan: ImportPlanView) => void }) {
         approve.
       </p>
       <ErrorNote message={error} />
-      <SubmitButton label={busy ? 'Reading…' : 'Scan and preview'} busy={busy} />
+      <SubmitButton
+        label={
+          busy ? (isUpload(source) ? 'Uploading and reading…' : 'Reading…') : 'Scan and preview'
+        }
+        busy={busy}
+      />
     </form>
   )
 }
@@ -197,6 +277,10 @@ function ReviewStep(props: {
   const [archiveExisting, setArchiveExisting] = useState(false)
   const [withImages, setWithImages] = useState((props.plan.imageCount ?? 0) > 0)
   const [targetId, setTargetId] = useState<string>(props.space?.id ?? '')
+  const [category, setCategory] = useState<SpaceCategory>(props.plan.suggestedCategory ?? 'wiki')
+  // an uploaded export: content stays on the server, merges are folded there
+  const stashed = Boolean(props.plan.stashId)
+  const journalCount = nodes.filter((n) => n.journalDate && !skipped.has(n.key)).length
 
   // what the target space already holds, so "archive first" can say how much
   const existing = trpc.pages.tree.useQuery({ spaceId: targetId }, { enabled: targetId !== '' })
@@ -280,20 +364,20 @@ function ReviewStep(props: {
     // fold merges here, once: until now they were an intent the user could undo
     const mergeMap: MergeMap = {}
     for (const [key, record] of Object.entries(merges)) mergeMap[key] = record.target
-    const folded = foldMergedNodes(
-      nodes.filter((n) => !skipped.has(n.key)),
-      mergeMap,
-    )
+    const kept = nodes.filter((n) => !skipped.has(n.key))
+    const folded = stashed ? kept : foldMergedNodes(kept, mergeMap)
     const result = await apply.mutateAsync({
-      ...(targetId ? { spaceId: targetId } : { newSpaceName: name.trim() || 'Imported wiki' }),
-      category: 'wiki',
+      ...(targetId ? { spaceId: targetId } : { newSpaceName: name.trim() || 'Imported' }),
+      category,
       personal: false,
       publish,
       archiveExisting: targetId !== '' && archiveExisting,
-      importImages: withImages,
+      importImages: stashed || withImages,
       imageBase: props.plan.imageBase ?? null,
+      ...(stashed ? { stashId: props.plan.stashId ?? undefined, merges: mergeMap } : {}),
       nodes: folded.map((n) => ({ ...n, level: Math.min(n.level, 6) })),
     })
+    await utils.journal.invalidate()
     await utils.spaces.list.invalidate()
     await utils.pages.tree.invalidate()
     props.onClose()
@@ -305,8 +389,9 @@ function ReviewStep(props: {
   return (
     <form onSubmit={onSubmit}>
       <p className="text-sm mb-1" style={{ color: 'var(--text-2)' }}>
-        Read <b>{props.plan.sourceLabel}</b> — {included.length} page
-        {included.length === 1 ? '' : 's'} to create
+        Read <b>{props.plan.sourceLabel}</b> — {included.length - journalCount} page
+        {included.length - journalCount === 1 ? '' : 's'} to create
+        {journalCount > 0 ? `, ${journalCount} journal day${journalCount === 1 ? '' : 's'}` : ''}
         {mergedCount > 0 ? `, ${mergedCount} merged in` : ''}.
       </p>
       {props.plan.warnings.map((w) => (
@@ -373,7 +458,7 @@ function ReviewStep(props: {
                 style={{ color: 'var(--text-3)', maxWidth: '12rem' }}
                 title={node.excerpt}
               >
-                {node.path ?? node.excerpt}
+                {node.journalDate ? `→ Journal, ${node.journalDate}` : (node.path ?? node.excerpt)}
               </span>
               <RowBtn
                 label={
@@ -426,7 +511,7 @@ function ReviewStep(props: {
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
         >
-          <option value="">Create a new wiki</option>
+          <option value="">Create a new space</option>
           {(spaces.data ?? [])
             .filter((s) => s.category === 'wiki' || s.category === 'notebook')
             .map((s) => (
@@ -438,15 +523,29 @@ function ReviewStep(props: {
       </label>
 
       {targetId === '' ? (
-        <label className="block mb-3">
-          <span className="block text-sm font-medium mb-1">New wiki name</span>
-          <input
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
+        <div className="flex flex-col sm:flex-row gap-3 mb-3">
+          <label className="block flex-1">
+            <span className="block text-sm font-medium mb-1">New space name</span>
+            <input
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium mb-1">Kind</span>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+              style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+              value={category}
+              onChange={(e) => setCategory(e.target.value as SpaceCategory)}
+            >
+              <option value="notebook">Notebook</option>
+              <option value="wiki">Wiki</option>
+            </select>
+          </label>
+        </div>
       ) : null}
 
       {existingCount > 0 ? (
@@ -467,7 +566,13 @@ function ReviewStep(props: {
         </>
       ) : null}
 
-      {(props.plan.imageCount ?? 0) > 0 ? (
+      {stashed && (props.plan.imageCount ?? 0) > 0 ? (
+        <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+          The {props.plan.imageCount} image{props.plan.imageCount === 1 ? '' : 's'} and file
+          {props.plan.imageCount === 1 ? '' : 's'} in the export come along and are stored here.
+        </p>
+      ) : null}
+      {!stashed && (props.plan.imageCount ?? 0) > 0 ? (
         <>
           <label className="flex items-center gap-2 mb-1 text-sm">
             <input
@@ -502,7 +607,7 @@ function ReviewStep(props: {
           label={
             busy
               ? 'Importing…'
-              : `Import ${included.length} page${included.length === 1 ? '' : 's'}`
+              : `Import ${included.length - journalCount} page${included.length - journalCount === 1 ? '' : 's'}${journalCount ? ` and ${journalCount} journal day${journalCount === 1 ? '' : 's'}` : ''}`
           }
           busy={busy || included.length === 0}
         />

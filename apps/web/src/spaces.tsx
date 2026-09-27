@@ -357,7 +357,7 @@ export function NewSpaceModal(props: { preset?: NewKind; onClose: () => void }) 
                 checked={importAfter}
                 onChange={(e) => setImportAfter(e.target.checked)}
               />
-              Import content into it — a markdown file or a GitHub repository
+              Import content into it — from Notion, Obsidian, Evernote, Markdown or GitHub
             </label>
             <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
               {importAfter
@@ -723,7 +723,11 @@ function SpaceMenu(props: {
             )}
           {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
           {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
-          {item('Import pages…', 'From markdown or a GitHub repository', props.onImport)}
+          {item(
+            'Import pages…',
+            'From Notion, Obsidian, Evernote, Markdown or GitHub',
+            props.onImport,
+          )}
           <a
             href={`/api/export/space/${props.space.id}`}
             download
