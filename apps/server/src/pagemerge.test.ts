@@ -6,7 +6,13 @@ import { createRepo } from './repo'
 
 const doc = (text: string) =>
   JSON.stringify([
-    { id: text, type: 'paragraph', props: {}, content: [{ type: 'text', text, styles: {} }], children: [] },
+    {
+      id: text,
+      type: 'paragraph',
+      props: {},
+      content: [{ type: 'text', text, styles: {} }],
+      children: [],
+    },
   ])
 
 async function setup() {
@@ -36,7 +42,11 @@ describe('pages.mergePages (sqlite)', () => {
     const { repo, pages, user, space, write } = await setup()
     const a = await pages.createPage(user, { spaceId: space.id, parentId: null, title: 'Alpha' })
     const b = await pages.createPage(user, { spaceId: space.id, parentId: null, title: 'Beta' })
-    const bChild = await pages.createPage(user, { spaceId: space.id, parentId: b.id, title: 'Beta kid' })
+    const bChild = await pages.createPage(user, {
+      spaceId: space.id,
+      parentId: b.id,
+      title: 'Beta kid',
+    })
     await write(a.id, 'alpha body')
     await write(b.id, 'beta body')
 
@@ -64,8 +74,14 @@ describe('pages.mergePages (sqlite)', () => {
   it('refuses to merge a page into its own sub-page', async () => {
     const { pages, user, space } = await setup()
     const parent = await pages.createPage(user, { spaceId: space.id, parentId: null, title: 'P' })
-    const child = await pages.createPage(user, { spaceId: space.id, parentId: parent.id, title: 'C' })
-    await expect(pages.mergePages(user, { sourceId: parent.id, targetId: child.id })).rejects.toThrow()
+    const child = await pages.createPage(user, {
+      spaceId: space.id,
+      parentId: parent.id,
+      title: 'C',
+    })
+    await expect(
+      pages.mergePages(user, { sourceId: parent.id, targetId: child.id }),
+    ).rejects.toThrow()
   })
 
   it('refuses to merge a page into itself', async () => {

@@ -97,7 +97,10 @@ function decodeEntities(s: string): string {
   }
   return s.replace(/&(#x?[0-9a-f]+|[a-z0-9]+);/gi, (m, code: string) => {
     if (code[0] === '#') {
-      const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10)
+      const n =
+        code[1] === 'x' || code[1] === 'X'
+          ? Number.parseInt(code.slice(2), 16)
+          : Number.parseInt(code.slice(1), 10)
       return Number.isFinite(n) ? String.fromCodePoint(n) : m
     }
     return named[code.toLowerCase()] ?? m
@@ -121,9 +124,7 @@ function stripToText(html: string): string {
 }
 
 function extractTitle(html: string): string {
-  const og = html.match(
-    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i,
-  )?.[1]
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i)?.[1]
   if (og?.trim()) return decodeEntities(og.trim())
   const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
   return t ? decodeEntities(t).replace(/\s+/g, ' ').trim() : ''
@@ -133,7 +134,9 @@ function firstParagraph(html: string, fallback: string): string {
   // prefer a substantial <p>; short ones are usually captions/nav
   const paras = html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)
   for (const m of paras) {
-    const text = stripToText(m[1] ?? '').replace(/\n+/g, ' ').trim()
+    const text = stripToText(m[1] ?? '')
+      .replace(/\n+/g, ' ')
+      .trim()
     if (text.length >= 40) return text
   }
   const meta = html.match(

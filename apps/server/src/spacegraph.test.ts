@@ -6,7 +6,13 @@ import { createRepo } from './repo'
 
 const docOf = (text: string) =>
   JSON.stringify([
-    { id: 'b1', type: 'paragraph', props: {}, content: [{ type: 'text', text, styles: {} }], children: [] },
+    {
+      id: 'b1',
+      type: 'paragraph',
+      props: {},
+      content: [{ type: 'text', text, styles: {} }],
+      children: [],
+    },
   ])
 
 async function setup() {
@@ -19,7 +25,11 @@ async function setup() {
     email: 'm@x.dev',
     password: 'longpassword1',
   })
-  const space = await pages.createSpace(user, { name: 'Notes', category: 'notebook', personal: false })
+  const space = await pages.createSpace(user, {
+    name: 'Notes',
+    category: 'notebook',
+    personal: false,
+  })
 
   const write = async (title: string, body: string) => {
     const page = await pages.createPage(user, { spaceId: space.id, parentId: null, title })

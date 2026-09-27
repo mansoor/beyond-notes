@@ -130,7 +130,10 @@ export function JournalTimelinePage() {
             const yearOpen = !collapsed.has(year)
             return (
               <div key={year}>
-                <div className="group flex items-center gap-2 border-b py-2" style={{ borderColor: 'var(--border)' }}>
+                <div
+                  className="group flex items-center gap-2 border-b py-2"
+                  style={{ borderColor: 'var(--border)' }}
+                >
                   <button
                     type="button"
                     onClick={() => toggle(year)}
@@ -273,7 +276,10 @@ function TimelineDay(props: { date: string; preview: string; notes: number }) {
                 return (
                   <div key={n.page.id} className="mb-3 last:mb-2">
                     {!n.main && (
-                      <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-3)' }}>
+                      <div
+                        className="text-xs font-semibold mb-1"
+                        style={{ color: 'var(--text-3)' }}
+                      >
                         {n.page.title}
                       </div>
                     )}

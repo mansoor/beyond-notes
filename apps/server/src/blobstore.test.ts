@@ -8,7 +8,7 @@ import { createS3BlobStore } from './blobstore-s3'
 import { loadConfig } from './config'
 
 // One contract, every driver. The fs driver always runs; the S3 driver runs
-// when TEST_S3_ENDPOINT is set (CI starts a MinIO container).
+// when TEST_S3_ENDPOINT is set (CI starts an S3Mock container).
 const drivers: Array<{ name: string; make: () => BlobStore }> = [
   {
     name: 'fs',

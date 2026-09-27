@@ -7,7 +7,16 @@ import { escapeHtml } from './render'
 export type FormFieldInput = {
   id: string
   name: string
-  type: 'text' | 'longtext' | 'number' | 'checkbox' | 'date' | 'datetime' | 'select' | 'email' | 'url'
+  type:
+    | 'text'
+    | 'longtext'
+    | 'number'
+    | 'checkbox'
+    | 'date'
+    | 'datetime'
+    | 'select'
+    | 'email'
+    | 'url'
   required: boolean
   choices: string[]
   /** grid position; both default to 1 (a plain single-column stack) */

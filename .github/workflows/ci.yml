@@ -24,10 +24,13 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      # a step, not a service: service containers cannot override the command,
-      # and minio/minio needs `server /data`; the test creates its own bucket
-      - name: Start MinIO
-        run: docker run -d --name minio -p 9000:9000 minio/minio server /data
+      # An S3-compatible server for the blob-store tests. MinIO no longer
+      # publishes free images, so this is Adobe's S3Mock (credentials are
+      # accepted, not checked). The test creates its own bucket.
+      - name: Start S3Mock
+        run: |
+          docker run -d --name s3mock -p 9090:9090 adobe/s3mock:latest
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:9090/ >/dev/null && break; sleep 1; done
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -36,11 +39,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - name: Tests (SQLite + Postgres + MinIO)
+      - name: Tests (SQLite + Postgres + S3)
         run: pnpm test
         env:
           TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/bn_test
-          TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TEST_S3_ENDPOINT: http://127.0.0.1:9090
           TEST_S3_BUCKET: bn-test
       - run: pnpm build
 

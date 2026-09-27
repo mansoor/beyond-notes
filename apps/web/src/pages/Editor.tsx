@@ -1294,7 +1294,8 @@ function wordDiff(oldText: string, newText: string): DiffPart[] {
   const lcs: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      lcs[i]![j] =
+      const row = lcs[i] as number[]
+      row[j] =
         a[i] === b[j]
           ? (lcs[i + 1]?.[j + 1] ?? 0) + 1
           : Math.max(lcs[i + 1]?.[j] ?? 0, lcs[i]?.[j + 1] ?? 0)

@@ -86,7 +86,10 @@ export function createPublicServer(
     const history = new Map<string, Set<string>>()
     for (const row of await repo.listAllPageSlugs()) {
       let set = history.get(row.pageId)
-      if (!set) history.set(row.pageId, (set = new Set()))
+      if (!set) {
+        set = new Set()
+        history.set(row.pageId, set)
+      }
       set.add(row.slug)
     }
     let parentId: string | null = null
