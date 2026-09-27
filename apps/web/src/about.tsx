@@ -43,6 +43,15 @@ const CREDITS: [string, string][] = [
 // this is what the About dialog's "What's new" shows, and it drifts otherwise.
 const RELEASE_NOTES: { v: string; notes: string[] }[] = [
   {
+    v: '0.8.25',
+    notes: [
+      'Sign in with single sign-on (OpenID Connect), through your reverse proxy, or with a passkey',
+      'API tokens, a REST API and an MCP server so AI assistants can work with your notes',
+      'Import from Notion, Obsidian and Evernote',
+      'Activity log for admins, stricter security headers, and an automatic copy before upgrades',
+    ],
+  },
+  {
     v: '0.8.24',
     notes: [
       'Swipe left/right on the Today page to move between days',
