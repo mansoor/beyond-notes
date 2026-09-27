@@ -80,6 +80,8 @@ export function createProxyAuth(deps: {
   repo: Repo
   auth: AuthService
   log?: (msg: string) => void
+  /** a new proxy session was minted (not a cache or cookie hit) */
+  onLogin?: (user: UserRow, ip: string) => void
 }) {
   const cfg = deps.settings
   const isTrusted = cfg ? trustedMatcher(cfg.trusted) : () => false
@@ -162,6 +164,7 @@ export function createProxyAuth(deps: {
       if (!user) return { user: null, token: null, fresh: false, expiresAt: null }
       const session = await deps.auth.sessionFor(user.id)
       cache.set(email, session)
+      deps.onLogin?.(user, req.socket?.remoteAddress ?? '')
       return { user, token: session.token, fresh: true, expiresAt: session.expiresAt }
     },
 

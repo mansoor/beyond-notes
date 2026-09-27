@@ -3,6 +3,7 @@ import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   ArchivedPageView,
   ArchivedTableView,
+  AuditEventView,
   AuthStatus,
   BacklinkView,
   DatabaseView,
@@ -38,9 +39,11 @@ import type {
   WebhookView,
 } from '@bn/schema'
 import {
+  type AuditAction,
   acceptInviteInput,
   appTheme,
   archiveTableInput,
+  auditListInput,
   backupSettings,
   captureMemoInput,
   changePasswordInput,
@@ -112,6 +115,7 @@ import {
 import { TRPCError } from '@trpc/server'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
+import type { AuditInput } from './audit'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
 import { GithubError } from './github'
@@ -203,6 +207,11 @@ function toInviteView(i: InviteRow, now: Date): InviteView {
 
 function setSessionCookie(ctx: Context, token: string, expiresAt: Date) {
   ctx.res.setCookie(SESSION_COOKIE, token, sessionCookieOptions(ctx.config, expiresAt))
+}
+
+/** Record an audit event as the signed-in person, from this request's address. */
+function note(ctx: Context, action: AuditAction, extra: Omit<AuditInput, 'action'> = {}) {
+  return ctx.audit.record({ actor: ctx.user, ip: ctx.req.ip, ...extra, action })
 }
 
 function clearSessionCookie(ctx: Context) {
@@ -338,6 +347,7 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.setup(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.setup', { actor: user })
       return toUserView(user)
     } catch (err) {
       rethrow(err)
@@ -348,8 +358,18 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.login(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.login', { actor: user })
       return toUserView(user)
     } catch (err) {
+      // a missing TOTP code is a step, not a failure; a rate-limited retry
+      // would only repeat the entry that tripped the limit
+      if (err instanceof AuthError && err.code !== 'TOTP_REQUIRED' && err.code !== 'RATE_LIMITED') {
+        await note(ctx, 'auth.login_failed', {
+          actor: null,
+          actorEmail: input.email,
+          detail: { reason: err.code },
+        })
+      }
       rethrow(err)
     }
   }),
@@ -363,7 +383,10 @@ const authRouter = router({
         ctx.locks.revokeSession(ctx.sessionToken)
         await ctx.auth.logout(ctx.sessionToken)
       }
-      if (ctx.user) ctx.proxy.forget(ctx.user.email)
+      if (ctx.user) {
+        ctx.proxy.forget(ctx.user.email)
+        await note(ctx, 'auth.logout')
+      }
       clearSessionCookie(ctx)
       return {
         ok: true,
@@ -388,8 +411,12 @@ const authRouter = router({
       try {
         const { user, session } = await ctx.passkeys.login(input.response as never)
         setSessionCookie(ctx, session.token, session.expiresAt)
+        await note(ctx, 'auth.passkey_login', { actor: user })
         return toUserView(user)
       } catch (err) {
+        if (err instanceof PasskeyError) {
+          await note(ctx, 'auth.passkey_failed', { actor: null, detail: { reason: err.code } })
+        }
         rethrow(err)
       }
     }),
@@ -407,6 +434,7 @@ const authRouter = router({
     try {
       const { user, session } = await ctx.auth.acceptInvite(input)
       setSessionCookie(ctx, session.token, session.expiresAt)
+      await note(ctx, 'auth.invite_accepted', { actor: user })
       return toUserView(user)
     } catch (err) {
       rethrow(err)
@@ -418,6 +446,10 @@ const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await ctx.auth.requestPasswordReset(input.email)
+        await note(ctx, 'auth.password_reset_requested', {
+          actor: result?.user ?? null,
+          actorEmail: input.email,
+        })
         if (result && ctx.mailer.configured) {
           const mail = passwordResetEmail(ctx.config.BASE_URL, result.token)
           await ctx.mailer.send(result.user.email, mail.subject, mail.text)
@@ -431,7 +463,9 @@ const authRouter = router({
 
   resetPassword: publicProcedure.input(resetPasswordInput).mutation(async ({ ctx, input }) => {
     try {
-      await ctx.auth.resetPassword(input.token, input.password)
+      const userId = await ctx.auth.resetPassword(input.token, input.password)
+      const user = await ctx.repo.getUserById(userId)
+      await note(ctx, 'auth.password_reset', { actor: user })
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -505,6 +539,7 @@ const authRouter = router({
   changePassword: authedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
     try {
       await ctx.auth.changePassword(ctx.user, input.current, input.next)
+      await note(ctx, 'auth.password_changed')
       return { ok: true }
     } catch (err) {
       rethrow(err)
@@ -530,7 +565,9 @@ const authRouter = router({
 
   totpConfirm: authedProcedure.input(totpConfirmInput).mutation(async ({ ctx, input }) => {
     try {
-      return await ctx.auth.totpConfirm(ctx.user, input.code)
+      const result = await ctx.auth.totpConfirm(ctx.user, input.code)
+      await note(ctx, 'auth.totp_enabled')
+      return result
     } catch (err) {
       rethrow(err)
     }
@@ -541,6 +578,7 @@ const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         await ctx.auth.totpDisable(ctx.user, input.password)
+        await note(ctx, 'auth.totp_disabled')
         return { ok: true }
       } catch (err) {
         rethrow(err)
@@ -561,6 +599,7 @@ const authRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.auth.revokeSession(ctx.user, input.sessionId)
+      await note(ctx, 'auth.session_revoked')
       return { ok: true }
     }),
 
@@ -597,6 +636,7 @@ const authRouter = router({
         })
       }
       await ctx.repo.deleteIdentity(input.id, ctx.user.id)
+      await note(ctx, 'auth.sso_unlinked')
       return { ok: true }
     }),
 })
@@ -658,6 +698,10 @@ const usersRouter = router({
 
   createInvite: adminProcedure.input(createInviteInput).mutation(async ({ ctx, input }) => {
     const { token, invite } = await ctx.auth.createInvite(ctx.user.id, input)
+    await note(ctx, 'user.invited', {
+      target: input.suggestedEmail ?? null,
+      detail: { role: input.role },
+    })
     let emailed = false
     if (input.sendEmail && input.suggestedEmail && ctx.mailer.configured) {
       const mail = inviteEmail(ctx.config.BASE_URL, token, ctx.user.name)
@@ -676,6 +720,7 @@ const usersRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.auth.revokeInvite(input.id)
+      await note(ctx, 'user.invite_revoked', { target: input.id })
       return { ok: true }
     }),
 })
@@ -1431,7 +1476,9 @@ const passkeysRouter = router({
     .input(z.object({ response: z.record(z.unknown()), name: z.string().trim().max(60) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        return await ctx.passkeys.register(ctx.user, input.response as never, input.name)
+        const result = await ctx.passkeys.register(ctx.user, input.response as never, input.name)
+        await note(ctx, 'auth.passkey_added', { target: input.name || 'Passkey' })
+        return result
       } catch (err) {
         rethrow(err)
       }
@@ -1446,6 +1493,7 @@ const passkeysRouter = router({
 
   remove: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     await ctx.repo.deletePasskey(input.id, ctx.user.id)
+    await note(ctx, 'auth.passkey_removed')
     return { ok: true }
   }),
 })
@@ -1455,11 +1503,13 @@ const settingsRouter = router({
 
   saveSmtp: adminProcedure.input(smtpSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveSmtp(input)
+    await note(ctx, 'settings.saved', { target: 'Email (SMTP)' })
     return ctx.settings.view()
   }),
 
   saveNtfy: adminProcedure.input(ntfySettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveNtfy(input)
+    await note(ctx, 'settings.saved', { target: 'Push (ntfy)' })
     return ctx.settings.view()
   }),
 
@@ -1484,7 +1534,35 @@ const settingsRouter = router({
       }
     }
     await ctx.settings.saveOidc(input)
+    await note(ctx, 'settings.saved', { target: 'Single sign-on' })
     return ctx.settings.view()
+  }),
+
+  /** The audit log, newest first, one page at a time. */
+  audit: adminProcedure.input(auditListInput).query(async ({ ctx, input }) => {
+    const rows = await ctx.repo.listAuditEvents({
+      limit: input.limit,
+      before: input.before ? new Date(input.before) : undefined,
+      prefix: input.family === 'all' ? undefined : `${input.family}.`,
+    })
+    return rows.map(
+      (r): AuditEventView => ({
+        id: r.id,
+        at: r.at.toISOString(),
+        action: r.action,
+        actorId: r.actorId,
+        actorEmail: r.actorEmail,
+        target: r.target,
+        ip: r.ip,
+        detail: (() => {
+          try {
+            return r.detail ? (JSON.parse(r.detail) as Record<string, unknown>) : null
+          } catch {
+            return null
+          }
+        })(),
+      }),
+    )
   }),
 
   /** Discovery only: does this issuer answer as an OpenID provider? */
@@ -1502,6 +1580,7 @@ const settingsRouter = router({
 
   saveRecaptcha: adminProcedure.input(recaptchaSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveRecaptcha(input)
+    await note(ctx, 'settings.saved', { target: 'reCAPTCHA' })
     return ctx.settings.view()
   }),
 
@@ -1532,12 +1611,14 @@ const settingsRouter = router({
       }
     }
     await ctx.settings.saveStorage(input)
+    await note(ctx, 'settings.saved', { target: 'Storage' })
     return ctx.settings.view()
   }),
 
   // ---- backups (admin) ----
   saveBackup: adminProcedure.input(backupSettings).mutation(async ({ ctx, input }) => {
     await ctx.settings.saveBackup(input)
+    await note(ctx, 'settings.saved', { target: 'Backup schedule' })
     await ctx.backup.reschedule() // apply the new frequency/enabled state now
     return ctx.settings.view()
   }),
@@ -1546,7 +1627,9 @@ const settingsRouter = router({
 
   backupNow: adminProcedure.mutation(async ({ ctx }) => {
     try {
-      return await ctx.backup.run()
+      const result = await ctx.backup.run()
+      await note(ctx, 'backup.created')
+      return result
     } catch (err) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -1559,6 +1642,7 @@ const settingsRouter = router({
     .input(z.object({ name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.backup.remove(input.name)
+      await note(ctx, 'backup.deleted', { target: input.name })
       return ctx.backup.list()
     }),
 
@@ -1580,7 +1664,12 @@ const settingsRouter = router({
 
   restoreRun: adminProcedure.input(restoreInput).mutation(async ({ ctx, input }) => {
     try {
-      return await ctx.restore.run(input)
+      const result = await ctx.restore.run(input)
+      await note(ctx, 'backup.restored', {
+        target: input.name,
+        detail: { spaces: input.spaces.length },
+      })
+      return result
     } catch (err) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',

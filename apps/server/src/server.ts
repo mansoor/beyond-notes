@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
+import { createAuditService } from './audit'
 import { createAuthService } from './auth'
 import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
@@ -61,8 +62,14 @@ function formResultPage(ok: boolean, message: string): string {
 }
 
 export async function buildServer(config: Config, appDb: AppDb) {
+  const proxyList = (config.TRUST_PROXY || config.AUTH_PROXY_TRUSTED_IPS)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   const server = Fastify({
     logger: config.NODE_ENV !== 'test',
+    // only these hops may set X-Forwarded-For; everyone else's is ignored
+    trustProxy: proxyList.length ? proxyList : false,
     // tRPC batches put every procedure name in one path param
     // (/api/trpc/a.list,b.get,...); Fastify's default 100-char cap 404s a busy
     // page's whole batch. tRPC's Fastify adapter docs recommend 5000.
@@ -75,6 +82,10 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const secretsKey = loadOrCreateSecretsKey(config)
   const settings = createSettingsService(repo, config, { secretsKey })
   await settings.load()
+  const audit = createAuditService({
+    repo,
+    onError: (err) => server.log.error(err, 'audit write failed'),
+  })
   const auth = createAuthService(repo, {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
@@ -90,6 +101,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     repo,
     auth,
     log: (msg) => server.log.warn(msg),
+    onLogin: (user, ip) => void audit.record({ action: 'auth.proxy_login', actor: user, ip }),
   })
   const embedder = createEmbedder(config)
   const pages = createPagesService(repo, {
@@ -389,6 +401,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(404).send({ error: 'not found' })
     }
     const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
+    await audit.record({ action: 'export.space', actor: user, ip: req.ip, target: space.name })
     reply.header('content-disposition', `attachment; filename="${filename}"`)
     reply.type('application/zip')
     return reply.send(data)
@@ -405,6 +418,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.code(400).send({ error: 'bad name' })
     }
     if (!path) return reply.code(404).send({ error: 'not found' })
+    await audit.record({
+      action: 'backup.downloaded',
+      actor: user,
+      ip: req.ip,
+      target: String(req.params.name),
+    })
     reply.header('content-disposition', `attachment; filename="${String(req.params.name)}"`)
     reply.type('application/zip')
     return reply.send(createReadStream(path))
@@ -545,7 +564,11 @@ export async function buildServer(config: Config, appDb: AppDb) {
     const signedIn = await userFromRequest(req)
     try {
       const result = await sso.complete(currentUrl, cookieState)
-      if (result.kind === 'link') return reply.redirect('/settings?sso=linked')
+      if (result.kind === 'link') {
+        await audit.record({ action: 'auth.sso_linked', actor: result.user, ip: req.ip })
+        return reply.redirect('/settings?sso=linked')
+      }
+      await audit.record({ action: 'auth.sso_login', actor: result.user, ip: req.ip })
       reply.setCookie(
         SESSION_COOKIE,
         result.session.token,
@@ -553,6 +576,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
       )
       return reply.redirect(result.next)
     } catch (err) {
+      await audit.record({
+        action: 'auth.sso_failed',
+        actor: signedIn,
+        ip: req.ip,
+        detail: { reason: err instanceof SsoError ? err.code : 'ERROR' },
+      })
       return ssoFail(reply, err, signedIn ? '/settings' : '/')
     }
   })
@@ -584,6 +613,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         sso,
         proxy,
         passkeys,
+        audit,
         resolveSession,
       }),
     },
@@ -619,6 +649,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
       const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000)
       const purged = await pages.purgeExpiredTrash(cutoff)
       if (purged > 0) server.log.info(`trash purge: hard-deleted ${purged} page subtree(s)`)
+      // the audit log keeps its own, much longer, window
+      await audit.prune(config.AUDIT_RETENTION_DAYS)
     }
     server.addHook('onReady', async () => {
       await scheduler.runOnce()

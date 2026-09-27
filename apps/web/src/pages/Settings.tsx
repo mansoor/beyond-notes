@@ -1,5 +1,5 @@
-import type { GraphEdgeKind, OidcSettings } from '@bn/schema'
-import { useState } from 'react'
+import type { AuditEventView, AuditFamily, GraphEdgeKind, OidcSettings } from '@bn/schema'
+import { useEffect, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
 import { passkeyErrorMessage, passkeysSupported, startRegistration } from '../passkey'
 import {
@@ -26,9 +26,10 @@ const TABS = [
   'Users',
   'Storage',
   'Backup',
+  'Activity',
 ] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup']
+const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup', 'Activity']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
@@ -39,6 +40,7 @@ const TAB_ICONS: Record<Tab, string> = {
   Users: '👥',
   Storage: '🗄',
   Backup: '💾',
+  Activity: '📜',
 }
 
 export function SettingsPage() {
@@ -98,6 +100,7 @@ export function SettingsPage() {
           {tab === 'Users' && isAdmin && <UsersTab />}
           {tab === 'Storage' && isAdmin && <StorageTab />}
           {tab === 'Backup' && isAdmin && <BackupTab />}
+          {tab === 'Activity' && isAdmin && <ActivityTab />}
         </div>
       </div>
     </div>
@@ -2248,6 +2251,188 @@ function UsersTab() {
             </li>
           ))}
         </ul>
+      )}
+    </Card>
+  )
+}
+
+const AUDIT_LABEL: Record<string, string> = {
+  'auth.setup': 'Set up this instance',
+  'auth.login': 'Signed in with a password',
+  'auth.login_failed': 'Failed sign-in',
+  'auth.logout': 'Signed out',
+  'auth.sso_login': 'Signed in with single sign-on',
+  'auth.sso_failed': 'Single sign-on failed',
+  'auth.sso_linked': 'Linked single sign-on',
+  'auth.sso_unlinked': 'Unlinked single sign-on',
+  'auth.passkey_login': 'Signed in with a passkey',
+  'auth.passkey_failed': 'Passkey sign-in failed',
+  'auth.proxy_login': 'Signed in through the proxy',
+  'auth.invite_accepted': 'Joined from an invite',
+  'auth.password_changed': 'Changed their password',
+  'auth.password_reset_requested': 'Asked for a password reset',
+  'auth.password_reset': 'Reset their password',
+  'auth.totp_enabled': 'Turned on 2FA',
+  'auth.totp_disabled': 'Turned off 2FA',
+  'auth.passkey_added': 'Added a passkey',
+  'auth.passkey_removed': 'Removed a passkey',
+  'auth.session_revoked': 'Signed out a device',
+  'user.invited': 'Invited someone',
+  'user.invite_revoked': 'Revoked an invite',
+  'settings.saved': 'Changed settings',
+  'backup.created': 'Made a backup',
+  'backup.deleted': 'Deleted a backup',
+  'backup.downloaded': 'Downloaded a backup',
+  'backup.restored': 'Restored from a backup',
+  'export.space': 'Exported a space',
+}
+
+/** Events an admin should notice when skimming. */
+const AUDIT_WARN = new Set([
+  'auth.login_failed',
+  'auth.sso_failed',
+  'auth.passkey_failed',
+  'auth.totp_disabled',
+  'backup.downloaded',
+  'backup.restored',
+])
+
+const AUDIT_REASON: Record<string, string> = {
+  BAD_CREDENTIALS: 'wrong email or password',
+  TOTP_INVALID: 'wrong 2FA code',
+  PASSWORD_LOGIN_DISABLED: 'password sign-in is turned off',
+  NOT_FOUND: 'passkey not registered here',
+  FAILED: 'passkey could not be verified',
+  DISABLED: 'single sign-on only',
+  NOT_ALLOWED: 'not allowed by the identity provider rules',
+  NO_ACCOUNT: 'no account here',
+  EMAIL_UNVERIFIED: 'email not verified by the provider',
+  EXPIRED: 'sign-in expired',
+  PROVIDER: 'identity provider error',
+}
+
+const AUDIT_FAMILIES: { value: AuditFamily; label: string }[] = [
+  { value: 'all', label: 'Everything' },
+  { value: 'auth', label: 'Sign-ins and security' },
+  { value: 'user', label: 'People and invites' },
+  { value: 'settings', label: 'Settings' },
+  { value: 'backup', label: 'Backups and restores' },
+  { value: 'export', label: 'Exports' },
+]
+
+function auditDetail(e: AuditEventView): string {
+  const parts: string[] = []
+  if (e.target) parts.push(e.target)
+  const d = e.detail ?? {}
+  if (typeof d.reason === 'string') parts.push(AUDIT_REASON[d.reason] ?? d.reason)
+  if (typeof d.role === 'string') parts.push(`as ${d.role}`)
+  if (typeof d.spaces === 'number' && d.spaces > 0) {
+    parts.push(`${d.spaces} space${d.spaces === 1 ? '' : 's'}`)
+  }
+  return parts.join(' · ')
+}
+
+const AUDIT_PAGE = 50
+
+/** The audit log (admin): newest first, filterable, loads older on demand. */
+function ActivityTab() {
+  const utils = trpc.useUtils()
+  const [family, setFamily] = useState<AuditFamily>('all')
+  const [rows, setRows] = useState<AuditEventView[]>([])
+  const [more, setMore] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = async (from: AuditEventView[], fam: AuditFamily) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const page = await utils.client.settings.audit.query({
+        family: fam,
+        limit: AUDIT_PAGE,
+        before: from.at(-1)?.at,
+      })
+      setRows([...from, ...page])
+      setMore(page.length === AUDIT_PAGE)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the activity log.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only when the filter changes
+  useEffect(() => {
+    void load([], family)
+  }, [family])
+
+  return (
+    <Card title="Activity">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Sign-ins (including failed ones), security changes and admin actions on this instance.
+      </p>
+      <select
+        className="mb-4 w-full sm:w-auto rounded-lg border px-3 py-2 text-sm"
+        style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
+        value={family}
+        onChange={(e) => setFamily(e.target.value as AuditFamily)}
+      >
+        {AUDIT_FAMILIES.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+      <ErrorNote message={error} />
+      {rows.length === 0 && !loading ? (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          Nothing recorded yet.
+        </p>
+      ) : (
+        <ul className="flex flex-col">
+          {rows.map((e) => {
+            const detail = auditDetail(e)
+            return (
+              <li
+                key={e.id}
+                className="flex gap-3 py-2.5 border-t first:border-t-0 text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span
+                  className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                  style={{
+                    background: AUDIT_WARN.has(e.action) ? 'var(--danger)' : 'var(--border)',
+                  }}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="font-medium">{AUDIT_LABEL[e.action] ?? e.action}</span>
+                    <time className="text-xs" style={{ color: 'var(--text-3)' }} dateTime={e.at}>
+                      {new Date(e.at).toLocaleString()}
+                    </time>
+                  </div>
+                  <div className="text-xs break-words" style={{ color: 'var(--text-2)' }}>
+                    {e.actorEmail ?? 'unknown'}
+                    {detail ? ` · ${detail}` : ''}
+                    {e.ip ? ` · ${e.ip}` : ''}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {more && (
+        <button
+          type="button"
+          className="mt-3 rounded-lg border px-4 py-2 text-sm disabled:opacity-60"
+          style={{ borderColor: 'var(--border)' }}
+          disabled={loading}
+          onClick={() => load(rows, family)}
+        >
+          {loading ? 'Loading…' : 'Show older'}
+        </button>
       )}
     </Card>
   )

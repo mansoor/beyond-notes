@@ -2,6 +2,7 @@ import {
   type AnyPgColumn,
   boolean,
   customType,
+  index,
   integer,
   pgTable,
   primaryKey,
@@ -120,6 +121,26 @@ export const passkeys = pgTable('passkeys', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
 })
+
+// Who did what, when, from where: sign-ins (and failed ones), security
+// changes and admin actions. actor_id has no foreign key on purpose, and the
+// email is copied in, so the trail survives the account being deleted.
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    at: timestamp('at', { withTimezone: true, mode: 'date' }).notNull(),
+    actorId: text('actor_id'),
+    actorEmail: text('actor_email'),
+    // dotted name, e.g. auth.login, auth.login_failed, settings.saved
+    action: text('action').notNull(),
+    target: text('target'),
+    ip: text('ip'),
+    // JSON object with anything else worth keeping
+    detail: text('detail'),
+  },
+  (t) => ({ at: index('audit_events_at').on(t.at) }),
+)
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   // sha256 hex of the raw emailed token; the raw token is never stored

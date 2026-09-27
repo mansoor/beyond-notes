@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql as sqlOp } from 'drizzle-orm'
+import { and, desc, eq, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -62,6 +62,18 @@ export type PasskeyRow = {
   backedUp: boolean
   createdAt: Date
   lastUsedAt: Date | null
+}
+
+export type AuditEventRow = {
+  id: string
+  at: Date
+  actorId: string | null
+  actorEmail: string | null
+  action: string
+  target: string | null
+  ip: string | null
+  /** JSON object */
+  detail: string | null
 }
 
 export type ResetTokenRow = {
@@ -421,6 +433,36 @@ export function createRepo(appDb: AppDb) {
 
     async deletePasskey(id: string, userId: string): Promise<void> {
       await db.delete(t.passkeys).where(and(eq(t.passkeys.id, id), eq(t.passkeys.userId, userId)))
+    },
+
+    async insertAuditEvent(row: AuditEventRow): Promise<void> {
+      await db.insert(t.auditEvents).values(row)
+    },
+
+    /** Newest first. `before` pages backwards; `prefix` filters by action family. */
+    async listAuditEvents(opts: {
+      limit: number
+      before?: Date
+      prefix?: string
+    }): Promise<AuditEventRow[]> {
+      const where = [
+        opts.before ? lt(t.auditEvents.at, opts.before) : undefined,
+        opts.prefix ? like(t.auditEvents.action, `${opts.prefix}%`) : undefined,
+      ].filter(Boolean)
+      return db
+        .select()
+        .from(t.auditEvents)
+        .where(where.length ? and(...where) : undefined)
+        .orderBy(desc(t.auditEvents.at), desc(t.auditEvents.id))
+        .limit(opts.limit)
+    },
+
+    async deleteAuditEventsBefore(cutoff: Date): Promise<number> {
+      const rows = await db
+        .delete(t.auditEvents)
+        .where(lt(t.auditEvents.at, cutoff))
+        .returning({ id: t.auditEvents.id })
+      return rows.length
     },
 
     async insertResetToken(row: ResetTokenRow): Promise<void> {

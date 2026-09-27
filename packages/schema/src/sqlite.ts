@@ -1,6 +1,7 @@
 import {
   type AnySQLiteColumn,
   blob,
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -107,6 +108,26 @@ export const passkeys = sqliteTable('passkeys', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
 })
+
+// Who did what, when, from where: sign-ins (and failed ones), security
+// changes and admin actions. actor_id has no foreign key on purpose, and the
+// email is copied in, so the trail survives the account being deleted.
+export const auditEvents = sqliteTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    actorId: text('actor_id'),
+    actorEmail: text('actor_email'),
+    // dotted name, e.g. auth.login, auth.login_failed, settings.saved
+    action: text('action').notNull(),
+    target: text('target'),
+    ip: text('ip'),
+    // JSON object with anything else worth keeping
+    detail: text('detail'),
+  },
+  (t) => ({ at: index('audit_events_at').on(t.at) }),
+)
 
 export const passwordResetTokens = sqliteTable('password_reset_tokens', {
   id: text('id').primaryKey(),

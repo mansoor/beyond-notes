@@ -41,6 +41,62 @@ export type SessionView = {
   current: boolean
 }
 
+// ---- audit log ----
+
+export const auditAction = z.enum([
+  'auth.setup',
+  'auth.login',
+  'auth.login_failed',
+  'auth.logout',
+  'auth.sso_login',
+  'auth.sso_failed',
+  'auth.sso_linked',
+  'auth.sso_unlinked',
+  'auth.passkey_login',
+  'auth.passkey_failed',
+  'auth.proxy_login',
+  'auth.invite_accepted',
+  'auth.password_changed',
+  'auth.password_reset_requested',
+  'auth.password_reset',
+  'auth.totp_enabled',
+  'auth.totp_disabled',
+  'auth.passkey_added',
+  'auth.passkey_removed',
+  'auth.session_revoked',
+  'user.invited',
+  'user.invite_revoked',
+  'settings.saved',
+  'backup.created',
+  'backup.deleted',
+  'backup.downloaded',
+  'backup.restored',
+  'export.space',
+])
+export type AuditAction = z.infer<typeof auditAction>
+
+/** Families the viewer filters by; each is an action-name prefix. */
+export const auditFamily = z.enum(['all', 'auth', 'user', 'settings', 'backup', 'export'])
+export type AuditFamily = z.infer<typeof auditFamily>
+
+export const auditListInput = z.object({
+  family: auditFamily.default('all'),
+  /** ISO time of the last event already shown: returns older ones */
+  before: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+})
+
+export type AuditEventView = {
+  id: string
+  at: string
+  action: string
+  actorId: string | null
+  actorEmail: string | null
+  target: string | null
+  ip: string | null
+  detail: Record<string, unknown> | null
+}
+
 /** A passkey on the signed-in account. */
 export type PasskeyView = {
   id: string

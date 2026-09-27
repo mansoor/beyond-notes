@@ -2,6 +2,7 @@ import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { AttachmentsService } from './attachments'
+import type { AuditService } from './audit'
 import type { AuthService } from './auth'
 import type { BackupService } from './backup'
 import type { Config } from './config'
@@ -62,6 +63,7 @@ export type Context = {
   sso: SsoService
   proxy: ProxyAuth
   passkeys: PasskeyService
+  audit: AuditService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -86,6 +88,7 @@ export function makeCreateContext(deps: {
   sso: SsoService
   proxy: ProxyAuth
   passkeys: PasskeyService
+  audit: AuditService
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

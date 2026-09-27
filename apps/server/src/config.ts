@@ -90,6 +90,12 @@ const envSchema = z.object({
   // where "Sign out" sends the browser (the proxy's logout), so the proxy
   // doesn't just sign the person straight back in
   AUTH_PROXY_LOGOUT_URL: z.string().default(''),
+  // Behind a reverse proxy, the proxy's IPs/CIDRs, so the client address in
+  // the audit log (and rate limits) is the real one from X-Forwarded-For.
+  // Empty = the proxy addresses from AUTH_PROXY_TRUSTED_IPS, if any.
+  TRUST_PROXY: z.string().default(''),
+  // days of audit log to keep (sign-ins, security and admin changes); 0 = forever
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(365),
   NODE_ENV: z.string().default('development'),
 })
 

@@ -229,7 +229,7 @@ export function createAuthService(
      * every session. TOTP is deliberately untouched — an attacker with the
      * mailbox must still get past the second factor.
      */
-    async resetPassword(token: string, next: string): Promise<void> {
+    async resetPassword(token: string, next: string): Promise<string> {
       const row = await repo.getResetToken(hashToken(token))
       const valid = row && !row.usedAt && row.expiresAt.getTime() >= now().getTime()
       if (!row || !valid || !(await repo.markResetTokenUsed(row.id, now()))) {
@@ -241,6 +241,7 @@ export function createAuthService(
       for (const session of await repo.listSessionsForUser(row.userId)) {
         await repo.deleteSession(session.id)
       }
+      return row.userId
     },
 
     async updateProfile(user: UserRow, input: { name: string; email: string }) {
