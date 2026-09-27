@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Beyond Notes Clipper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-32.png" width="20" height="20" alt="" />
+      <span>Beyond Notes</span>
+    </header>
+
+    <!-- first run: where the notes live, and a token to act with -->
+    <section id="setup" hidden>
+      <p class="lead">Connect the clipper to your Beyond Notes.</p>
+      <label for="url">Address</label>
+      <input id="url" type="url" placeholder="https://notes.example.com" autocomplete="url" />
+      <label for="token">API token</label>
+      <input id="token" type="password" placeholder="bn_…" autocomplete="off" />
+      <p class="hint">
+        Make a <b>read and write</b> token in Beyond Notes under Settings → Integrations → API
+        tokens. It stays on this device.
+      </p>
+      <button id="connect" class="primary" type="button">Connect</button>
+      <p id="setup-error" class="error" hidden></p>
+    </section>
+
+    <!-- every other time: what to save, and where -->
+    <section id="clip" hidden>
+      <label for="title">Title</label>
+      <input id="title" type="text" />
+      <p id="source" class="hint"></p>
+
+      <div class="modes" role="radiogroup" aria-label="Save to">
+        <label class="mode"><input type="radio" name="mode" value="inbox" checked /> Inbox</label>
+        <label class="mode"><input type="radio" name="mode" value="page" /> New page</label>
+      </div>
+      <div id="page-options" hidden>
+        <label for="space">Space</label>
+        <select id="space"></select>
+      </div>
+      <p id="what" class="hint"></p>
+
+      <button id="save" class="primary" type="button">Save</button>
+      <p id="result" class="ok" hidden></p>
+      <p id="clip-error" class="error" hidden></p>
+
+      <footer>
+        <span id="who"></span>
+        <button id="disconnect" class="link" type="button">Disconnect</button>
+      </footer>
+    </section>
+
+    <script src="lib.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

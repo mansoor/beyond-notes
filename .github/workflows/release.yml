@@ -110,8 +110,14 @@ jobs:
     needs: merge
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      # the browser clipper ships as a download on every release, ready to load
+      # unpacked or upload to the extension stores
+      - name: Package the browser clipper
+        run: cd extensions/clipper && zip -r "../../beyond-notes-clipper-${GITHUB_REF_NAME}.zip" . -x '*.md'
       - name: Draft GitHub release with changelog
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
+          files: beyond-notes-clipper-*.zip
