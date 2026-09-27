@@ -27,7 +27,15 @@ describe('SSRF address guard', () => {
   })
 
   it('blocks loopback, ULA, link-local and mapped IPv6', () => {
-    for (const ip of ['::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', 'ff02::1']) {
+    for (const ip of [
+      '::1',
+      '::',
+      'fe80::1',
+      'fc00::1',
+      'fd12:3456::1',
+      '::ffff:127.0.0.1',
+      'ff02::1',
+    ]) {
       expect(isPrivateIp(ip), ip).toBe(true)
     }
   })

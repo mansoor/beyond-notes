@@ -112,7 +112,7 @@ body {
   src: url("/api/assets/material-symbols.woff2") format("woff2");
 }
 .msym {
-  font-family: "Material Symbols Outlined";
+  font-family: "Material Symbols Outlined", sans-serif;
   font-weight: normal;
   line-height: 1;
   letter-spacing: normal;
@@ -351,4 +351,17 @@ select.bn-cell {
   .bn-drawer-panel {
     animation: none;
   }
+}
+
+/* Links in the editor read as links: BlockNote leaves them unstyled, which
+   made a link indistinguishable from the text around it. */
+.bn-editor a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.bn-editor a:hover {
+  text-decoration-color: var(--accent);
 }

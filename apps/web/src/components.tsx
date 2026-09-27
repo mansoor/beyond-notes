@@ -580,7 +580,6 @@ export function IconPicker(props: { value: string | null; onPick: (v: string | n
           style={{ width: 256, background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
           <input
-            // biome-ignore lint/a11y/noAutofocus: opening the picker to type is the whole point
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}

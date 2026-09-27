@@ -155,7 +155,11 @@ function MemoItem(props: { memo: MemoView }) {
             promoted → journal ↗
           </Link>
         ) : m.promotedTo === 'task' ? (
-          <Link to="/tasks" className="underline hover:no-underline" style={{ color: 'var(--text-3)' }}>
+          <Link
+            to="/tasks"
+            className="underline hover:no-underline"
+            style={{ color: 'var(--text-3)' }}
+          >
             promoted → task ↗
           </Link>
         ) : m.promotedTo ? (
@@ -178,7 +182,6 @@ function MemoItem(props: { memo: MemoView }) {
       {editing ? (
         <div>
           <textarea
-            // biome-ignore lint/a11y/noAutofocus: an explicit edit action wants focus
             autoFocus
             rows={2}
             className="w-full rounded-lg border px-3 py-2 text-[15px] outline-none resize-none"

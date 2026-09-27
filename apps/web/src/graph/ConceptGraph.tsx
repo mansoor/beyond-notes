@@ -76,7 +76,8 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   // same references until the data itself changes, so this recomputes only on a
   // real change — with plenty of spacing (iterations + spread) to fight overlap.
   const initial = useMemo(
-    () => forceLayout(nodes, edges, { width: CANVAS, height: CANVAS, iterations: 420, spread: 1.5 }),
+    () =>
+      forceLayout(nodes, edges, { width: CANVAS, height: CANVAS, iterations: 420, spread: 1.5 }),
     [nodes, edges],
   )
 
@@ -110,10 +111,7 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   >(null)
   const moved = useRef(false)
 
-  const visibleEdges = useMemo(
-    () => edges.filter((e) => filters[e.type]),
-    [edges, filters],
-  )
+  const visibleEdges = useMemo(() => edges.filter((e) => filters[e.type]), [edges, filters])
   // which edge types this space actually has — only those get a filter toggle
   const present = useMemo(() => new Set(edges.map((e) => e.type)), [edges])
 
@@ -135,7 +133,10 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
   // nodes ranked by importance — labels reveal from the top of this list, and
   // how many depends on zoom (more room → more words) and the density slider
   const ranked = useMemo(
-    () => [...nodes].sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label)).map((n) => n.id),
+    () =>
+      [...nodes]
+        .sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label))
+        .map((n) => n.id),
     [nodes],
   )
   const labelBudget = clamp(Math.round(10 * view.scale * labelDensity), 6, nodes.length)
@@ -347,7 +348,13 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
                 }}
               >
                 {selected === n.id && (
-                  <circle r={r + 4} fill="none" stroke="var(--accent)" strokeWidth={1.5} opacity={0.7} />
+                  <circle
+                    r={r + 4}
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeWidth={1.5}
+                    opacity={0.7}
+                  />
                 )}
                 <circle r={r} fill={fill} stroke={stroke} strokeWidth={isPage ? 0 : 1} />
                 {showLabel(n.id) && (
@@ -378,7 +385,11 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
           className={ctrlBtn}
           title="Zoom in"
           onClick={() => zoomBy(1.3)}
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          style={{
+            background: 'var(--panel)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-2)',
+          }}
         >
           ＋
         </button>
@@ -387,7 +398,11 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
           className={ctrlBtn}
           title="Zoom out"
           onClick={() => zoomBy(1 / 1.3)}
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          style={{
+            background: 'var(--panel)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-2)',
+          }}
         >
           －
         </button>
@@ -396,7 +411,11 @@ export function ConceptGraph(props: { nodes: GraphNode[]; edges: GraphEdge[] }) 
           className={ctrlBtn}
           title="Fit to view"
           onClick={() => setView(fitView(positions))}
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          style={{
+            background: 'var(--panel)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-2)',
+          }}
         >
           ⊡
         </button>

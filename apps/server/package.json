@@ -1,15 +1,12 @@
 {
   "name": "@bn/server",
   "private": true,
-  "version": "0.8.25",
+  "version": "0.8.26",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "files": [
-    "dist",
-    "drizzle"
-  ],
+  "files": ["dist", "drizzle"],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup",

@@ -124,6 +124,7 @@ import { GithubError } from './github'
 import { fetchLink } from './linkfetch'
 import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
+import { createStarter } from './onboarding'
 import { PagesError } from './pages'
 import { PasskeyError } from './passkeys'
 import type {
@@ -1485,6 +1486,20 @@ const tokensRouter = router({
   }),
 })
 
+const onboardingRouter = router({
+  /** A personal "Getting started" notebook and a first Journal line. */
+  starter: authedProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await createStarter(
+        { repo: ctx.repo, pages: ctx.pages, publishing: ctx.publishing, daily: ctx.daily },
+        ctx.user,
+      )
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+})
+
 const systemRouter = router({
   /** A newer release, if the feed knows one (cached, at most twice a day). */
   updates: authedProcedure.query(({ ctx }) => ctx.updates.check()),
@@ -2385,6 +2400,7 @@ export const appRouter = router({
   passkeys: passkeysRouter,
   tokens: tokensRouter,
   system: systemRouter,
+  onboarding: onboardingRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,

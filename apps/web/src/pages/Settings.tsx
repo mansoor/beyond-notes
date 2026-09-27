@@ -1103,6 +1103,7 @@ function IntegrationsTab() {
   return (
     <>
       <ApiTokensCard />
+      <ClipperCard />
       <AssistantsCard />
       <WebhooksCard />
     </>
@@ -1263,6 +1264,27 @@ function ApiTokensCard() {
           ))}
         </ul>
       )}
+    </Card>
+  )
+}
+
+/** Where to get the browser extension that saves pages here. */
+function ClipperCard() {
+  return (
+    <Card title="Browser clipper">
+      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
+        Save the page you’re reading, a selection or a link to your Inbox, or as a new page, from
+        Chrome, Edge, Brave or Firefox. Connect it with a read and write token from above.
+      </p>
+      <a
+        className="text-sm underline"
+        href="https://github.com/mansoor/beyond-notes/tree/main/extensions/clipper#readme"
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: 'var(--accent)' }}
+      >
+        Get the clipper and set it up ↗
+      </a>
     </Card>
   )
 }

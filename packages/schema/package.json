@@ -1,7 +1,7 @@
 {
   "name": "@bn/schema",
   "private": true,
-  "version": "0.8.25",
+  "version": "0.8.26",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./src/index.ts",

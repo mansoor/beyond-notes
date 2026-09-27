@@ -50,6 +50,10 @@ jobs:
           # would clobber. mode=max keeps the intermediate compile stages.
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
+          # attach a software bill of materials and full build provenance to
+          # each image; the merge step carries them into the multi-arch tag
+          sbom: true
+          provenance: mode=max
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -68,6 +72,12 @@ jobs:
   merge:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # keyless signing: GitHub vouches to Sigstore that this workflow, in this
+      # repo, at this tag, made the image
+      id-token: write
     steps:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -105,13 +115,29 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}
           docker buildx imagetools inspect ${{ env.IMAGE }}:${{ github.ref_name }}-ml
+      - uses: sigstore/cosign-installer@v3
+      # Sign each multi-arch index by digest (never by tag, which can move).
+      # Verify with the command in the README ("Verify an image").
+      - name: Sign images
+        run: |
+          for tag in "${{ github.ref_name }}" "${{ github.ref_name }}-ml"; do
+            digest=$(docker buildx imagetools inspect "${{ env.IMAGE }}:${tag}" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "signing ${{ env.IMAGE }}:${tag} (${digest})"
+            cosign sign --yes "${{ env.IMAGE }}@${digest}"
+          done
 
   release:
     needs: merge
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      # the browser clipper ships as a download on every release, ready to load
+      # unpacked or upload to the extension stores
+      - name: Package the browser clipper
+        run: cd extensions/clipper && zip -r "../../beyond-notes-clipper-${GITHUB_REF_NAME}.zip" . -x '*.md'
       - name: Draft GitHub release with changelog
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
+          files: beyond-notes-clipper-*.zip

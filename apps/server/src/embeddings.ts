@@ -65,10 +65,7 @@ export type Embedder = {
   embed(texts: string[]): Promise<number[][]>
 }
 
-type EmbedConfig = Pick<
-  Config,
-  'GRAPH_EMBEDDINGS' | 'GRAPH_EMBED_MODEL' | 'GRAPH_EMBED_CACHE_DIR'
->
+type EmbedConfig = Pick<Config, 'GRAPH_EMBEDDINGS' | 'GRAPH_EMBED_MODEL' | 'GRAPH_EMBED_CACHE_DIR'>
 
 /**
  * Build the embedder for this process. When the feature is off it's an inert

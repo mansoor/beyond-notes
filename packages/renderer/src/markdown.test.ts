@@ -227,7 +227,9 @@ describe('mergeDocuments', () => {
 
   it('makes block ids unique even when the two documents collide', () => {
     // both sides carry a block with id "x" — BlockNote would crash on the dupe
-    const side = JSON.stringify([{ id: 'x', type: 'paragraph', props: {}, content: [], children: [] }])
+    const side = JSON.stringify([
+      { id: 'x', type: 'paragraph', props: {}, content: [], children: [] },
+    ])
     const out = ids(mergeDocuments(side, 'T', side))
     expect(new Set(out).size).toBe(out.length)
   })

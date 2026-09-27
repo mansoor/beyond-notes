@@ -392,7 +392,9 @@ export function dedupeBlockIds(blocks: unknown[], seen: Set<string> = new Set())
     return {
       ...block,
       id,
-      children: Array.isArray(block.children) ? dedupeBlockIds(block.children, seen) : block.children,
+      children: Array.isArray(block.children)
+        ? dedupeBlockIds(block.children, seen)
+        : block.children,
     }
   })
 }

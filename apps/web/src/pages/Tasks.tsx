@@ -297,7 +297,6 @@ function ReminderModal(props: { reminder?: ReminderView; onClose: () => void }) 
           <label className="block flex-1">
             <span className="block text-sm font-medium mb-1">What</span>
             <input
-              // biome-ignore lint/a11y/noAutofocus: the modal opens focused on the title
               autoFocus
               className="h-11 w-full rounded-lg border px-3 text-base outline-none focus:ring-2"
               style={selectStyle}
@@ -464,7 +463,6 @@ export function TaskRowItem(props: { task: TaskView }) {
         style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
       >
         <input
-          // biome-ignore lint/a11y/noAutofocus: the edit pencil hands off focus here
           autoFocus
           className="w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}

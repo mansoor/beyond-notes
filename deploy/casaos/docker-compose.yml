@@ -1,0 +1,53 @@
+# Beyond Notes for CasaOS / ZimaOS: App Store → Custom Install → Import, then
+# paste this file. Set BASE_URL to the address you open it at.
+name: beyond-notes
+services:
+  app:
+    image: ghcr.io/mansoor/beyond-notes:latest
+    restart: unless-stopped
+    ports:
+      - target: 3800
+        published: "3800"
+        protocol: tcp
+    environment:
+      BASE_URL: http://casaos.local:3800
+      DATABASE_URL: file:./data/beyond.db
+    volumes:
+      - type: bind
+        source: /DATA/AppData/beyond-notes
+        target: /app/data
+    x-casaos:
+      envs:
+        - container: BASE_URL
+          description:
+            en_us: The address you open Beyond Notes at (links, sign-in and passkeys use it).
+        - container: DATABASE_URL
+          description:
+            en_us: SQLite in the data folder by default; a postgres:// URL for Postgres.
+      ports:
+        - container: "3800"
+          description:
+            en_us: Web UI
+      volumes:
+        - container: /app/data
+          description:
+            en_us: Database, uploads, backups and the secrets key. Back this up.
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: app
+  author: Beyond Notes
+  developer: Beyond Notes
+  category: Productivity
+  icon: https://raw.githubusercontent.com/mansoor/beyond-notes/main/apps/web/public/icon-512.png
+  title:
+    en_us: Beyond Notes
+  tagline:
+    en_us: Notes, journal, wiki and website in one place
+  description:
+    en_us: A self-hosted home for your notes, daily journal, tasks, wikis, databases and published websites. Import from Notion, Obsidian and Evernote; sign in with passkeys or single sign-on.
+  port_map: "3800"
+  scheme: http
+  index: /
