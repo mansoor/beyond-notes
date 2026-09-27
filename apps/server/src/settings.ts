@@ -14,6 +14,7 @@ import {
   storageSettings,
 } from '@bn/schema'
 import type { Config } from './config'
+import { proxyAuthSettings } from './proxyauth'
 import type { Repo } from './repo'
 import { decryptGroup, encryptGroup } from './secrets'
 
@@ -252,6 +253,12 @@ export function createSettingsService(
         oidc: { ...oidcRest, hasSecret: Boolean(oidc.clientSecret) },
         oidcSource: oidcEff?.source ?? 'off',
         oidcRedirectUri: `${config.BASE_URL.replace(/\/+$/, '')}/auth/oidc/callback`,
+        proxyAuth: (() => {
+          const p = proxyAuthSettings(config)
+          return p
+            ? { emailHeader: p.emailHeader, trusted: p.trusted, autoCreate: p.autoCreate }
+            : null
+        })(),
         backup: this.backup(),
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',

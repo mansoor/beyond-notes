@@ -9,6 +9,7 @@ import type { DailyService } from './daily'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
+import type { ProxyAuth } from './proxyauth'
 import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
 import type { Repo, UserRow } from './repo'
@@ -20,6 +21,23 @@ import type { TasksService } from './tasks'
 import type { WebhooksService } from './webhooks'
 
 export const SESSION_COOKIE = 'bn_session'
+
+/** The one set of options every session cookie is written with. */
+export function sessionCookieOptions(config: Config, expires: Date) {
+  return {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: config.cookieSecure,
+    expires,
+  }
+}
+
+/** Who a request is signed in as, and with which session token. */
+export type ResolveSession = (
+  req: CreateFastifyContextOptions['req'],
+  res: CreateFastifyContextOptions['res'],
+) => Promise<{ user: UserRow | null; token: string | null }>
 
 export type Context = {
   req: CreateFastifyContextOptions['req']
@@ -41,6 +59,7 @@ export type Context = {
   backup: BackupService
   restore: RestoreService
   sso: SsoService
+  proxy: ProxyAuth
   user: UserRow | null
   sessionToken: string | null
 }
@@ -63,12 +82,13 @@ export function makeCreateContext(deps: {
   backup: BackupService
   restore: RestoreService
   sso: SsoService
+  proxy: ProxyAuth
+  resolveSession: ResolveSession
 }) {
+  const { resolveSession, ...services } = deps
   return async function createContext({ req, res }: CreateFastifyContextOptions): Promise<Context> {
-    const sessionToken =
-      (req.cookies as Record<string, string | undefined>)?.[SESSION_COOKIE] ?? null
-    const user = sessionToken ? await deps.auth.userForToken(sessionToken) : null
-    return { req, res, ...deps, user, sessionToken }
+    const { user, token } = await resolveSession(req, res)
+    return { req, res, ...services, user, sessionToken: token }
   }
 }
 

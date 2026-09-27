@@ -77,6 +77,19 @@ const envSchema = z.object({
   OIDC_GROUPS_CLAIM: z.string().default('groups'),
   OIDC_PASSWORD_LOGIN: bool('true'),
   OIDC_AUTO_REDIRECT: bool('false'),
+  // Forward-auth (optional): a reverse proxy (Authelia, Authentik outpost,
+  // oauth2-proxy, Caddy/Traefik forward_auth) signs people in and passes their
+  // email in AUTH_PROXY_EMAIL_HEADER. Trusted ONLY from AUTH_PROXY_TRUSTED_IPS
+  // (IPs or CIDRs of the proxy); both must be set or it stays off.
+  AUTH_PROXY_EMAIL_HEADER: z.string().default(''),
+  AUTH_PROXY_NAME_HEADER: z.string().default(''),
+  AUTH_PROXY_GROUPS_HEADER: z.string().default(''),
+  AUTH_PROXY_TRUSTED_IPS: z.string().default(''),
+  AUTH_PROXY_AUTO_CREATE: bool('false'),
+  AUTH_PROXY_ADMIN_GROUP: z.string().default(''),
+  // where "Sign out" sends the browser (the proxy's logout), so the proxy
+  // doesn't just sign the person straight back in
+  AUTH_PROXY_LOGOUT_URL: z.string().default(''),
   NODE_ENV: z.string().default('development'),
 })
 

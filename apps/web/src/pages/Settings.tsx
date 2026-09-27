@@ -620,6 +620,7 @@ function SecurityTab() {
       <TwoFactorCard />
       <SessionsCard />
       {isAdmin ? <SsoSettingsCard /> : null}
+      {isAdmin ? <ProxyAuthCard /> : null}
       {/* form spam protection is a security control, not a notification channel —
           it only lived on that tab because reCAPTCHA needed a home */}
       {isAdmin ? <RecaptchaCard /> : null}
@@ -1626,6 +1627,29 @@ const SSO_EMPTY: OidcSettings = {
 }
 
 /** Instance-wide OpenID Connect settings (admin). */
+/** Forward-auth is env-only (trusting a header is a deployment decision), so
+ *  this just reports what the server is doing. */
+function ProxyAuthCard() {
+  const settings = trpc.settings.get.useQuery()
+  const p = settings.data?.proxyAuth
+  if (!p) return null
+  return (
+    <Card title="Sign-in through a reverse proxy — active (from env vars)">
+      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
+        Requests from {p.trusted.join(', ')} that carry the <code>{p.emailHeader}</code> header are
+        signed in as that email. The same header from any other address is ignored.
+      </p>
+      <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+        New people:{' '}
+        {p.autoCreate
+          ? 'an account is created on first visit'
+          : 'must already have an account here'}
+        . Change these with the <code>AUTH_PROXY_*</code> env vars.
+      </p>
+    </Card>
+  )
+}
+
 function SsoSettingsCard() {
   const utils = trpc.useUtils()
   const settings = trpc.settings.get.useQuery()

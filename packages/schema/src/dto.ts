@@ -797,6 +797,8 @@ export type ServerSettingsView = {
   oidcSource: 'db' | 'env' | 'off'
   /** the redirect URI to register at the identity provider */
   oidcRedirectUri: string
+  /** forward-auth as configured by env (read-only in the UI); null = off */
+  proxyAuth: { emailHeader: string; trusted: string[]; autoCreate: boolean } | null
   backup: BackupSettings
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'

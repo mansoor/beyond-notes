@@ -19,6 +19,7 @@ import { exportSpaceZip } from './export'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
+import { createProxyAuth, proxyAuthSettings } from './proxyauth'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
@@ -37,7 +38,7 @@ import { createSettingsService } from './settings'
 import { SsoError, createSsoService, safeNext } from './sso'
 import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
-import { SESSION_COOKIE, makeCreateContext } from './trpc'
+import { SESSION_COOKIE, makeCreateContext, sessionCookieOptions } from './trpc'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -77,6 +78,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
   const sso = createSsoService({ repo, auth, settings, baseUrl: config.BASE_URL })
+  const proxy = createProxyAuth({
+    settings: proxyAuthSettings(config),
+    repo,
+    auth,
+    log: (msg) => server.log.warn(msg),
+  })
   const embedder = createEmbedder(config)
   const pages = createPagesService(repo, {
     embedder,
@@ -131,10 +138,25 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   await server.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } })
 
-  const userFromRequest = async (req: { cookies?: Record<string, string | undefined> }) => {
-    const token = req.cookies?.bn_session
-    return token ? auth.userForToken(token) : null
+  // Who a request is signed in as: a trusted proxy header first (forward-auth),
+  // then the session cookie. `res` given = a fresh proxy session gets its cookie.
+  const resolveSession = async (
+    req: { cookies?: Record<string, string | undefined>; headers: any; socket?: any },
+    res?: { setCookie: (name: string, value: string, opts: any) => unknown },
+  ) => {
+    const token = req.cookies?.[SESSION_COOKIE] ?? null
+    const proxied = await proxy.resolve(req, token)
+    if (!proxied) return { user: token ? await auth.userForToken(token) : null, token }
+    if (res && proxied.fresh && proxied.token && proxied.expiresAt) {
+      res.setCookie(SESSION_COOKIE, proxied.token, sessionCookieOptions(config, proxied.expiresAt))
+    }
+    return { user: proxied.user, token: proxied.token }
   }
+  const userFromRequest = async (req: {
+    cookies?: Record<string, string | undefined>
+    headers: any
+    socket?: any
+  }) => (await resolveSession(req)).user
 
   server.post('/api/upload', async (req, reply) => {
     const user = await userFromRequest(req)
@@ -517,13 +539,11 @@ export async function buildServer(config: Config, appDb: AppDb) {
     try {
       const result = await sso.complete(currentUrl, cookieState)
       if (result.kind === 'link') return reply.redirect('/settings?sso=linked')
-      reply.setCookie(SESSION_COOKIE, result.session.token, {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: config.cookieSecure,
-        expires: result.session.expiresAt,
-      })
+      reply.setCookie(
+        SESSION_COOKIE,
+        result.session.token,
+        sessionCookieOptions(config, result.session.expiresAt),
+      )
       return reply.redirect(result.next)
     } catch (err) {
       return ssoFail(reply, err, signedIn ? '/settings' : '/')
@@ -555,6 +575,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
         backup,
         restore,
         sso,
+        proxy,
+        resolveSession,
       }),
     },
   })

@@ -131,7 +131,14 @@ import type {
 import { SsoError } from './sso'
 import { TablesError } from './tables'
 import { extractTagsFromText } from './tags'
-import { SESSION_COOKIE, adminProcedure, authedProcedure, publicProcedure, router } from './trpc'
+import {
+  SESSION_COOKIE,
+  adminProcedure,
+  authedProcedure,
+  publicProcedure,
+  router,
+  sessionCookieOptions,
+} from './trpc'
 import type { Context } from './trpc'
 import { ImportError, applyImportPlan, planFromGithub, planFromMarkdown } from './wikiimport'
 
@@ -193,13 +200,7 @@ function toInviteView(i: InviteRow, now: Date): InviteView {
 }
 
 function setSessionCookie(ctx: Context, token: string, expiresAt: Date) {
-  ctx.res.setCookie(SESSION_COOKIE, token, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: ctx.config.cookieSecure,
-    expires: expiresAt,
-  })
+  ctx.res.setCookie(SESSION_COOKIE, token, sessionCookieOptions(ctx.config, expiresAt))
 }
 
 function clearSessionCookie(ctx: Context) {
@@ -341,15 +342,23 @@ const authRouter = router({
     }
   }),
 
-  logout: publicProcedure.mutation(async ({ ctx }) => {
-    if (ctx.sessionToken) {
-      // signing out re-locks everything this session had opened
-      ctx.locks.revokeSession(ctx.sessionToken)
-      await ctx.auth.logout(ctx.sessionToken)
-    }
-    clearSessionCookie(ctx)
-    return { ok: true }
-  }),
+  /** With forward-auth the proxy would sign the person straight back in, so
+   *  the answer says where to go to end the proxy's session too. */
+  logout: publicProcedure.mutation(
+    async ({ ctx }): Promise<{ ok: true; redirect: string | null }> => {
+      if (ctx.sessionToken) {
+        // signing out re-locks everything this session had opened
+        ctx.locks.revokeSession(ctx.sessionToken)
+        await ctx.auth.logout(ctx.sessionToken)
+      }
+      if (ctx.user) ctx.proxy.forget(ctx.user.email)
+      clearSessionCookie(ctx)
+      return {
+        ok: true,
+        redirect: ctx.proxy.enabled && ctx.proxy.logoutUrl ? ctx.proxy.logoutUrl : null,
+      }
+    },
+  ),
 
   invitePreview: publicProcedure
     .input(z.object({ token: z.string() }))
