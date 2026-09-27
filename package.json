@@ -2,6 +2,7 @@
   "name": "beyond-notes",
   "private": true,
   "version": "0.8.25",
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20"
