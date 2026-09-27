@@ -92,6 +92,28 @@ knowledge graph.
 **On a homelab platform?** Ready-made templates for Unraid, CasaOS, Portainer,
 Dockge and Coolify are in [`deploy/`](deploy/README.md).
 
+<details>
+<summary><b>Verify an image</b> (signed releases, from v0.8.26)</summary>
+
+Every release image is signed without long-lived keys (Sigstore, using GitHub's
+identity for the release workflow), and carries a software bill of materials
+and build provenance. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```bash
+cosign verify ghcr.io/mansoor/beyond-notes:v0.8.26 \
+  --certificate-identity-regexp '^https://github.com/mansoor/beyond-notes/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+A passing check proves the image was built by this repository's release
+workflow from a version tag. To read the SBOM:
+
+```bash
+docker buildx imagetools inspect ghcr.io/mansoor/beyond-notes:v0.8.26 --format '{{ json .SBOM }}'
+```
+
+</details>
+
 **Requirements:** Docker (and Docker Compose v2 for options B and C). ~300 MB of
 disk for the image, plus whatever your content needs.
 

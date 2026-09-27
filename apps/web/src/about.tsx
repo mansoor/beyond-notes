@@ -43,6 +43,15 @@ const CREDITS: [string, string][] = [
 // this is what the About dialog's "What's new" shows, and it drifts otherwise.
 const RELEASE_NOTES: { v: string; notes: string[] }[] = [
   {
+    v: '0.8.26',
+    notes: [
+      'Browser clipper for Chrome, Edge, Brave and Firefox: save pages, selections and links',
+      'A “Getting started” notebook for new instances, and install templates for Unraid and CasaOS',
+      'Links in the editor now look like links',
+      'Release images are signed, with an SBOM and build provenance',
+    ],
+  },
+  {
     v: '0.8.25',
     notes: [
       'Sign in with single sign-on (OpenID Connect), through your reverse proxy, or with a passkey',

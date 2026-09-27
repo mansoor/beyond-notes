@@ -31,5 +31,8 @@ to older versions.
   locked notebooks or pages.
 - A strict Content-Security-Policy on the app, and an audit log of sign-ins,
   security changes and admin actions.
+- Release images are signed with Sigstore (keyless, tied to this repository's
+  release workflow) and ship with an SBOM and build provenance. The README's
+  "Verify an image" shows how to check them.
 - Backups contain decrypted secrets and every note: store them like the data
   they are.
