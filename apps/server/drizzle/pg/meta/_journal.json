@@ -253,6 +253,13 @@
       "when": 1790468498571,
       "tag": "0035_volatile_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790470450876,
+      "tag": "0036_tense_excalibur",
+      "breakpoints": true
     }
   ]
 }

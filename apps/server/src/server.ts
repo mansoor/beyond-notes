@@ -19,6 +19,7 @@ import { exportSpaceZip } from './export'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
 import { createPagesService } from './pages'
+import { createPasskeyService } from './passkeys'
 import { createProxyAuth, proxyAuthSettings } from './proxyauth'
 import { createPublicServer } from './public'
 import { createPublishingService } from './publishing'
@@ -78,6 +79,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
   const sso = createSsoService({ repo, auth, settings, baseUrl: config.BASE_URL })
+  const passkeys = createPasskeyService({
+    repo,
+    auth,
+    baseUrl: config.BASE_URL,
+    passwordLoginEnabled: () => settings.passwordLoginEnabled(),
+  })
   const proxy = createProxyAuth({
     settings: proxyAuthSettings(config),
     repo,
@@ -576,6 +583,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         restore,
         sso,
         proxy,
+        passkeys,
         resolveSession,
       }),
     },

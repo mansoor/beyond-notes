@@ -50,6 +50,20 @@ export type IdentityRow = {
   lastLoginAt: Date | null
 }
 
+export type PasskeyRow = {
+  id: string
+  userId: string
+  name: string
+  /** base64url COSE public key */
+  publicKey: string
+  counter: number
+  /** JSON array of authenticator transports */
+  transports: string
+  backedUp: boolean
+  createdAt: Date
+  lastUsedAt: Date | null
+}
+
 export type ResetTokenRow = {
   id: string
   userId: string
@@ -370,6 +384,43 @@ export function createRepo(appDb: AppDb) {
       await db
         .delete(t.userIdentities)
         .where(and(eq(t.userIdentities.id, id), eq(t.userIdentities.userId, userId)))
+    },
+
+    async listAllIdentities(): Promise<IdentityRow[]> {
+      return db.select().from(t.userIdentities)
+    },
+
+    async listPasskeysForUser(userId: string): Promise<PasskeyRow[]> {
+      return db.select().from(t.passkeys).where(eq(t.passkeys.userId, userId))
+    },
+
+    async listAllPasskeys(): Promise<PasskeyRow[]> {
+      return db.select().from(t.passkeys)
+    },
+
+    async getPasskey(id: string): Promise<PasskeyRow | null> {
+      const rows = await db.select().from(t.passkeys).where(eq(t.passkeys.id, id)).limit(1)
+      return rows[0] ?? null
+    },
+
+    async insertPasskey(row: PasskeyRow): Promise<void> {
+      await db.insert(t.passkeys).values(row)
+    },
+
+    async recordPasskeyUse(id: string, counter: number, when: Date): Promise<void> {
+      await db.update(t.passkeys).set({ counter, lastUsedAt: when }).where(eq(t.passkeys.id, id))
+    },
+
+    /** Scoped to the owner, like deleteIdentity. */
+    async renamePasskey(id: string, userId: string, name: string): Promise<void> {
+      await db
+        .update(t.passkeys)
+        .set({ name })
+        .where(and(eq(t.passkeys.id, id), eq(t.passkeys.userId, userId)))
+    },
+
+    async deletePasskey(id: string, userId: string): Promise<void> {
+      await db.delete(t.passkeys).where(and(eq(t.passkeys.id, id), eq(t.passkeys.userId, userId)))
     },
 
     async insertResetToken(row: ResetTokenRow): Promise<void> {

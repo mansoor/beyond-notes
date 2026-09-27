@@ -41,6 +41,16 @@ export type SessionView = {
   current: boolean
 }
 
+/** A passkey on the signed-in account. */
+export type PasskeyView = {
+  id: string
+  name: string
+  /** synced through a password manager / keychain, vs tied to one device */
+  backedUp: boolean
+  createdAt: string
+  lastUsedAt: string | null
+}
+
 /** A single sign-on identity linked to the signed-in account. */
 export type IdentityView = {
   id: string
@@ -137,6 +147,8 @@ export type AuthStatus = {
   // the embeddings layer is available on this deployment (the -ml image): gates
   // the graph's "similar meaning" edge option in Settings
   graphEmbeddings: boolean
+  // passkeys work at this address (https at BASE_URL's domain, or localhost)
+  passkeys: boolean
   // single sign-on as the login page needs it; null when SSO is off
   sso: {
     label: string

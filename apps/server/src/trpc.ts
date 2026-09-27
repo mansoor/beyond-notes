@@ -9,6 +9,7 @@ import type { DailyService } from './daily'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
 import type { PagesService } from './pages'
+import type { PasskeyService } from './passkeys'
 import type { ProxyAuth } from './proxyauth'
 import type { PublishingService } from './publishing'
 import type { RemindersService } from './reminders'
@@ -60,6 +61,7 @@ export type Context = {
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth
+  passkeys: PasskeyService
   user: UserRow | null
   sessionToken: string | null
 }
@@ -83,6 +85,7 @@ export function makeCreateContext(deps: {
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth
+  passkeys: PasskeyService
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

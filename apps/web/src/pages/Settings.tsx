@@ -1,6 +1,7 @@
 import type { GraphEdgeKind, OidcSettings } from '@bn/schema'
 import { useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { passkeyErrorMessage, passkeysSupported, startRegistration } from '../passkey'
 import {
   type HideableKind,
   JOURNAL_NAV_TOKEN,
@@ -617,6 +618,7 @@ function SecurityTab() {
     <>
       <ChangePasswordCard />
       <LinkedSignInsCard />
+      <PasskeysCard />
       <TwoFactorCard />
       <SessionsCard />
       {isAdmin ? <SsoSettingsCard /> : null}
@@ -636,6 +638,163 @@ function takeSsoResult(): { ok: boolean; message: string } | null {
   if (error === null && !linked) return null
   window.history.replaceState(null, '', window.location.pathname)
   return error !== null ? { ok: false, message: error } : { ok: true, message: 'Linked.' }
+}
+
+/** A sensible default name for a new passkey: the device it's being made on. */
+function guessDeviceName(): string {
+  const ua = navigator.userAgent
+  if (/iPhone/.test(ua)) return 'iPhone'
+  if (/iPad/.test(ua)) return 'iPad'
+  if (/Android/.test(ua)) return 'Android phone'
+  if (/Mac OS X/.test(ua)) return 'Mac'
+  if (/Windows/.test(ua)) return 'Windows Hello'
+  return 'Passkey'
+}
+
+/** Passkeys on this account: add one from this device, rename, or remove. */
+function PasskeysCard() {
+  const utils = trpc.useUtils()
+  const status = trpc.auth.status.useQuery()
+  const list = trpc.passkeys.list.useQuery()
+  const options = trpc.passkeys.registrationOptions.useMutation()
+  const register = trpc.passkeys.register.useMutation()
+  const rename = trpc.passkeys.rename.useMutation()
+  const remove = trpc.passkeys.remove.useMutation()
+  const [name, setName] = useState(guessDeviceName)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [added, setAdded] = useState(false)
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
+  const available = Boolean(status.data?.passkeys) && passkeysSupported()
+  const rows = list.data ?? []
+
+  const add = async () => {
+    setBusy(true)
+    setError(null)
+    setAdded(false)
+    try {
+      const optionsJSON = await options.mutateAsync()
+      const response = await startRegistration({ optionsJSON })
+      await register.mutateAsync({
+        response: response as unknown as Record<string, unknown>,
+        name,
+      })
+      await utils.passkeys.list.invalidate()
+      setAdded(true)
+    } catch (err) {
+      setError(passkeyErrorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="Passkeys">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key instead of a
+        password. A passkey also counts as your second factor.
+      </p>
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-2 mb-3">
+          {rows.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              {editing?.id === p.id ? (
+                <form
+                  className="flex flex-1 gap-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!editing.name.trim()) return
+                    await rename.mutateAsync({ id: p.id, name: editing.name })
+                    await utils.passkeys.list.invalidate()
+                    setEditing(null)
+                  }}
+                >
+                  <input
+                    className="flex-1 rounded border px-2 py-1 text-sm"
+                    style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
+                    value={editing.name}
+                    maxLength={60}
+                    autoFocus
+                    onChange={(e) => setEditing({ id: p.id, name: e.target.value })}
+                  />
+                  <button type="submit" className="text-xs underline">
+                    Save
+                  </button>
+                </form>
+              ) : (
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{p.name}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                    {p.backedUp ? 'Synced' : 'This device only'} · added{' '}
+                    {new Date(p.createdAt).toLocaleDateString()}
+                    {p.lastUsedAt
+                      ? ` · last used ${new Date(p.lastUsedAt).toLocaleDateString()}`
+                      : ''}
+                  </div>
+                </div>
+              )}
+              {editing?.id !== p.id && (
+                <div className="flex gap-3 shrink-0 text-xs">
+                  <button
+                    type="button"
+                    className="underline"
+                    style={{ color: 'var(--text-2)' }}
+                    onClick={() => setEditing({ id: p.id, name: p.name })}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="underline"
+                    style={{ color: 'var(--danger)' }}
+                    disabled={remove.isPending}
+                    onClick={async () => {
+                      await remove.mutateAsync({ id: p.id })
+                      await utils.passkeys.list.invalidate()
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {available ? (
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+          <div className="flex-1">
+            <Field label="Name for this passkey" value={name} onChange={setName} />
+          </div>
+          <button
+            type="button"
+            onClick={add}
+            disabled={busy}
+            className="mb-4 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'var(--accent)' }}
+          >
+            {busy ? 'Waiting for your device…' : 'Add a passkey'}
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          {status.data?.passkeys
+            ? 'This browser does not support passkeys.'
+            : 'Passkeys need the app to be opened over https at its own domain (the BASE_URL it is set up with).'}
+        </p>
+      )}
+      <ErrorNote message={error} />
+      {added && (
+        <p className="text-sm" style={{ color: 'var(--live)' }}>
+          Passkey added. You can sign in with it from the sign-in page.
+        </p>
+      )}
+    </Card>
+  )
 }
 
 /** Single sign-on identities on this account: link one, or unlink one. */

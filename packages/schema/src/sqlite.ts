@@ -89,6 +89,25 @@ export const userIdentities = sqliteTable(
   (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
 )
 
+// A WebAuthn passkey. id is the credential id (base64url) the authenticator
+// hands back on sign-in; public_key is the COSE key it registered, also
+// base64url. The counter guards against cloned authenticators.
+export const passkeys = sqliteTable('passkeys', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  // JSON array of transports ("internal", "hybrid", "usb", ...)
+  transports: text('transports').notNull().default('[]'),
+  // synced (a password manager / iCloud keychain) vs bound to one device
+  backedUp: integer('backed_up', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+})
+
 export const passwordResetTokens = sqliteTable('password_reset_tokens', {
   id: text('id').primaryKey(),
   userId: text('user_id')

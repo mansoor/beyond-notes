@@ -1,6 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { CenterCard, ErrorNote, Field, PageIcon, SubmitButton, useSubmit } from '../components'
+import { passkeyErrorMessage, passkeysSupported, startAuthentication } from '../passkey'
 import { trpc } from '../trpc'
 import { Shell } from './Shell'
 
@@ -208,6 +209,7 @@ function LoginPage() {
           )}
           <ErrorNote message={error ?? ssoError} />
           <SubmitButton label="Sign in" busy={busy} />
+          {status.data?.passkeys && passkeysSupported() && <PasskeySignIn />}
           {status.data?.mailConfigured && (
             <p className="text-sm mt-4 text-center">
               <button
@@ -234,6 +236,50 @@ function LoginPage() {
         </p>
       )}
     </CenterCard>
+  )
+}
+
+/** Usernameless: the browser offers whichever passkey it holds for this site. */
+function PasskeySignIn() {
+  const utils = trpc.useUtils()
+  const options = trpc.auth.passkeyOptions.useMutation()
+  const login = trpc.auth.passkeyLogin.useMutation()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const signIn = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const optionsJSON = await options.mutateAsync()
+      const response = await startAuthentication({ optionsJSON })
+      await login.mutateAsync({ response: response as unknown as Record<string, unknown> })
+      await utils.auth.status.invalidate()
+    } catch (err) {
+      setError(passkeyErrorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={signIn}
+        disabled={busy}
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-sm font-medium disabled:opacity-60"
+        style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+      >
+        <PageIcon icon="passkey" className="text-[18px]" />
+        {busy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
+      </button>
+      {error && (
+        <p className="text-sm mt-2" style={{ color: 'var(--danger)' }}>
+          {error}
+        </p>
+      )}
+    </>
   )
 }
 

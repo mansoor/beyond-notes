@@ -18,6 +18,7 @@ import type {
   MemoView,
   PageMeta,
   PageTagView,
+  PasskeyView,
   PinView,
   PreviewView,
   PublishingView,
@@ -118,6 +119,7 @@ import { fetchLink } from './linkfetch'
 import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
 import { PagesError } from './pages'
+import { PasskeyError } from './passkeys'
 import type {
   DbDatabaseRow,
   DbRowRow,
@@ -239,6 +241,15 @@ function rethrow(err: unknown): never {
   if (err instanceof LockedError) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'LOCKED' })
   }
+  if (err instanceof PasskeyError) {
+    const code =
+      err.code === 'NOT_FOUND' || err.code === 'FAILED'
+        ? 'UNAUTHORIZED'
+        : err.code === 'DISABLED'
+          ? 'FORBIDDEN'
+          : 'BAD_REQUEST'
+    throw new TRPCError({ code, message: err.message })
+  }
   // an import failure is nearly always the source's fault (bad URL, private
   // repo, empty document) — the message is the useful part, so keep it
   if (err instanceof ImportError || err instanceof GithubError) {
@@ -309,6 +320,7 @@ const authRouter = router({
       me: ctx.user ? toUserView(ctx.user) : null,
       mailConfigured: ctx.mailer.configured,
       graphEmbeddings: ctx.config.GRAPH_EMBEDDINGS,
+      passkeys: ctx.passkeys.available,
       sso: (() => {
         const sso = ctx.settings.effectiveOidc()
         return sso
@@ -359,6 +371,28 @@ const authRouter = router({
       }
     },
   ),
+
+  /** Step 1 of passkey sign-in: a challenge for whichever passkey the browser offers. */
+  passkeyOptions: publicProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.passkeys.loginOptions()
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  /** Step 2: the browser's signed answer. A passkey is its own second factor. */
+  passkeyLogin: publicProcedure
+    .input(z.object({ response: z.record(z.unknown()) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const { user, session } = await ctx.passkeys.login(input.response as never)
+        setSessionCookie(ctx, session.token, session.expiresAt)
+        return toUserView(user)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
 
   invitePreview: publicProcedure
     .input(z.object({ token: z.string() }))
@@ -1371,6 +1405,51 @@ const templatesRouter = router({
   }),
 })
 
+const passkeysRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<PasskeyView[]> => {
+    const rows = await ctx.repo.listPasskeysForUser(ctx.user.id)
+    return rows
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        backedUp: p.backedUp,
+        createdAt: p.createdAt.toISOString(),
+        lastUsedAt: p.lastUsedAt?.toISOString() ?? null,
+      }))
+  }),
+
+  registrationOptions: authedProcedure.mutation(async ({ ctx }) => {
+    try {
+      return await ctx.passkeys.registrationOptions(ctx.user)
+    } catch (err) {
+      rethrow(err)
+    }
+  }),
+
+  register: authedProcedure
+    .input(z.object({ response: z.record(z.unknown()), name: z.string().trim().max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await ctx.passkeys.register(ctx.user, input.response as never, input.name)
+      } catch (err) {
+        rethrow(err)
+      }
+    }),
+
+  rename: authedProcedure
+    .input(z.object({ id: z.string(), name: z.string().trim().min(1).max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.repo.renamePasskey(input.id, ctx.user.id, input.name)
+      return { ok: true }
+    }),
+
+  remove: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    await ctx.repo.deletePasskey(input.id, ctx.user.id)
+    return { ok: true }
+  }),
+})
+
 const settingsRouter = router({
   get: adminProcedure.query(async ({ ctx }) => ctx.settings.view()),
 
@@ -2172,6 +2251,7 @@ export const appRouter = router({
   memos: memosRouter,
   tasks: tasksRouter,
   settings: settingsRouter,
+  passkeys: passkeysRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,

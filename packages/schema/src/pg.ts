@@ -102,6 +102,25 @@ export const userIdentities = pgTable(
   (t) => ({ issuerSubject: uniqueIndex('user_identities_issuer_subject').on(t.issuer, t.subject) }),
 )
 
+// A WebAuthn passkey. id is the credential id (base64url) the authenticator
+// hands back on sign-in; public_key is the COSE key it registered, also
+// base64url. The counter guards against cloned authenticators.
+export const passkeys = pgTable('passkeys', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  // JSON array of transports ("internal", "hybrid", "usb", ...)
+  transports: text('transports').notNull().default('[]'),
+  // synced (a password manager / iCloud keychain) vs bound to one device
+  backedUp: boolean('backed_up').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+})
+
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   // sha256 hex of the raw emailed token; the raw token is never stored
   id: text('id').primaryKey(),

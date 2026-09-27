@@ -45,6 +45,8 @@ const DATE_COLUMNS: Record<string, string[]> = {
   dbDatabases: ['createdAt', 'updatedAt'],
   dbTables: ['createdAt', 'updatedAt', 'archivedAt'],
   dbRows: ['createdAt', 'updatedAt'],
+  userIdentities: ['createdAt', 'lastLoginAt'],
+  passkeys: ['createdAt', 'lastUsedAt'],
 }
 
 export type Dump = {
@@ -91,6 +93,10 @@ async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
     dbDatabases: await repo.listAllDbDatabases(),
     dbTables: await repo.listAllDbTables(),
     dbRows: await repo.listAllDbRows(),
+    // sign-in methods travel with their accounts so a restored instance
+    // still knows who signs in with SSO or a passkey
+    userIdentities: await repo.listAllIdentities(),
+    passkeys: await repo.listAllPasskeys(),
   } as unknown as Dump['tables']
 
   return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
@@ -189,6 +195,8 @@ export async function importInstance(
   const rows = (name: string) => (t[name] ?? []).map((r) => revive(name, r))
 
   for (const row of rows('users')) await repo.insertUser(row as never)
+  for (const row of rows('userIdentities')) await repo.insertIdentity(row as never)
+  for (const row of rows('passkeys')) await repo.insertPasskey(row as never)
   for (const row of rows('invites')) await repo.insertInvite(row as never)
   for (const row of rows('spaces')) await repo.insertSpace(row as never)
   for (const row of topoSortPages(rows('pages'))) await repo.insertPage(row as never)
