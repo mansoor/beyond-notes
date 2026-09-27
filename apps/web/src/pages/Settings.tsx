@@ -1100,6 +1100,211 @@ function NotificationsTab(props: { isAdmin: boolean }) {
 }
 
 function IntegrationsTab() {
+  return (
+    <>
+      <ApiTokensCard />
+      <AssistantsCard />
+      <WebhooksCard />
+    </>
+  )
+}
+
+/** Copy to the clipboard, with a text fallback the viewer can select. */
+function CopyField(props: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border px-3 py-2"
+      style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+    >
+      <code className="text-xs flex-1 break-all select-all">{props.value}</code>
+      <button
+        type="button"
+        className="text-xs underline shrink-0"
+        style={{ color: 'var(--text-2)' }}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(props.value)
+            setCopied(true)
+          } catch {
+            setCopied(false)
+          }
+        }}
+      >
+        {copied ? 'Copied' : (props.label ?? 'Copy')}
+      </button>
+    </div>
+  )
+}
+
+const EXPIRY_CHOICES: { value: string; label: string; days: number | null }[] = [
+  { value: '30', label: '30 days', days: 30 },
+  { value: '90', label: '90 days', days: 90 },
+  { value: '365', label: '1 year', days: 365 },
+  { value: 'never', label: 'Never', days: null },
+]
+
+/** Personal access tokens for the REST API and MCP clients. */
+function ApiTokensCard() {
+  const utils = trpc.useUtils()
+  const list = trpc.tokens.list.useQuery()
+  const create = trpc.tokens.create.useMutation()
+  const revoke = trpc.tokens.revoke.useMutation({
+    onSuccess: () => utils.tokens.list.invalidate(),
+  })
+  const [name, setName] = useState('')
+  const [scope, setScope] = useState<'read' | 'write'>('read')
+  const [expiry, setExpiry] = useState('90')
+  const [fresh, setFresh] = useState<string | null>(null)
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    const days = EXPIRY_CHOICES.find((c) => c.value === expiry)?.days ?? null
+    const res = await create.mutateAsync({ name, scope, expiresInDays: days })
+    setFresh(res.token)
+    setName('')
+    await utils.tokens.list.invalidate()
+  })
+  const rows = list.data ?? []
+  const selectStyle = { background: 'var(--bg)', borderColor: 'var(--border)' }
+
+  return (
+    <Card title="API tokens">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Let scripts and AI assistants read and write your notes as you. A read-only token can search
+        and read; a read and write token can also create pages and add to your journal, tasks and
+        inbox. Tokens never open locked notebooks or pages, and can’t change settings.
+      </p>
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 mb-3">
+        <input
+          className="w-full rounded-lg border px-3 py-1.5 text-sm"
+          style={selectStyle}
+          placeholder="What it’s for, e.g. Claude Desktop"
+          value={name}
+          maxLength={60}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-2">
+          <select
+            className="rounded-lg border px-3 py-1.5 text-sm"
+            style={selectStyle}
+            value={scope}
+            onChange={(e) => setScope(e.target.value as 'read' | 'write')}
+            aria-label="Access"
+          >
+            <option value="read">Read only</option>
+            <option value="write">Read and write</option>
+          </select>
+          <select
+            className="rounded-lg border px-3 py-1.5 text-sm"
+            style={selectStyle}
+            value={expiry}
+            onChange={(e) => setExpiry(e.target.value)}
+            aria-label="Expires"
+          >
+            {EXPIRY_CHOICES.map((c) => (
+              <option key={c.value} value={c.value}>
+                Expires: {c.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'var(--accent)' }}
+          >
+            Create token
+          </button>
+        </div>
+      </form>
+      <ErrorNote message={error} />
+      {fresh && (
+        <div className="mb-4">
+          <p className="text-sm mb-2" style={{ color: 'var(--live)' }}>
+            Copy this token now. It won’t be shown again.
+          </p>
+          <CopyField value={fresh} />
+        </div>
+      )}
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {rows.map((t) => (
+            <li
+              key={t.id}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">
+                  {t.name}{' '}
+                  <span className="text-xs font-normal" style={{ color: 'var(--text-3)' }}>
+                    {t.scope === 'write' ? 'read and write' : 'read only'}
+                  </span>
+                </div>
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  <code>{t.prefix}…</code>
+                  {t.lastUsedAt
+                    ? ` · last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
+                    : ' · never used'}
+                  {t.expiresAt
+                    ? ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`
+                    : ' · never expires'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs underline shrink-0"
+                style={{ color: 'var(--danger)' }}
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate({ id: t.id })}
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+/** How to point an AI assistant (MCP) or a script (REST) at this instance. */
+function AssistantsCard() {
+  const origin = window.location.origin
+  const mcpUrl = `${origin}/api/mcp`
+  return (
+    <Card title="Connect an AI assistant">
+      <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+        Beyond Notes is an MCP server, so Claude and other assistants can search your notes, read
+        pages and your journal, and (with a read and write token) save pages, tasks and inbox notes.
+        Use this address with an API token from above:
+      </p>
+      <CopyField value={mcpUrl} />
+      <p className="text-sm mt-4 mb-2" style={{ color: 'var(--text-2)' }}>
+        Claude Code:
+      </p>
+      <CopyField
+        value={`claude mcp add --transport http beyond-notes ${mcpUrl} --header "Authorization: Bearer <your token>"`}
+      />
+      <p className="text-sm mt-4" style={{ color: 'var(--text-2)' }}>
+        Other apps send the token as <code>Authorization: Bearer …</code>. For scripts there is also
+        a REST API; its description is at{' '}
+        <a
+          className="underline"
+          href="/api/v1/openapi.json"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: 'var(--accent)' }}
+        >
+          /api/v1/openapi.json
+        </a>
+        .
+      </p>
+    </Card>
+  )
+}
+
+/** Incoming webhooks: a URL per target that drops text in. */
+function WebhooksCard() {
   const utils = trpc.useUtils()
   const hooks = trpc.webhooks.list.useQuery()
   const create = trpc.webhooks.create.useMutation({
@@ -2277,6 +2482,8 @@ const AUDIT_LABEL: Record<string, string> = {
   'auth.passkey_added': 'Added a passkey',
   'auth.passkey_removed': 'Removed a passkey',
   'auth.session_revoked': 'Signed out a device',
+  'auth.token_created': 'Made an API token',
+  'auth.token_revoked': 'Revoked an API token',
   'user.invited': 'Invited someone',
   'user.invite_revoked': 'Revoked an invite',
   'settings.saved': 'Changed settings',

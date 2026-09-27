@@ -64,6 +64,8 @@ export const auditAction = z.enum([
   'auth.passkey_added',
   'auth.passkey_removed',
   'auth.session_revoked',
+  'auth.token_created',
+  'auth.token_revoked',
   'user.invited',
   'user.invite_revoked',
   'settings.saved',
@@ -95,6 +97,29 @@ export type AuditEventView = {
   target: string | null
   ip: string | null
   detail: Record<string, unknown> | null
+}
+
+// ---- personal access tokens ----
+
+export const tokenScope = z.enum(['read', 'write'])
+export type TokenScopeKind = z.infer<typeof tokenScope>
+
+export const createApiTokenInput = z.object({
+  name: z.string().trim().min(1).max(60),
+  scope: tokenScope.default('read'),
+  // null = never expires
+  expiresInDays: z.number().int().min(1).max(3650).nullable().default(90),
+})
+
+export type ApiTokenView = {
+  id: string
+  name: string
+  /** the first characters, so tokens can be told apart */
+  prefix: string
+  scope: TokenScopeKind
+  createdAt: string
+  expiresAt: string | null
+  lastUsedAt: string | null
 }
 
 /** A passkey on the signed-in account. */

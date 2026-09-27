@@ -129,6 +129,27 @@ export const auditEvents = sqliteTable(
   (t) => ({ at: index('audit_events_at').on(t.at) }),
 )
 
+// Personal access tokens for the REST API and the MCP server. Only the
+// sha256 of the token is stored; `prefix` (the first characters) is kept so
+// people can tell their tokens apart in Settings.
+export const apiTokens = sqliteTable('api_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  // read = look only; write = also create and change content
+  scope: text('scope', { enum: ['read', 'write'] })
+    .notNull()
+    .default('read'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+})
+
 export const passwordResetTokens = sqliteTable('password_reset_tokens', {
   id: text('id').primaryKey(),
   userId: text('user_id')

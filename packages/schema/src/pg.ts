@@ -142,6 +142,27 @@ export const auditEvents = pgTable(
   (t) => ({ at: index('audit_events_at').on(t.at) }),
 )
 
+// Personal access tokens for the REST API and the MCP server. Only the
+// sha256 of the token is stored; `prefix` (the first characters) is kept so
+// people can tell their tokens apart in Settings.
+export const apiTokens = pgTable('api_tokens', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  // read = look only; write = also create and change content
+  scope: text('scope', { enum: ['read', 'write'] })
+    .notNull()
+    .default('read'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+})
+
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   // sha256 hex of the raw emailed token; the raw token is never stored
   id: text('id').primaryKey(),

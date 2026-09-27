@@ -3,6 +3,7 @@ import { plainText as plainTextOf } from '@bn/renderer'
 import type {
   ArchivedPageView,
   ArchivedTableView,
+  ApiTokenView,
   AuditEventView,
   AuthStatus,
   BacklinkView,
@@ -41,6 +42,7 @@ import type {
 import {
   type AuditAction,
   acceptInviteInput,
+  createApiTokenInput,
   appTheme,
   archiveTableInput,
   auditListInput,
@@ -1450,6 +1452,39 @@ const templatesRouter = router({
   }),
 })
 
+/** Tokens are managed from a signed-in browser only: a token can't mint more. */
+const tokensRouter = router({
+  list: authedProcedure.query(async ({ ctx }): Promise<ApiTokenView[]> => {
+    const rows = await ctx.repo.listApiTokensForUser(ctx.user.id)
+    const now = Date.now()
+    return rows
+      .filter((t) => !t.revokedAt && !(t.expiresAt && t.expiresAt.getTime() <= now))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        prefix: t.prefix,
+        scope: t.scope,
+        createdAt: t.createdAt.toISOString(),
+        expiresAt: t.expiresAt?.toISOString() ?? null,
+        lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
+      }))
+  }),
+
+  /** The raw token is in this answer and nowhere else, ever. */
+  create: authedProcedure.input(createApiTokenInput).mutation(async ({ ctx, input }) => {
+    const { token, row } = await ctx.tokens.create(ctx.user, input)
+    await note(ctx, 'auth.token_created', { target: row.name, detail: { scope: row.scope } })
+    return { token, id: row.id }
+  }),
+
+  revoke: authedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    await ctx.repo.revokeApiToken(input.id, ctx.user.id, new Date())
+    await note(ctx, 'auth.token_revoked')
+    return { ok: true }
+  }),
+})
+
 const passkeysRouter = router({
   list: authedProcedure.query(async ({ ctx }): Promise<PasskeyView[]> => {
     const rows = await ctx.repo.listPasskeysForUser(ctx.user.id)
@@ -2341,6 +2376,7 @@ export const appRouter = router({
   tasks: tasksRouter,
   settings: settingsRouter,
   passkeys: passkeysRouter,
+  tokens: tokensRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,

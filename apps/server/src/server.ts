@@ -6,6 +6,8 @@ import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
+import pkg from '../package.json'
+import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuditService } from './audit'
 import { createAuthService } from './auth'
@@ -23,9 +25,11 @@ import { createPagesService } from './pages'
 import { createPasskeyService } from './passkeys'
 import { createProxyAuth, proxyAuthSettings } from './proxyauth'
 import { createPublicServer } from './public'
+import { createPublicApi } from './publicapi'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
 import { createRepo } from './repo'
+import { registerPublicApi } from './restapi'
 import { createRestoreService } from './restore'
 import { appRouter } from './routers'
 import {
@@ -86,6 +90,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     repo,
     onError: (err) => server.log.error(err, 'audit write failed'),
   })
+  const tokens = createApiTokenService({ repo })
   const auth = createAuthService(repo, {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
@@ -614,9 +619,17 @@ export async function buildServer(config: Config, appDb: AppDb) {
         proxy,
         passkeys,
         audit,
+        tokens,
         resolveSession,
       }),
     },
+  })
+
+  // personal-access-token surface: REST (/api/v1) and MCP (/api/mcp)
+  registerPublicApi(server, {
+    api: createPublicApi({ repo, pages, daily, tasks, locks }),
+    tokens,
+    version: (pkg as { version: string }).version,
   })
 
   server.get('/healthz', async () => ({ ok: true, dialect: appDb.dialect }))

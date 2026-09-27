@@ -76,6 +76,19 @@ export type AuditEventRow = {
   detail: string | null
 }
 
+export type ApiTokenRow = {
+  id: string
+  userId: string
+  name: string
+  tokenHash: string
+  prefix: string
+  scope: 'read' | 'write'
+  createdAt: Date
+  expiresAt: Date | null
+  lastUsedAt: Date | null
+  revokedAt: Date | null
+}
+
 export type ResetTokenRow = {
   id: string
   userId: string
@@ -463,6 +476,35 @@ export function createRepo(appDb: AppDb) {
         .where(lt(t.auditEvents.at, cutoff))
         .returning({ id: t.auditEvents.id })
       return rows.length
+    },
+
+    async insertApiToken(row: ApiTokenRow): Promise<void> {
+      await db.insert(t.apiTokens).values(row)
+    },
+
+    async getApiTokenByHash(tokenHash: string): Promise<ApiTokenRow | null> {
+      const rows = await db
+        .select()
+        .from(t.apiTokens)
+        .where(eq(t.apiTokens.tokenHash, tokenHash))
+        .limit(1)
+      return rows[0] ?? null
+    },
+
+    async listApiTokensForUser(userId: string): Promise<ApiTokenRow[]> {
+      return db.select().from(t.apiTokens).where(eq(t.apiTokens.userId, userId))
+    },
+
+    async touchApiToken(id: string, when: Date): Promise<void> {
+      await db.update(t.apiTokens).set({ lastUsedAt: when }).where(eq(t.apiTokens.id, id))
+    },
+
+    /** Scoped to the owner, like the other self-service deletes. */
+    async revokeApiToken(id: string, userId: string, when: Date): Promise<void> {
+      await db
+        .update(t.apiTokens)
+        .set({ revokedAt: when })
+        .where(and(eq(t.apiTokens.id, id), eq(t.apiTokens.userId, userId)))
     },
 
     async insertResetToken(row: ResetTokenRow): Promise<void> {
