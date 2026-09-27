@@ -96,6 +96,20 @@ const envSchema = z.object({
   TRUST_PROXY: z.string().default(''),
   // days of audit log to keep (sign-ins, security and admin changes); 0 = forever
   AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(365),
+  // Content-Security-Policy and friends on the app. Only turn off to debug a
+  // reverse proxy that already sets its own.
+  SECURITY_HEADERS: bool('true'),
+  // where security reports go, served in /.well-known/security.txt
+  SECURITY_CONTACT: z
+    .string()
+    .default('https://github.com/mansoor/beyond-notes/security/advisories/new'),
+  // Prometheus metrics at /metrics, only with this token (Bearer). Empty = off.
+  METRICS_TOKEN: z.string().default(''),
+  // look for a newer release (at most twice a day) and say so in About
+  UPDATE_CHECK: bool('true'),
+  UPDATE_CHECK_URL: z
+    .string()
+    .default('https://api.github.com/repos/mansoor/beyond-notes/releases/latest'),
   NODE_ENV: z.string().default('development'),
 })
 

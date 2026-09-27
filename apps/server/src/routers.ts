@@ -1485,6 +1485,11 @@ const tokensRouter = router({
   }),
 })
 
+const systemRouter = router({
+  /** A newer release, if the feed knows one (cached, at most twice a day). */
+  updates: authedProcedure.query(({ ctx }) => ctx.updates.check()),
+})
+
 const passkeysRouter = router({
   list: authedProcedure.query(async ({ ctx }): Promise<PasskeyView[]> => {
     const rows = await ctx.repo.listPasskeysForUser(ctx.user.id)
@@ -2379,6 +2384,7 @@ export const appRouter = router({
   settings: settingsRouter,
   passkeys: passkeysRouter,
   tokens: tokensRouter,
+  system: systemRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,
   pins: pinsRouter,

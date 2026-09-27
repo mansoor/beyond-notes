@@ -332,6 +332,25 @@ export function createRepo(appDb: AppDb) {
   const t = appDb.tables as any
 
   return {
+    /** Totals for the metrics endpoint. Counted in the database, not in memory. */
+    async instanceCounts(): Promise<{
+      users: number
+      spaces: number
+      pages: number
+      attachments: number
+      attachmentBytes: number
+    }> {
+      const one = async (q: Promise<Array<{ n: unknown }>>) => Number((await q)[0]?.n ?? 0)
+      const [users, spaces, pages, attachments, attachmentBytes] = await Promise.all([
+        one(db.select({ n: sqlOp`count(*)` }).from(t.users)),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.spaces)),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.pages).where(isNull(t.pages.trashedAt))),
+        one(db.select({ n: sqlOp`count(*)` }).from(t.attachments)),
+        one(db.select({ n: sqlOp`coalesce(sum(${t.attachments.size}), 0)` }).from(t.attachments)),
+      ])
+      return { users, spaces, pages, attachments, attachmentBytes }
+    },
+
     async countUsers(): Promise<number> {
       const rows = await db.select({ id: t.users.id }).from(t.users)
       return rows.length

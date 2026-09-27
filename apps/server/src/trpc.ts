@@ -22,6 +22,7 @@ import type { SettingsService } from './settings'
 import type { SsoService } from './sso'
 import type { TablesService } from './tables'
 import type { TasksService } from './tasks'
+import type { UpdateChecker } from './updates'
 import type { WebhooksService } from './webhooks'
 
 export const SESSION_COOKIE = 'bn_session'
@@ -68,6 +69,7 @@ export type Context = {
   audit: AuditService
   tokens: ApiTokenService
   importStash: ImportStash
+  updates: UpdateChecker
   user: UserRow | null
   sessionToken: string | null
 }
@@ -95,6 +97,7 @@ export function makeCreateContext(deps: {
   audit: AuditService
   tokens: ApiTokenService
   importStash: ImportStash
+  updates: UpdateChecker
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

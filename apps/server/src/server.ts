@@ -19,6 +19,7 @@ import { createDailyService } from './daily'
 import type { AppDb } from './db'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
+import { registerHardening } from './hardening'
 import { ImportFormatError, type ImportKind, parseImport } from './importers'
 import { createImportStash } from './importstash'
 import { createLockService } from './locks'
@@ -47,6 +48,7 @@ import { SsoError, createSsoService, safeNext } from './sso'
 import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { SESSION_COOKIE, makeCreateContext, sessionCookieOptions } from './trpc'
+import { createUpdateChecker } from './updates'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -97,6 +99,13 @@ export async function buildServer(config: Config, appDb: AppDb) {
   })
   const tokens = createApiTokenService({ repo })
   const importStash = createImportStash()
+  const version = (pkg as { version: string }).version
+  const updates = createUpdateChecker({
+    current: version,
+    feedUrl: config.UPDATE_CHECK_URL,
+    enabled: config.UPDATE_CHECK && config.NODE_ENV !== 'test',
+  })
+  registerHardening(server, { config, repo, version })
   const auth = createAuthService(repo, {
     passwordLoginEnabled: () => settings.passwordLoginEnabled(),
   })
@@ -666,6 +675,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         audit,
         tokens,
         importStash,
+        updates,
         resolveSession,
       }),
     },
@@ -675,7 +685,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
   registerPublicApi(server, {
     api: createPublicApi({ repo, pages, daily, tasks, locks }),
     tokens,
-    version: (pkg as { version: string }).version,
+    version,
   })
 
   server.get('/healthz', async () => ({ ok: true, dialect: appDb.dialect }))

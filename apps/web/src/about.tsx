@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import pkg from '../package.json'
 import { BrandMark, Modal } from './components'
 import { isIOS, useInstallPrompt } from './pwa'
+import { trpc } from './trpc'
 
 const version = (pkg as { version: string }).version
 
@@ -130,6 +131,9 @@ const RELEASE_NOTES: { v: string; notes: string[] }[] = [
 
 export function AboutModal(props: { onClose: () => void }) {
   const { canInstall, installed, install } = useInstallPrompt()
+  // the server asks the releases feed (cached, at most twice a day)
+  const updates = trpc.system.updates.useQuery(undefined, { staleTime: 60 * 60 * 1000 })
+  const update = updates.data?.available ? updates.data : null
 
   return (
     <Modal title="About Beyond Notes" onClose={props.onClose} width="lg">
@@ -142,17 +146,27 @@ export function AboutModal(props: { onClose: () => void }) {
             style={{ color: 'var(--text-3)' }}
           >
             <span>Version {version}</span>
-            {/* the repo is private, so we can't check for a newer version from
-                here — the link jumps to Releases where the latest is marked */}
-            <a
-              href={`${LINKS.github}/releases/latest`}
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-              style={{ color: 'var(--accent)' }}
-            >
-              Check for updates ↗
-            </a>
+            {update ? (
+              <a
+                href={update.url ?? `${LINKS.github}/releases/latest`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full px-2 py-0.5 font-medium"
+                style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+              >
+                Update available: v{update.latest} ↗
+              </a>
+            ) : (
+              <a
+                href={`${LINKS.github}/releases/latest`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+                style={{ color: 'var(--accent)' }}
+              >
+                Check for updates ↗
+              </a>
+            )}
           </div>
         </div>
       </div>
