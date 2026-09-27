@@ -1,18 +1,17 @@
+# Beyond Notes with Postgres: for several users or if you already back up
+# Postgres. Set POSTGRES_PASSWORD (and BASE_URL) in the stack's environment or
+# a .env file next to this one before the first start.
 services:
   app:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: beyond-notes:dev
+    image: ghcr.io/mansoor/beyond-notes:latest
     restart: unless-stopped
     ports:
       - "3800:3800"
     environment:
-      DATABASE_URL: postgres://beyond:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/beyond_notes
       BASE_URL: ${BASE_URL:-http://127.0.0.1:3800}
+      DATABASE_URL: postgres://beyond:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/beyond_notes
     volumes:
-      # uploads, backups and the secrets key live here even with Postgres;
-      # without a volume they vanish whenever the container is recreated
+      # uploads, backups and the secrets key live here even with Postgres
       - beyond-data:/app/data
     depends_on:
       postgres:
@@ -23,7 +22,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: beyond
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: beyond_notes
     volumes:
       - pgdata:/var/lib/postgresql/data

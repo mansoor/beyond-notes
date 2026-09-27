@@ -1,0 +1,20 @@
+# Beyond Notes with SQLite: one container, one volume.
+# Good for a person or a family. Paste into Portainer / Dockge / Coolify as a
+# stack, or save as docker-compose.yml and run `docker compose up -d`.
+services:
+  app:
+    image: ghcr.io/mansoor/beyond-notes:latest
+    restart: unless-stopped
+    ports:
+      - "3800:3800"
+    environment:
+      # the address people type to reach it (used for links, SSO, passkeys)
+      BASE_URL: ${BASE_URL:-http://127.0.0.1:3800}
+      # file: paths are relative to /app inside the container
+      DATABASE_URL: file:./data/beyond.db
+    volumes:
+      # database, uploads, backups and the secrets key all live here
+      - beyond-data:/app/data
+
+volumes:
+  beyond-data:

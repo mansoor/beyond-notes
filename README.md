@@ -81,17 +81,16 @@ linux/arm64 — so Intel/AMD servers *and* Apple Silicon / Raspberry Pi 4+ / ARM
 VPSes) to GitHub Container Registry:
 
 ```
-ghcr.io/mansoor/beyond-notes:v0.8.1   # pinned version (recommended)
-ghcr.io/mansoor/beyond-notes:latest   # moving tag
+ghcr.io/mansoor/beyond-notes:v0.8.25   # pinned version (recommended)
+ghcr.io/mansoor/beyond-notes:latest    # moving tag
 ```
 
-> **The repository and the image are currently private.** Log in before pulling:
-> ```bash
-> echo <YOUR_GITHUB_PAT> | docker login ghcr.io -u <your-github-username> --password-stdin
-> ```
-> The token needs the `read:packages` scope. To drop the login step entirely,
-> open the package on GitHub → *Package settings* → *Change visibility* →
-> **Public**; anonymous `docker pull` then works anywhere.
+The images are public, so no login is needed. A `-ml` variant of each tag
+(`:latest-ml`) adds the optional on-device "similar meaning" layer for the
+knowledge graph.
+
+**On a homelab platform?** Ready-made templates for Unraid, CasaOS, Portainer,
+Dockge and Coolify are in [`deploy/`](deploy/README.md).
 
 **Requirements:** Docker (and Docker Compose v2 for options B and C). ~300 MB of
 disk for the image, plus whatever your content needs.
@@ -729,8 +728,10 @@ Settings → Notifications; remember that a filled-in in-app SMTP group override
 the environment variables.
 
 **`docker pull` says "denied" or "not found".**
-The package is private — `docker login ghcr.io` with a PAT carrying
-`read:packages`, or make the package public (see [Quick start](#quick-start)).
+Check the tag exists on the
+[package page](https://github.com/mansoor/beyond-notes/pkgs/container/beyond-notes).
+The images are public, so no login is needed. A stale `docker login` for
+ghcr.io can get in the way; `docker logout ghcr.io` and try again.
 
 **Uploads fail after switching storage drivers.**
 Switching the driver doesn't move existing files. Run

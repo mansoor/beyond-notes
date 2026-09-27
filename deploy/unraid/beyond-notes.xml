@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>beyond-notes</Name>
+  <Repository>ghcr.io/mansoor/beyond-notes:latest</Repository>
+  <Registry>https://github.com/mansoor/beyond-notes/pkgs/container/beyond-notes</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mansoor/beyond-notes/issues</Support>
+  <Project>https://github.com/mansoor/beyond-notes</Project>
+  <Overview>Beyond Notes is a self-hosted home for your notes, daily journal, tasks, wikis, databases and published websites. One container, SQLite by default (Postgres optional). Sign in with a password, a passkey, or single sign-on (OIDC or your reverse proxy). Import from Notion, Obsidian and Evernote.</Overview>
+  <Category>Productivity: Tools: Status:Stable</Category>
+  <WebUI>http://[IP]:[PORT:3800]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/mansoor/beyond-notes/main/deploy/unraid/beyond-notes.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/mansoor/beyond-notes/main/apps/web/public/icon-512.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web UI port" Target="3800" Default="3800" Mode="tcp" Description="Port for the web interface." Type="Port" Display="always" Required="true" Mask="false">3800</Config>
+  <Config Name="Data" Target="/app/data" Default="/mnt/user/appdata/beyond-notes" Mode="rw" Description="Database, uploads, backups and the secrets key. Back this folder up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/beyond-notes</Config>
+  <Config Name="Base URL" Target="BASE_URL" Default="http://tower:3800" Mode="" Description="The address you use to open Beyond Notes (e.g. https://notes.example.com). Links, single sign-on and passkeys depend on it." Type="Variable" Display="always" Required="true" Mask="false">http://tower:3800</Config>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="file:./data/beyond.db" Mode="" Description="SQLite inside the Data folder by default. For Postgres: postgres://user:password@host:5432/beyond_notes" Type="Variable" Display="advanced" Required="false" Mask="false">file:./data/beyond.db</Config>
+</Container>
