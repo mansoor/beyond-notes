@@ -762,3 +762,14 @@ DTOs, dual-dialect), `packages/renderer` (pure ProseMirror-JSON → HTML).
 - [`ROADMAP.md`](ROADMAP.md) — what shipped and what's next
 - [`DESIGN-NOTES.md`](DESIGN-NOTES.md) — the product model and the settled
   product decisions behind it
+
+## License
+
+Beyond Notes is free software under the
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can
+self-host it, change it and share it. If you run a modified version as a
+service for other people, you must offer them its source under the same
+license.
+
+Contributions are welcome under the same license. Security reports:
+see [`SECURITY.md`](SECURITY.md).
