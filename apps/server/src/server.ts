@@ -214,7 +214,9 @@ export async function buildServer(
       error: (err, msg) => server.log.error(err, msg),
     },
   })
-  if (editionModule.name !== 'community') server.log.info(`edition: ${edition.info().label}`)
+  if (editionModule.name !== 'community') {
+    server.log.info(`edition module ${editionModule.name}: running as ${edition.info().label}`)
+  }
 
   const userFromRequest = async (req: {
     cookies?: Record<string, string | undefined>
