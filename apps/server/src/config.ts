@@ -110,6 +110,8 @@ const envSchema = z.object({
   UPDATE_CHECK_URL: z
     .string()
     .default('https://api.github.com/repos/mansoor/beyond-notes/releases/latest'),
+  // an add-on edition to load at boot (package name or file path); empty = Community
+  EDITION_MODULE: z.string().default(''),
   NODE_ENV: z.string().default('development'),
 })
 

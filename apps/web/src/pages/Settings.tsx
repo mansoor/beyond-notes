@@ -1,6 +1,7 @@
 import type { AuditEventView, AuditFamily, GraphEdgeKind, OidcSettings } from '@bn/schema'
 import { useEffect, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { webEdition } from '../edition'
 import { passkeyErrorMessage, passkeysSupported, startRegistration } from '../passkey'
 import {
   type HideableKind,
@@ -47,11 +48,21 @@ export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
   const isAdmin = status.data?.me?.role === 'admin'
   // the SSO link flow returns to /settings?sso=linked (or ?sso_error=…)
-  const [tab, setTab] = useState<Tab>(() => {
+  // a core tab name, or the id of a tab an add-on edition contributes
+  const [tab, setTab] = useState<string>(() => {
     const q = new URLSearchParams(window.location.search)
     return q.has('sso') || q.has('sso_error') ? 'Security' : 'Account'
   })
-  const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
+  const extraTabs = (webEdition.settingsTabs ?? []).filter((t) => !t.adminOnly || isAdmin)
+  const tabs = [
+    ...TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin).map((t) => ({
+      id: t as string,
+      label: t as string,
+      icon: TAB_ICONS[t],
+    })),
+    ...extraTabs,
+  ]
+  const ExtraTab = extraTabs.find((t) => t.id === tab)?.Component
 
   return (
     <div className="max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
@@ -64,29 +75,29 @@ export function SettingsPage() {
           className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
           value={tab}
-          onChange={(e) => setTab(e.target.value as Tab)}
+          onChange={(e) => setTab(e.target.value)}
         >
           {tabs.map((t) => (
-            <option key={t} value={t}>
-              {TAB_ICONS[t]} {t}
+            <option key={t.id} value={t.id}>
+              {t.icon} {t.label}
             </option>
           ))}
         </select>
         <nav className="hidden md:flex md:flex-col md:gap-0.5 md:w-44 md:shrink-0 md:sticky md:top-8">
           {tabs.map((t) => (
             <button
-              key={t}
+              key={t.id}
               type="button"
-              onClick={() => setTab(t)}
+              onClick={() => setTab(t.id)}
               className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
               style={{
-                color: tab === t ? 'var(--accent)' : 'var(--text-2)',
-                background: tab === t ? 'var(--accent-soft)' : undefined,
-                fontWeight: tab === t ? 600 : 400,
+                color: tab === t.id ? 'var(--accent)' : 'var(--text-2)',
+                background: tab === t.id ? 'var(--accent-soft)' : undefined,
+                fontWeight: tab === t.id ? 600 : 400,
               }}
             >
-              <span className="text-xs">{TAB_ICONS[t]}</span>
-              {t}
+              <span className="text-xs">{t.icon}</span>
+              {t.label}
             </button>
           ))}
         </nav>
@@ -101,6 +112,7 @@ export function SettingsPage() {
           {tab === 'Storage' && isAdmin && <StorageTab />}
           {tab === 'Backup' && isAdmin && <BackupTab />}
           {tab === 'Activity' && isAdmin && <ActivityTab />}
+          {ExtraTab ? <ExtraTab /> : null}
         </div>
       </div>
     </div>

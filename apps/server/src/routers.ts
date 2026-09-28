@@ -1503,6 +1503,11 @@ const onboardingRouter = router({
 const systemRouter = router({
   /** A newer release, if the feed knows one (cached, at most twice a day). */
   updates: authedProcedure.query(({ ctx }) => ctx.updates.check()),
+  /** Which edition is running. The admin status line is for admins only. */
+  edition: authedProcedure.query(({ ctx }) => {
+    const info = ctx.edition.info()
+    return ctx.user.role === 'admin' ? info : { ...info, status: null, attention: false }
+  }),
 })
 
 const passkeysRouter = router({

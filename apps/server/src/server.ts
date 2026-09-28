@@ -17,6 +17,7 @@ import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './ca
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { type ServerEdition, editionHandle, loadEdition } from './edition'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
 import { registerHardening } from './hardening'
@@ -69,7 +70,11 @@ function formResultPage(ok: boolean, message: string): string {
   )}</p><p><a href="javascript:history.back()">← Go back</a></p></body></html>`
 }
 
-export async function buildServer(config: Config, appDb: AppDb) {
+export async function buildServer(
+  config: Config,
+  appDb: AppDb,
+  opts: { edition?: ServerEdition } = {},
+) {
   const proxyList = (config.TRUST_PROXY || config.AUTH_PROXY_TRUSTED_IPS)
     .split(',')
     .map((s) => s.trim())
@@ -191,6 +196,26 @@ export async function buildServer(config: Config, appDb: AppDb) {
     }
     return { user: proxied.user, token: proxied.token }
   }
+  // an add-on edition (EDITION_MODULE) registers its routes before the SPA
+  // fallback below; without one this is Community and nothing is added
+  const editionModule = opts.edition ?? (await loadEdition(config.EDITION_MODULE))
+  const edition = editionHandle(editionModule)
+  await editionModule.register(server, {
+    config,
+    repo,
+    auth,
+    settings,
+    audit,
+    version,
+    resolveSession: (req) => resolveSession(req),
+    log: {
+      info: (msg) => server.log.info(msg),
+      warn: (msg) => server.log.warn(msg),
+      error: (err, msg) => server.log.error(err, msg),
+    },
+  })
+  if (editionModule.name !== 'community') server.log.info(`edition: ${edition.info().label}`)
+
   const userFromRequest = async (req: {
     cookies?: Record<string, string | undefined>
     headers: any
@@ -676,6 +701,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
         tokens,
         importStash,
         updates,
+        edition,
         resolveSession,
       }),
     },

@@ -152,6 +152,8 @@ export function AboutModal(props: { onClose: () => void }) {
   // the server asks the releases feed (cached, at most twice a day)
   const updates = trpc.system.updates.useQuery(undefined, { staleTime: 60 * 60 * 1000 })
   const update = updates.data?.available ? updates.data : null
+  const edition = trpc.system.edition.useQuery(undefined, { staleTime: 5 * 60 * 1000 })
+  const editionLabel = edition.data && edition.data.name !== 'community' ? edition.data.label : null
 
   return (
     <Modal title="About Beyond Notes" onClose={props.onClose} width="lg">
@@ -163,7 +165,10 @@ export function AboutModal(props: { onClose: () => void }) {
             className="text-xs flex flex-wrap items-center gap-x-2"
             style={{ color: 'var(--text-3)' }}
           >
-            <span>Version {version}</span>
+            <span>
+              Version {version}
+              {editionLabel ? ` · ${editionLabel}` : ''}
+            </span>
             {update ? (
               <a
                 href={update.url ?? `${LINKS.github}/releases/latest`}

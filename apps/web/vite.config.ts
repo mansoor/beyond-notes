@@ -1,9 +1,22 @@
+import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+// An add-on edition swaps in its own web module here (see src/edition/types.ts).
+// The public build always uses the community module, which adds nothing.
+const editionWeb = process.env.BN_EDITION_WEB
+  ? resolve(process.env.BN_EDITION_WEB)
+  : resolve(__dirname, 'src/edition/community.ts')
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { '@bn/edition-web': editionWeb },
+    // an edition module lives outside this package; make sure it shares the
+    // app's single copy of React and react-query rather than bundling its own
+    dedupe: ['react', 'react-dom', '@tanstack/react-query'],
+  },
   server: {
     port: 5173,
     proxy: {
