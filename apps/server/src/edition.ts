@@ -13,11 +13,11 @@
  */
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { AuditService } from './audit'
 import type { AuthService } from './auth'
 import type { Config } from './config'
-import type { Repo, UserRow } from './repo'
+import type { Repo, SpaceRow, UserRow } from './repo'
 import type { SettingsService } from './settings'
 
 /** What the web app shows about the running edition (About, Settings). */
@@ -55,6 +55,29 @@ export type EditionDeps = {
   }
 }
 
+/**
+ * Who may read a published space. The core serves every site openly unless an
+ * edition's gate says a space is protected; then every page, feed, sitemap and
+ * search of it, and its files, go through the gate first.
+ */
+export type SiteGate = {
+  /** this space is protected: its files leave the public set, its pages go out private + noindex */
+  isGated(spaceId: string): boolean
+  /**
+   * Before anything of a gated space is served. Return true when the gate
+   * answered the request itself (a sign-in page, a redirect); false lets the
+   * page through.
+   */
+  check(
+    space: SpaceRow,
+    req: FastifyRequest,
+    reply: FastifyReply,
+    ctx: { basePath: string; path: string },
+  ): Promise<boolean>
+  /** may this request read the files (images, attachments) of this gated space? */
+  allowsFiles(spaceId: string, req: FastifyRequest): boolean | Promise<boolean>
+}
+
 /** The shape an edition module's default export must have. */
 export type ServerEdition = {
   name: string
@@ -62,6 +85,8 @@ export type ServerEdition = {
   register(app: FastifyInstance, deps: EditionDeps): Promise<void> | void
   /** current status; cheap, called per request by the web app */
   info(): EditionInfo
+  /** optional: protect published sites */
+  siteGate?: SiteGate
 }
 
 export const COMMUNITY: ServerEdition = {

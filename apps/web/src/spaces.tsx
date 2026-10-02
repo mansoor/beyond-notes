@@ -29,6 +29,7 @@ import {
   useMenuAnchor,
   useSubmit,
 } from './components'
+import { webEdition } from './edition'
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
 import {
@@ -1074,15 +1075,18 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const isWiki = s.category === 'wiki'
   // wikis get social links too (product docs usually have a wider web presence),
   // but not the logo/tagline/header-layout that only the website chrome renders
-  const tabs = [
+  // tabs an add-on edition contributes (edition/types.ts) follow the core's
+  const editionTabs = webEdition.publishingTabs ?? []
+  const tabs: Array<{ id: string; label: string; icon: string }> = [
     { id: 'general', label: 'General', icon: '🌐' },
     { id: 'appearance', label: 'Appearance', icon: '🎨' },
     ...(isSite || isWiki
       ? [{ id: 'branding', label: isSite ? 'Branding' : 'Social', icon: isSite ? '✦' : '🔗' }]
       : []),
     { id: 'analytics', label: 'Analytics', icon: '📈' },
-  ] as const
-  const [tab, setTab] = useState<(typeof tabs)[number]['id']>('general')
+    ...editionTabs.map((t) => ({ id: `ee:${t.id}`, label: t.label, icon: t.icon })),
+  ]
+  const [tab, setTab] = useState<string>('general')
 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty} width="lg">
@@ -1094,7 +1098,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
             style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
             value={tab}
-            onChange={(e) => setTab(e.target.value as (typeof tabs)[number]['id'])}
+            onChange={(e) => setTab(e.target.value)}
           >
             {tabs.map((t) => (
               <option key={t.id} value={t.id}>
@@ -1164,6 +1168,20 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
               </>
             )}
             {tab === 'analytics' && <AnalyticsTab space={s} />}
+            {editionTabs.map((t) =>
+              tab === `ee:${t.id}` ? (
+                <t.Component
+                  key={t.id}
+                  space={{
+                    id: s.id,
+                    name: s.name,
+                    category: s.category,
+                    publicEnabled: s.publicEnabled,
+                    publicHost: s.publicHost,
+                  }}
+                />
+              ) : null,
+            )}
             {tab === 'appearance' && (
               <>
                 <label className="block mb-4">

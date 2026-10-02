@@ -18,7 +18,7 @@ import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './ca
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
-import { type ServerEdition, editionHandle, loadEdition } from './edition'
+import { type ServerEdition, type SiteGate, editionHandle, loadEdition } from './edition'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
 import { registerHardening } from './hardening'
@@ -148,10 +148,13 @@ export async function buildServer(
   const daily = createDailyService(repo)
   const tasks = createTasksService(repo)
   const publishing = createPublishingService(repo)
+  // set once the edition module has loaded (below); until then, no gate
+  let siteGate: SiteGate | null = null
   const publicSrv = createPublicServer(repo, publishing, {
     captchaSecret: secretsKey,
     recaptchaSiteKey: () => settings.effectiveRecaptcha()?.siteKey ?? null,
     now: () => Date.now(),
+    siteGate: () => siteGate,
   })
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
@@ -212,6 +215,7 @@ export async function buildServer(
   // fallback below; without one this is Community and nothing is added
   const editionModule = opts.edition ?? (await loadEdition(config.EDITION_MODULE))
   const edition = editionHandle(editionModule)
+  siteGate = editionModule.siteGate ?? null
   await editionModule.register(server, {
     config,
     repo,
@@ -268,7 +272,17 @@ export async function buildServer(
     const attachment = await repo.getAttachment(id)
     if (!attachment) return reply.code(404).send({ error: 'not found' })
     const user = await userFromRequest(req)
-    if (!user && !(await publishing.publicAttachmentIds()).has(id)) {
+    // published in at least one site this visitor may read: open sites always,
+    // protected ones only once their gate lets the request through
+    const publishedIn = await (async () => {
+      const spaces = (await publishing.publicAttachmentSpaces()).get(id)
+      if (!spaces) return false
+      for (const spaceId of spaces) {
+        if (!siteGate?.isGated(spaceId) || (await siteGate.allowsFiles(spaceId, req))) return true
+      }
+      return false
+    })()
+    if (!user && !publishedIn) {
       // a valid draft-preview token authorizes exactly that page's attachments
       const previewToken = typeof req.query?.preview === 'string' ? req.query.preview : ''
       const previewPage = previewToken ? await publishing.resolvePreviewToken(previewToken) : null

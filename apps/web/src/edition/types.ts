@@ -18,7 +18,28 @@ export type EditionSettingsTab = {
   Component: ComponentType
 }
 
+/** The space a publishing tab is about. */
+export type PublishingTabSpace = {
+  id: string
+  name: string
+  category: string
+  publicEnabled: boolean
+  publicHost: string | null
+}
+
+/**
+ * A tab in a space's Publishing dialog. It renders inside that dialog's form:
+ * no <form> of its own, buttons must be type="button", and it saves itself.
+ */
+export type EditionPublishingTab = {
+  id: string
+  label: string
+  icon: string
+  Component: ComponentType<{ space: PublishingTabSpace }>
+}
+
 export type WebEdition = {
   name: string
   settingsTabs?: EditionSettingsTab[]
+  publishingTabs?: EditionPublishingTab[]
 }

@@ -20,7 +20,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
 
   // public-attachment cache: recomputed after any publish-state mutation
   // (and on a slow TTL as a safety net), so going live is instant
-  let attachmentCache: { ids: Set<string>; at: number } | null = null
+  let attachmentCache: { spaces: Map<string, Set<string>>; at: number } | null = null
   const invalidateAttachmentCache = () => {
     attachmentCache = null
   }
@@ -206,25 +206,41 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
 
     /** Attachment ids visible to the public: union over live versions of enabled spaces. */
     async publicAttachmentIds(): Promise<Set<string>> {
+      return new Set((await this.publicAttachmentSpaces()).keys())
+    },
+
+    /**
+     * The same, with the enabled spaces each attachment is published in, so a
+     * protected site's files can be held back while an open site's stay public.
+     */
+    async publicAttachmentSpaces(): Promise<Map<string, Set<string>>> {
       if (attachmentCache && Date.now() - attachmentCache.at < 60_000) {
-        return attachmentCache.ids
+        return attachmentCache.spaces
       }
-      const ids = new Set<string>()
+      const map = new Map<string, Set<string>>()
+      const add = (id: string, spaceId: string) => {
+        let set = map.get(id)
+        if (!set) {
+          set = new Set()
+          map.set(id, set)
+        }
+        set.add(spaceId)
+      }
       const spaces = await repo.listSpaces()
       for (const space of spaces.filter((s) => s.publicEnabled)) {
         // the site logo is public chrome, servable while the site is enabled
-        if (space.publicLogoAttachmentId) ids.add(space.publicLogoAttachmentId)
+        if (space.publicLogoAttachmentId) add(space.publicLogoAttachmentId, space.id)
         const entries = await this.liveTree(space.id)
         for (const e of entries) {
           try {
-            for (const id of JSON.parse(e.version.attachmentIds) as string[]) ids.add(id)
+            for (const id of JSON.parse(e.version.attachmentIds) as string[]) add(id, space.id)
           } catch {
             // pre-attachment versions have no ids
           }
         }
       }
-      attachmentCache = { ids, at: Date.now() }
-      return ids
+      attachmentCache = { spaces: map, at: Date.now() }
+      return map
     },
 
     /** First-publish dates for a set of pages (post dates, RSS pubDates). */

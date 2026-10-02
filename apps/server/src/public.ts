@@ -46,6 +46,7 @@ import {
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
 import type { FastifyReply } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
+import type { SiteGate } from './edition'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
 
@@ -54,6 +55,8 @@ export type PublicSecurity = {
   captchaSecret: Buffer
   recaptchaSiteKey: () => string | null
   now: () => number
+  /** an edition's gate for protected sites (edition.ts); none = every site is open */
+  siteGate?: () => SiteGate | null
 }
 
 /**
@@ -140,6 +143,23 @@ export function createPublicServer(
         }),
       )
       return true
+    }
+
+    // A protected site (an edition's gate) answers nothing, not even a feed or
+    // a search, until the gate lets this visitor through. robots.txt is the one
+    // exception, and it says to stay out.
+    const gate = security.siteGate?.() ?? null
+    if (gate?.isGated(space.id)) {
+      if (rawPath === '/robots.txt') {
+        reply.type('text/plain; charset=utf-8')
+        reply.send('User-agent: *\nDisallow: /\n')
+        return true
+      }
+      if (await gate.check(space, reply.request, reply, { basePath, path: rawPath || '/' })) {
+        return true
+      }
+      reply.header('cache-control', 'private, no-store')
+      reply.header('x-robots-tag', 'noindex, nofollow')
     }
 
     // Analytics is added once, here, rather than threaded through a dozen
