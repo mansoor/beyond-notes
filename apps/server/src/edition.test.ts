@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CREDIT_HTML } from '@bn/renderer'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createAuthService, newUserRow } from './auth'
 import { loadConfig } from './config'
@@ -12,6 +13,8 @@ import {
   loadEdition,
   toImportSpecifier,
 } from './edition'
+import { createPagesService } from './pages'
+import { createPublishingService } from './publishing'
 import { createRepo } from './repo'
 import { buildServer } from './server'
 
@@ -91,6 +94,50 @@ describe('editions', () => {
     expect(toImportSpecifier(file)).toMatch(/^file:\/\//)
     expect(toImportSpecifier('@acme/edition')).toBe('@acme/edition')
     expect((await loadEdition(file)).name).toBe('file')
+  })
+
+  // a published one-page site, fetched the way a visitor would
+  async function siteHtml(features: string[]): Promise<string> {
+    const edition: ServerEdition = {
+      name: 'test',
+      register() {},
+      info: () => ({ name: 'test', label: 'Test', features, status: null, attention: false }),
+    }
+    const { owner } = await boot(edition)
+    if (!server) throw new Error('boot first')
+    const repo = createRepo(appDb)
+    const pages = createPagesService(repo)
+    const publishing = createPublishingService(repo)
+    const site = await pages.createSpace(owner, { name: 'Site', category: 'site', personal: false })
+    const home = await pages.createPage(owner, { spaceId: site.id, parentId: null, title: 'Home' })
+    await publishing.updateSpacePublishing(owner, {
+      spaceId: site.id,
+      enabled: true,
+      host: 'site.example.test',
+      title: 'My site',
+      footer: '(c) Me',
+      theme: 'ink',
+    })
+    await publishing.publish(owner, home.id)
+    const res = await server.inject({
+      method: 'GET',
+      url: '/',
+      headers: { host: 'site.example.test' },
+    })
+    expect(res.statusCode).toBe(200)
+    return res.body
+  }
+
+  it('keeps the footer credit on published pages by default', async () => {
+    const html = await siteHtml([])
+    expect(html).toContain(CREDIT_HTML)
+    expect(html).toContain('(c) Me')
+  })
+
+  it('drops only the footer credit with sites.no-footer', async () => {
+    const html = await siteHtml(['sites.no-footer'])
+    expect(html).not.toContain('Built with')
+    expect(html).toContain('(c) Me')
   })
 
   it('lets an edition add routes that know who is signed in, and report features', async () => {

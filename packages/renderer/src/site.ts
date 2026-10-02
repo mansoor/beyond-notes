@@ -2,8 +2,8 @@ import {
   APPEARANCE_CSS,
   APPEARANCE_JS,
   APPEARANCE_RESTORE_JS,
-  BEYOND_LINK,
   CHROME_JS,
+  CREDIT_HTML,
   GALLERY_CSS,
   type SocialLink,
   appearanceToggleHtml,
@@ -432,7 +432,7 @@ ${header}
 <main>
 ${input.body}
 </main>
-<footer><span>${escapeHtml(input.footer)}</span><span>Built with ${BEYOND_LINK}</span></footer>
+<footer><span>${escapeHtml(input.footer)}</span>${CREDIT_HTML}</footer>
 <script>${CHROME_JS}${(input.appearance ?? 'auto') === 'toggle' ? APPEARANCE_JS : ''}</script>
 </body>
 </html>`

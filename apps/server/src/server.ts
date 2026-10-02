@@ -1,6 +1,7 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
+import { stripCredit } from '@bn/renderer'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
@@ -224,6 +225,13 @@ export async function buildServer(
       warn: (msg) => server.log.warn(msg),
       error: (err, msg) => server.log.error(err, msg),
     },
+  })
+  // sites.no-footer: published pages go out without the "Built with" credit.
+  // Only HTML is touched, and only the exact credit markup the renderer writes.
+  server.addHook('onSend', async (_req, reply, payload) => {
+    if (typeof payload !== 'string' || !edition.has('sites.no-footer')) return payload
+    const type = String(reply.getHeader('content-type') ?? '')
+    return type.startsWith('text/html') ? stripCredit(payload) : payload
   })
   if (editionModule.name !== 'community') {
     server.log.info(`edition module ${editionModule.name}: running as ${edition.info().label}`)

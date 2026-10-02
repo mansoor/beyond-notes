@@ -254,6 +254,14 @@ export function shareBarHtml(input: { url: string; title: string }): string {
 export const BEYOND_LINK =
   '<a href="https://github.com/mansoor/beyond-notes" target="_blank" rel="noopener">Beyond Notes</a>'
 
+/** The whole credit as it sits in the footer, so the server can drop it in one place. */
+export const CREDIT_HTML = `<span>Built with ${BEYOND_LINK}</span>`
+
+/** A published page without the footer credit (an edition feature, sites.no-footer). */
+export function stripCredit(html: string): string {
+  return html.split(CREDIT_HTML).join('')
+}
+
 // ---- visitor-controlled light/dark ----
 //
 // Only rendered when a space's appearance is 'toggle'. The button flips an
