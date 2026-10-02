@@ -1596,6 +1596,8 @@ function BackupTab() {
         </form>
       </Card>
 
+      <OffsiteCard />
+
       <Card title="Backups">
         <div className="flex items-center gap-3 mb-4">
           <button
@@ -1604,6 +1606,8 @@ function BackupTab() {
             onClick={async () => {
               await runNow.mutateAsync()
               await utils.settings.listBackups.invalidate()
+              // the offsite card shows how the copy went
+              await utils.settings.get.invalidate()
             }}
             className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
             style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
@@ -1668,6 +1672,239 @@ function BackupTab() {
       </Card>
 
       {restoreName && <RestoreModal name={restoreName} onClose={() => setRestoreName(null)} />}
+    </>
+  )
+}
+
+/**
+ * Offsite copies: each backup encrypted here (age, with a passphrase) and
+ * uploaded to a bucket somewhere else. Fetching one brings it back into the
+ * local list below, where Restore works as usual.
+ */
+function OffsiteCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveOffsite.useMutation()
+  const o = settings.data?.offsite
+  const [form, setForm] = useState({
+    enabled: false,
+    endpoint: '',
+    region: 'us-east-1',
+    bucket: '',
+    prefix: 'beyond-notes/',
+    accessKey: '',
+    secretKey: '',
+    passphrase: '',
+    forcePathStyle: true,
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const [showCopies, setShowCopies] = useState(false)
+  if (o && !loaded) {
+    setForm({
+      enabled: o.enabled,
+      endpoint: o.endpoint,
+      region: o.region,
+      bucket: o.bucket,
+      prefix: o.prefix,
+      accessKey: o.accessKey,
+      secretKey: '',
+      passphrase: '',
+      forcePathStyle: o.forcePathStyle,
+    })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    setDone(false)
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setForm((f) => ({ ...f, secretKey: '', passphrase: '' }))
+    setDone(true)
+  })
+  const active = Boolean(o?.enabled && o.bucket && o.hasPassphrase)
+
+  return (
+    <Card title="Offsite copies">
+      <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+        Send an encrypted copy of every backup to an S3-compatible bucket somewhere else, such as
+        Backblaze B2, Wasabi, Cloudflare R2 or a NAS at another address. Copies are encrypted on
+        this server with your passphrase, so whoever runs the bucket can't read them.
+      </p>
+      <form onSubmit={onSubmit}>
+        <label className="flex items-center gap-2 text-sm font-medium mb-4">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+          />
+          Copy each backup offsite
+        </label>
+        {form.enabled && (
+          <>
+            <div className="grid grid-cols-2 gap-x-4">
+              <Field
+                label="Bucket"
+                value={form.bucket}
+                onChange={(v) => setForm({ ...form, bucket: v })}
+              />
+              <Field
+                label="Folder in the bucket"
+                value={form.prefix}
+                onChange={(v) => setForm({ ...form, prefix: v })}
+              />
+              <Field
+                label="Endpoint"
+                hint="Blank = AWS"
+                value={form.endpoint}
+                onChange={(v) => setForm({ ...form, endpoint: v })}
+              />
+              <Field
+                label="Region"
+                value={form.region}
+                onChange={(v) => setForm({ ...form, region: v })}
+              />
+              <Field
+                label="Access key"
+                value={form.accessKey}
+                onChange={(v) => setForm({ ...form, accessKey: v })}
+              />
+              <Field
+                label={o?.hasSecret ? 'Secret key (blank = keep saved)' : 'Secret key'}
+                type="password"
+                value={form.secretKey}
+                onChange={(v) => setForm({ ...form, secretKey: v })}
+              />
+            </div>
+            <Field
+              label={
+                o?.hasPassphrase
+                  ? 'Encryption passphrase (blank = keep saved)'
+                  : 'Encryption passphrase'
+              }
+              type="password"
+              value={form.passphrase}
+              onChange={(v) => setForm({ ...form, passphrase: v })}
+              hint="At least 12 characters. Write it down somewhere other than this server: without it, nobody (you included) can open the copies. Changing it only affects new copies."
+            />
+            <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+              Saving checks the bucket with a real encrypted write, read and delete. The folder
+              keeps as many copies as "Keep last" above, so give each instance its own folder. Any
+              copy also opens with the standard{' '}
+              <a
+                href="https://age-encryption.org"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                age
+              </a>{' '}
+              tool: <code>age -d copy.zip.age &gt; backup.zip</code>
+            </p>
+          </>
+        )}
+        <ErrorNote message={error} />
+        {done && !busy && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved.
+          </p>
+        )}
+        <SubmitButton label="Save offsite copies" busy={busy} />
+      </form>
+
+      {active && (
+        <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          {o?.last ? (
+            <p
+              className="text-sm mb-3"
+              style={{ color: o.last.ok ? 'var(--text-2)' : 'var(--danger)' }}
+            >
+              {o.last.ok
+                ? `Last copy sent ${new Date(o.last.at).toLocaleString()}.`
+                : `The last copy failed (${new Date(o.last.at).toLocaleString()}): ${o.last.error}`}
+            </p>
+          ) : null}
+          {showCopies ? (
+            <OffsiteCopies />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCopies(true)}
+              className="rounded-lg border px-3 py-1.5 text-sm"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+            >
+              Show copies in the bucket
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function OffsiteCopies() {
+  const utils = trpc.useUtils()
+  const copies = trpc.settings.offsiteList.useQuery()
+  const fetchCopy = trpc.settings.offsiteFetch.useMutation()
+  const [fetched, setFetched] = useState<string[]>([])
+
+  if (copies.isLoading) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+        Looking in the bucket…
+      </p>
+    )
+  }
+  if (copies.error) return <ErrorNote message={copies.error.message} />
+  const rows = copies.data ?? []
+  return (
+    <>
+      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
+        Fetch a copy to bring it back into the backups below, then restore it from there.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          No copies in the bucket yet.
+        </p>
+      ) : (
+        <div className="flex flex-col">
+          {rows.map((c) => (
+            <div
+              key={c.name}
+              className="flex items-center gap-3 py-2 border-b text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{new Date(c.createdAt).toLocaleString()}</span>
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {fmtBytes(c.sizeBytes)}, encrypted
+                </span>
+              </span>
+              {fetched.includes(c.name) ? (
+                <span className="text-xs shrink-0" style={{ color: 'var(--text-3)' }}>
+                  Fetched
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={fetchCopy.isPending}
+                  onClick={async () => {
+                    await fetchCopy.mutateAsync({ name: c.name })
+                    await utils.settings.listBackups.invalidate()
+                    setFetched((f) => [...f, c.name])
+                  }}
+                  className="text-xs underline shrink-0 disabled:opacity-60"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {fetchCopy.isPending && fetchCopy.variables?.name === c.name
+                    ? 'Fetching…'
+                    : 'Fetch'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {fetchCopy.error && <ErrorNote message={fetchCopy.error.message} />}
     </>
   )
 }

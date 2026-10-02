@@ -25,6 +25,7 @@ import { ImportFormatError, type ImportKind, parseImport } from './importers'
 import { createImportStash } from './importstash'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
+import { type OffsiteService, createOffsiteService } from './offsite'
 import { createPagesService } from './pages'
 import { createPasskeyService } from './passkeys'
 import { createProxyAuth, proxyAuthSettings } from './proxyauth'
@@ -96,8 +97,17 @@ export async function buildServer(
 
   const repo = createRepo(appDb)
   const secretsKey = loadOrCreateSecretsKey(config)
-  const settings = createSettingsService(repo, config, { secretsKey })
+  // offsite is built after settings (it reads them); the view only asks it later
+  let offsite: OffsiteService | null = null
+  const settings = createSettingsService(repo, config, {
+    secretsKey,
+    offsiteLast: () => offsite?.lastResult() ?? null,
+  })
   await settings.load()
+  offsite = createOffsiteService({
+    getConfig: () => settings.offsite(),
+    log: (msg) => server.log.warn(msg),
+  })
   const audit = createAuditService({
     repo,
     onError: (err) => server.log.error(err, 'audit write failed'),
@@ -164,6 +174,7 @@ export async function buildServer(
     getConfig: () => settings.backup(),
     isS3: () => settings.effectiveStorage().driver === 's3',
     secretsKey,
+    offsite,
   })
   // restore reuses backup.resolve so it inherits the same traversal guard
   const restore = createRestoreService({ repo, blobs, resolvePath: (name) => backup.resolve(name) })
@@ -695,6 +706,7 @@ export async function buildServer(
         tables,
         locks,
         backup,
+        offsite,
         restore,
         sso,
         proxy,

@@ -817,6 +817,28 @@ export const backupSettings = z.object({
 })
 export type BackupSettings = z.infer<typeof backupSettings>
 
+/**
+ * Offsite copies: each backup encrypted (age, passphrase) and uploaded to an
+ * S3-compatible bucket that isn't this server's storage.
+ */
+export const offsiteSettings = z.object({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().trim().max(500).default(''),
+  region: z.string().trim().max(100).default('us-east-1'),
+  bucket: z.string().trim().max(255).default(''),
+  // folder inside the bucket, e.g. "beyond-notes/"
+  prefix: z.string().trim().max(200).default('beyond-notes/'),
+  accessKey: z.string().max(255).default(''),
+  // empty string on save = keep the stored secret (both fields)
+  secretKey: z.string().max(255).default(''),
+  passphrase: z.string().max(500).default(''),
+  forcePathStyle: z.boolean().default(true),
+})
+export type OffsiteSettings = z.infer<typeof offsiteSettings>
+
+/** One encrypted copy in the offsite bucket. */
+export type OffsiteCopyView = { name: string; sizeBytes: number; createdAt: string }
+
 /** One stored backup, listed in Settings (the local dir is the source of truth). */
 export type BackupView = {
   name: string
@@ -893,6 +915,12 @@ export type ServerSettingsView = {
   /** forward-auth as configured by env (read-only in the UI); null = off */
   proxyAuth: { emailHeader: string; trusted: string[]; autoCreate: boolean } | null
   backup: BackupSettings
+  offsite: Omit<OffsiteSettings, 'secretKey' | 'passphrase'> & {
+    hasSecret: boolean
+    hasPassphrase: boolean
+    /** the last upload since the server started */
+    last: { at: string; name: string; ok: boolean; error: string | null } | null
+  }
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
   ntfySource: 'db' | 'env' | 'off'

@@ -12,6 +12,7 @@ import type { Edition } from './edition'
 import type { ImportStash } from './importstash'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
+import type { OffsiteService } from './offsite'
 import type { PagesService } from './pages'
 import type { PasskeyService } from './passkeys'
 import type { ProxyAuth } from './proxyauth'
@@ -63,6 +64,7 @@ export type Context = {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  offsite: OffsiteService
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth
@@ -92,6 +94,7 @@ export function makeCreateContext(deps: {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  offsite: OffsiteService
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth

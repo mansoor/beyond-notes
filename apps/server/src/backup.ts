@@ -11,7 +11,7 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
-import { unlink, writeFile } from 'node:fs/promises'
+import { unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BackupSettings } from '@bn/schema'
 import { nanoid } from 'nanoid'
@@ -26,6 +26,14 @@ const BACKUP_JOB = 'backup'
 const NAME_RE = /^beyond-notes-backup-[0-9TZ-]+\.zip$/
 
 export type BackupInfo = { name: string; sizeBytes: number; createdAt: string }
+
+/** beyond-notes-backup-2026-07-26T03-14-05-123Z.zip → that instant */
+function createdFromName(name: string): Date | null {
+  const m = /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/.exec(name)
+  if (!m) return null
+  const d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
 
 /** The next time a backup should run, at `hour` local time, per frequency. */
 export function nextBackupRunAt(config: BackupSettings, from: Date): Date {
@@ -49,6 +57,11 @@ export function createBackupService(deps: {
   getConfig: () => BackupSettings
   isS3: () => boolean
   secretsKey?: Buffer
+  /** an encrypted copy somewhere else (offsite.ts); failures never fail a backup */
+  offsite?: {
+    upload(name: string, data: Uint8Array): Promise<unknown>
+    prune(keep: number): Promise<void>
+  }
   now?: () => Date
 }) {
   const now = deps.now ?? (() => new Date())
@@ -92,7 +105,10 @@ export function createBackupService(deps: {
         // an S3 mirror failure must not lose the local backup we just wrote
       })
     }
+    await deps.offsite?.upload(name, buf)
     await prune(config.retention)
+    // offsite keeps as many as local does, counted from the bucket itself
+    await deps.offsite?.prune(config.retention)
     const st = statSync(pathFor(name))
     return { name, sizeBytes: st.size, createdAt: st.mtime.toISOString() }
   }
@@ -129,6 +145,20 @@ export function createBackupService(deps: {
       assertSafe(name)
       await unlink(pathFor(name)).catch(() => {})
       if (deps.isS3()) await deps.blobs.delete(`${S3_PREFIX}${name}`).catch(() => {})
+    },
+    /**
+     * Put a backup fetched from elsewhere (an offsite copy) into the local
+     * folder under its own name, so it lists and restores like any other.
+     */
+    async adopt(name: string, data: Uint8Array): Promise<BackupInfo> {
+      assertSafe(name)
+      mkdirSync(deps.backupsDir, { recursive: true })
+      await writeFile(pathFor(name), data)
+      // list it under when it was made, not when it was fetched
+      const made = createdFromName(name)
+      if (made) await utimes(pathFor(name), made, made)
+      const st = statSync(pathFor(name))
+      return { name, sizeBytes: st.size, createdAt: st.mtime.toISOString() }
     },
     /** Absolute path for a download stream, or null if the file is gone. */
     resolve(name: string): string | null {

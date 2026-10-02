@@ -692,6 +692,24 @@ docker compose exec postgres pg_dump -U beyond beyond_notes > backup.sql
 Postgres unless you selected database storage). Restore into a fresh instance:
 start Postgres, `psql < backup.sql`, restore the volume, start the app.
 
+**Offsite copies:** in **Settings → Backup → Offsite copies**, point Beyond
+Notes at any S3-compatible bucket (Backblaze B2, Wasabi, Cloudflare R2, MinIO
+on another machine) and give it a passphrase. Every backup, scheduled or
+manual, is then encrypted on your server with [age](https://age-encryption.org)
+and uploaded, so the bucket's owner only ever sees ciphertext. The bucket keeps
+as many copies as "Keep last". Use a separate folder for each instance.
+
+To recover on a new server, enter the same bucket and passphrase, choose
+**Show copies in the bucket**, **Fetch** one, then **Restore** it. You can also
+open any copy without Beyond Notes:
+
+```bash
+age -d beyond-notes-backup-….zip.age > backup.zip
+```
+
+Keep the passphrase somewhere other than the server. Without it nobody can open
+the copies, including you.
+
 > **Test the restore once before trusting it.** A backup that has never been
 > restored is a hope, not a backup.
 

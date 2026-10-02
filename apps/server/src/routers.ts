@@ -76,6 +76,7 @@ import {
   movePageInput,
   moveTableInput,
   ntfySettings,
+  offsiteSettings,
   oidcSettings,
   pageTagInput,
   promoteToJournalInput,
@@ -124,6 +125,7 @@ import { GithubError } from './github'
 import { fetchLink } from './linkfetch'
 import { LockedError } from './locks'
 import { inviteEmail, passwordResetEmail } from './mailer'
+import { MIN_PASSPHRASE, OffsiteError } from './offsite'
 import { createStarter } from './onboarding'
 import { PagesError } from './pages'
 import { PasskeyError } from './passkeys'
@@ -1684,6 +1686,67 @@ const settingsRouter = router({
   }),
 
   listBackups: adminProcedure.query(({ ctx }) => ctx.backup.list()),
+
+  // ---- offsite copies (admin) ----
+  /** Saving an enabled config proves it first: write, read back, decrypt, delete. */
+  saveOffsite: adminProcedure.input(offsiteSettings).mutation(async ({ ctx, input }) => {
+    const prev = ctx.settings.offsite()
+    const merged = {
+      ...input,
+      secretKey: input.secretKey || prev?.secretKey || '',
+      passphrase: input.passphrase || prev?.passphrase || '',
+    }
+    if (merged.enabled) {
+      if (!merged.bucket) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Offsite copies need a bucket name.' })
+      }
+      if (merged.passphrase.length < MIN_PASSPHRASE) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Use a passphrase of at least ${MIN_PASSPHRASE} characters.`,
+        })
+      }
+      try {
+        await ctx.offsite.check(merged)
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof Error ? err.message : 'Offsite check failed.',
+        })
+      }
+    }
+    await ctx.settings.saveOffsite(input)
+    await note(ctx, 'settings.saved', { target: 'Offsite backups' })
+    return ctx.settings.view()
+  }),
+
+  offsiteList: adminProcedure.query(async ({ ctx }) => {
+    try {
+      return await ctx.offsite.list()
+    } catch (err) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof OffsiteError ? err.message : 'Could not list offsite copies.',
+      })
+    }
+  }),
+
+  /** Download and decrypt an offsite copy into the local backups, ready to restore. */
+  offsiteFetch: adminProcedure
+    .input(z.object({ name: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const data = await ctx.offsite.fetch(input.name)
+        await ctx.backup.adopt(input.name, data)
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: err instanceof OffsiteError ? err.message : 'Could not fetch that copy.',
+        })
+      }
+      await note(ctx, 'backup.created', { target: input.name, detail: { from: 'offsite' } })
+      return ctx.backup.list()
+    }),
 
   backupNow: adminProcedure.mutation(async ({ ctx }) => {
     try {

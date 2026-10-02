@@ -1,6 +1,7 @@
 import {
   type BackupSettings,
   type NtfySettings,
+  type OffsiteSettings,
   type OidcSettings,
   type RecaptchaSettings,
   type ServerSettingsView,
@@ -8,6 +9,7 @@ import {
   type StorageSettings,
   backupSettings,
   ntfySettings,
+  offsiteSettings,
   oidcSettings,
   recaptchaSettings,
   smtpSettings,
@@ -35,7 +37,17 @@ import { decryptGroup, encryptGroup } from './secrets'
 export function createSettingsService(
   repo: Repo,
   config: Config,
-  opts: { now?: () => Date; secretsKey?: Buffer } = {},
+  opts: {
+    now?: () => Date
+    secretsKey?: Buffer
+    /** the offsite service's last upload, for the view (set after construction) */
+    offsiteLast?: () => {
+      at: string
+      name: string
+      ok: boolean
+      error: string | null
+    } | null
+  } = {},
 ) {
   const now = opts.now ?? (() => new Date())
   const secretsKey = opts.secretsKey
@@ -93,6 +105,10 @@ export function createSettingsService(
 
     backup(): BackupSettings {
       return parse('backup', backupSettings) ?? backupSettings.parse({})
+    },
+
+    offsite(): OffsiteSettings | null {
+      return parse('offsite', offsiteSettings)
     },
 
     recaptcha(): RecaptchaSettings | null {
@@ -260,6 +276,16 @@ export function createSettingsService(
             : null
         })(),
         backup: this.backup(),
+        offsite: (() => {
+          const o = this.offsite() ?? offsiteSettings.parse({})
+          const { secretKey, passphrase, ...rest } = o
+          return {
+            ...rest,
+            hasSecret: Boolean(secretKey),
+            hasPassphrase: Boolean(passphrase),
+            last: opts.offsiteLast?.() ?? null,
+          }
+        })(),
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',
       }
@@ -269,6 +295,16 @@ export function createSettingsService(
     async saveSmtp(input: SmtpSettings): Promise<void> {
       const prev = this.smtp()
       await this.put('smtp', { ...input, pass: input.pass || prev?.pass || '' })
+    },
+
+    /** Offsite copies; blank secret key or passphrase keeps the stored one. */
+    async saveOffsite(input: OffsiteSettings): Promise<void> {
+      const prev = this.offsite()
+      await this.put('offsite', {
+        ...input,
+        secretKey: input.secretKey || prev?.secretKey || '',
+        passphrase: input.passphrase || prev?.passphrase || '',
+      })
     },
 
     async saveNtfy(input: NtfySettings): Promise<void> {

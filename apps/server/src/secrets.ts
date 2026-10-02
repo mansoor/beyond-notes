@@ -69,6 +69,7 @@ export const SECRET_FIELDS: Record<string, string[]> = {
   storage: ['s3SecretKey'],
   recaptcha: ['secretKey'],
   oidc: ['clientSecret'],
+  offsite: ['secretKey', 'passphrase'],
 }
 
 type Group = Record<string, unknown>
