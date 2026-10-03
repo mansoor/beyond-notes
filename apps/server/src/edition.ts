@@ -51,6 +51,8 @@ export type EditionDeps = {
     headers: any
     socket?: any
   }) => Promise<{ user: UserRow | null; token: string | null }>
+  /** Sign this person in on this response (the session cookie), e.g. after SAML. */
+  startSession: (reply: FastifyReply, user: UserRow) => Promise<void>
   log: {
     info: (msg: string) => void
     warn: (msg: string) => void

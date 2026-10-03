@@ -229,6 +229,14 @@ export async function buildServer(
     access,
     version,
     resolveSession: (req) => resolveSession(req),
+    startSession: async (reply, user) => {
+      const session = await auth.sessionFor(user.id)
+      reply.setCookie(
+        SESSION_COOKIE,
+        session.token,
+        sessionCookieOptions(config, session.expiresAt),
+      )
+    },
     log: {
       info: (msg) => server.log.info(msg),
       warn: (msg) => server.log.warn(msg),

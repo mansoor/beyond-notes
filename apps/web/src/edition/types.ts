@@ -62,6 +62,8 @@ export type EditionSpaceAction = {
 
 export type WebEdition = {
   name: string
+  /** extra ways to sign in, shown on the sign-in page above the password form */
+  signInExtras?: ComponentType
   settingsTabs?: EditionSettingsTab[]
   publishingTabs?: EditionPublishingTab[]
   spaceActions?: EditionSpaceAction[]

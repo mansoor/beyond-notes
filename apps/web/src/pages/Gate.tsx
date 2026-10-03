@@ -1,6 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { CenterCard, ErrorNote, Field, PageIcon, SubmitButton, useSubmit } from '../components'
+import { webEdition } from '../edition'
 import { passkeyErrorMessage, passkeysSupported, startAuthentication } from '../passkey'
 import { trpc } from '../trpc'
 import { Shell } from './Shell'
@@ -148,6 +149,9 @@ function takeSsoError(): string | null {
   return message
 }
 
+// sign-in methods an add-on edition contributes (e.g. SAML)
+const SignInExtras = webEdition.signInExtras
+
 function LoginPage() {
   const utils = trpc.useUtils()
   const status = trpc.auth.status.useQuery()
@@ -224,6 +228,7 @@ function LoginPage() {
           )}
         </>
       )}
+      {SignInExtras ? <SignInExtras /> : null}
       {showPassword ? (
         <form onSubmit={onSubmit}>
           <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus={!sso} />
