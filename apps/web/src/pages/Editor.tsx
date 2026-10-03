@@ -219,7 +219,7 @@ function PageView(props: {
             className="text-xs mb-3 rounded-lg px-3 py-1.5 inline-block"
             style={{ background: 'var(--sunk, var(--bg))', color: 'var(--text-3)' }}
           >
-            View only. This notebook was shared with you to read.
+            View only. This space was shared with you to read.
           </p>
         )}
         <DocumentEditor
@@ -297,6 +297,15 @@ function ContextPanel(props: { page: PageMeta; publishing: PublishingView; bare?
     ? tree.data?.find((p) => p.id === props.page.parentId)
     : undefined
   const isPost = parent?.pageType === 'blog'
+
+  // shared with this person to read: nothing here to change, only to follow
+  if (space?.role === 'viewer') {
+    return (
+      <div className="flex flex-col gap-4">
+        <BacklinksCard pageId={props.page.id} bare={props.bare} />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">

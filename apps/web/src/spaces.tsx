@@ -683,7 +683,12 @@ function EditionActionModal(props: {
 }) {
   const { Component } = props.action
   return (
-    <Modal title={`${props.action.label} — ${props.space.name}`} onClose={props.onClose} width="lg">
+    <Modal
+      // a menu label's trailing "…" (it opens a dialog) has no place in the title
+      title={`${props.action.label.replace(/…$/, '')} — ${props.space.name}`}
+      onClose={props.onClose}
+      width="lg"
+    >
       <Component space={props.space} onClose={props.onClose} />
     </Modal>
   )
