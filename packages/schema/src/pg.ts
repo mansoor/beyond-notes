@@ -648,3 +648,35 @@ export const spaceShares = pgTable(
     index('space_shares_principal_idx').on(t.principalType, t.principalId),
   ],
 )
+
+// ---- built-in site visit counts (an edition switches counting on per site) ----
+
+/** Daily views and unique visitors per published page; path '' = the whole site. */
+export const siteVisitsDaily = pgTable(
+  'site_visits_daily',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    // UTC, YYYY-MM-DD
+    day: text('day').notNull(),
+    path: text('path').notNull(),
+    views: integer('views').notNull().default(0),
+    visitors: integer('visitors').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day, t.path] })],
+)
+
+/** Daily views arriving from another site, by its host name. */
+export const siteReferrersDaily = pgTable(
+  'site_referrers_daily',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    host: text('host').notNull(),
+    views: integer('views').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day, t.host] })],
+)

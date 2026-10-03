@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -90,6 +90,15 @@ export type ApiTokenRow = {
   lastUsedAt: Date | null
   revokedAt: Date | null
 }
+
+export type SiteVisitRow = {
+  spaceId: string
+  day: string
+  path: string
+  views: number
+  visitors: number
+}
+export type SiteReferrerRow = { spaceId: string; day: string; host: string; views: number }
 
 export type ShareRole = 'viewer' | 'editor'
 export type SpaceShareRow = {
@@ -523,6 +532,67 @@ export function createRepo(appDb: AppDb) {
         .where(lt(t.auditEvents.at, cutoff))
         .returning({ id: t.auditEvents.id })
       return rows.length
+    },
+
+    // ---- built-in visit counts ----
+
+    async addSiteVisits(
+      rows: Array<{ spaceId: string; day: string; path: string; views: number; visitors: number }>,
+    ): Promise<void> {
+      for (const r of rows) {
+        await db
+          .insert(t.siteVisitsDaily)
+          .values(r)
+          .onConflictDoUpdate({
+            target: [t.siteVisitsDaily.spaceId, t.siteVisitsDaily.day, t.siteVisitsDaily.path],
+            set: {
+              views: sqlOp`${t.siteVisitsDaily.views} + ${r.views}`,
+              visitors: sqlOp`${t.siteVisitsDaily.visitors} + ${r.visitors}`,
+            },
+          })
+      }
+    },
+    async addSiteReferrers(
+      rows: Array<{ spaceId: string; day: string; host: string; views: number }>,
+    ): Promise<void> {
+      for (const r of rows) {
+        await db
+          .insert(t.siteReferrersDaily)
+          .values(r)
+          .onConflictDoUpdate({
+            target: [
+              t.siteReferrersDaily.spaceId,
+              t.siteReferrersDaily.day,
+              t.siteReferrersDaily.host,
+            ],
+            set: { views: sqlOp`${t.siteReferrersDaily.views} + ${r.views}` },
+          })
+      }
+    },
+    /** Daily rows for one site from `fromDay` (inclusive, YYYY-MM-DD). */
+    async listSiteVisits(spaceId: string, fromDay: string): Promise<SiteVisitRow[]> {
+      return db
+        .select()
+        .from(t.siteVisitsDaily)
+        .where(and(eq(t.siteVisitsDaily.spaceId, spaceId), gte(t.siteVisitsDaily.day, fromDay)))
+    },
+    async listSiteReferrers(spaceId: string, fromDay: string): Promise<SiteReferrerRow[]> {
+      return db
+        .select()
+        .from(t.siteReferrersDaily)
+        .where(
+          and(eq(t.siteReferrersDaily.spaceId, spaceId), gte(t.siteReferrersDaily.day, fromDay)),
+        )
+    },
+    async listAllSiteVisits(): Promise<SiteVisitRow[]> {
+      return db.select().from(t.siteVisitsDaily)
+    },
+    async listAllSiteReferrers(): Promise<SiteReferrerRow[]> {
+      return db.select().from(t.siteReferrersDaily)
+    },
+    async deleteSiteVisitsBefore(day: string): Promise<void> {
+      await db.delete(t.siteVisitsDaily).where(lt(t.siteVisitsDaily.day, day))
+      await db.delete(t.siteReferrersDaily).where(lt(t.siteReferrersDaily.day, day))
     },
 
     // ---- sharing ----

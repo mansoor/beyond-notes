@@ -44,7 +44,7 @@ import {
   normalizeFormOrder,
 } from '@bn/schema'
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
-import type { FastifyReply } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
 import type { SiteGate } from './edition'
 import type { PublishingService } from './publishing'
@@ -57,6 +57,8 @@ export type PublicSecurity = {
   now: () => number
   /** an edition's gate for protected sites (edition.ts); none = every site is open */
   siteGate?: () => SiteGate | null
+  /** count a served page (visits.ts), when the edition counts this space */
+  countVisit?: (space: SpaceRow, path: string, req: FastifyRequest) => void
 }
 
 /**
@@ -160,6 +162,19 @@ export function createPublicServer(
       }
       reply.header('cache-control', 'private, no-store')
       reply.header('x-robots-tag', 'noindex, nofollow')
+    }
+
+    // Built-in visit counts: a page that actually went out (200, HTML) counts;
+    // feeds, previews, the password page and 404s don't.
+    if (security.countVisit && !/^\/(_preview|_bn)\//.test(rawPath)) {
+      const req = reply.request
+      const path = rawPath || '/'
+      reply.raw.once('finish', () => {
+        const type = String(reply.getHeader('content-type') ?? '')
+        if (reply.statusCode === 200 && type.startsWith('text/html')) {
+          security.countVisit?.(space, path, req)
+        }
+      })
     }
 
     // Analytics is added once, here, rather than threaded through a dozen

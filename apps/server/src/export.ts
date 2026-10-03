@@ -50,6 +50,8 @@ const DATE_COLUMNS: Record<string, string[]> = {
   userGroups: ['createdAt'],
   userGroupMembers: [],
   spaceShares: ['createdAt'],
+  siteVisits: [],
+  siteReferrers: [],
 }
 
 export type Dump = {
@@ -104,6 +106,9 @@ async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
     userGroups: await repo.listUserGroups(),
     userGroupMembers: await repo.listAllUserGroupMembers(),
     spaceShares: await repo.listAllSpaceShares(),
+    // daily visit counts (totals only; there is nothing per-visitor to export)
+    siteVisits: await repo.listAllSiteVisits(),
+    siteReferrers: await repo.listAllSiteReferrers(),
   } as unknown as Dump['tables']
 
   return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
@@ -209,6 +214,8 @@ export async function importInstance(
   for (const row of rows('userGroups')) await repo.insertUserGroup(row as never)
   for (const row of rows('userGroupMembers')) await repo.addUserGroupMember(row as never)
   for (const row of rows('spaceShares')) await repo.putSpaceShare(row as never)
+  await repo.addSiteVisits(rows('siteVisits') as never)
+  await repo.addSiteReferrers(rows('siteReferrers') as never)
   for (const row of topoSortPages(rows('pages'))) await repo.insertPage(row as never)
   for (const row of rows('documents')) await repo.insertDocument(row as never)
   for (const row of rows('pageVersions')) await repo.insertPageVersion(row as never)

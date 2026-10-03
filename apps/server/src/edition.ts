@@ -92,6 +92,8 @@ export type ServerEdition = {
   info(): EditionInfo
   /** optional: protect published sites */
   siteGate?: SiteGate
+  /** optional: count visits to this published space (visits.ts) */
+  countVisits?(spaceId: string): boolean
 }
 
 export const COMMUNITY: ServerEdition = {

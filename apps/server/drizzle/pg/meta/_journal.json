@@ -288,6 +288,13 @@
       "when": 1791067398079,
       "tag": "0040_hard_fixer",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791070293029,
+      "tag": "0041_pink_leopardon",
+      "breakpoints": true
     }
   ]
 }

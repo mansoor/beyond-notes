@@ -53,6 +53,7 @@ import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { SESSION_COOKIE, makeCreateContext, sessionCookieOptions } from './trpc'
 import { createUpdateChecker } from './updates'
+import { createVisitRecorder } from './visits'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -154,11 +155,27 @@ export async function buildServer(
   const publishing = createPublishingService(repo, { access })
   // set once the edition module has loaded (below); until then, no gate
   let siteGate: SiteGate | null = null
+  let countsVisits: ((spaceId: string) => boolean) | null = null
+  const visits = createVisitRecorder({
+    repo,
+    onError: (err) => server.log.error(err, 'visit counts could not be saved'),
+  })
   const publicSrv = createPublicServer(repo, publishing, {
     captchaSecret: secretsKey,
     recaptchaSiteKey: () => settings.effectiveRecaptcha()?.siteKey ?? null,
     now: () => Date.now(),
     siteGate: () => siteGate,
+    countVisit: (space, path, req) => {
+      if (!countsVisits?.(space.id)) return
+      visits.record({
+        spaceId: space.id,
+        path,
+        ip: req.ip,
+        userAgent: String(req.headers['user-agent'] ?? ''),
+        referer: typeof req.headers.referer === 'string' ? req.headers.referer : null,
+        siteHost: space.publicHost ?? '',
+      })
+    },
   })
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
@@ -220,6 +237,7 @@ export async function buildServer(
   const editionModule = opts.edition ?? (await loadEdition(config.EDITION_MODULE))
   const edition = editionHandle(editionModule)
   siteGate = editionModule.siteGate ?? null
+  countsVisits = editionModule.countVisits ? (id) => Boolean(editionModule.countVisits?.(id)) : null
   await editionModule.register(server, {
     config,
     repo,
@@ -770,6 +788,7 @@ export async function buildServer(
   // the one in-process set of services (caches included) — tests must mutate
   // publish state through these, not through parallel instances
   server.decorate('bnServices', {
+    visits,
     repo,
     auth,
     pages,
@@ -797,6 +816,8 @@ export async function buildServer(
       if (purged > 0) server.log.info(`trash purge: hard-deleted ${purged} page subtree(s)`)
       // the audit log keeps its own, much longer, window
       await audit.prune(config.AUDIT_RETENTION_DAYS)
+      // visit counts: a little over a year, enough to compare with last year
+      await visits.prune(400)
     }
     server.addHook('onReady', async () => {
       await scheduler.runOnce()
@@ -811,7 +832,15 @@ export async function buildServer(
       scheduler.stop()
       if (purgeTimer) clearInterval(purgeTimer)
     })
+    // visit counts are buffered in memory and written once a minute
+    const visitTimer = setInterval(() => void visits.flush(), 60_000)
+    visitTimer.unref()
+    server.addHook('onClose', async () => clearInterval(visitTimer))
   }
+  // whatever was counted since the last write goes out on shutdown
+  server.addHook('onClose', async () => {
+    await visits.flush()
+  })
 
   // Serve the built SPA when present (production); in dev, Vite serves the web app.
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : ''
