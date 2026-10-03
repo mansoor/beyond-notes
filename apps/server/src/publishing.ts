@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { blocknoteToHtml, galleryHtml, plainText, slugify } from '@bn/renderer'
 import type { NavNode } from '@bn/renderer'
 import { nanoid } from 'nanoid'
+import { type AccessService, createAccess } from './access'
 import { extractAttachmentIds } from './attachments'
 import { hashToken } from './auth'
 import { PagesError } from './pages'
@@ -15,8 +16,12 @@ export const SCHEDULED_PUBLISH = 'scheduled-publish'
  * computed from live versions only; a page is publicly reachable only if all
  * of its ancestors are live too.
  */
-export function createPublishingService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createPublishingService(
+  repo: Repo,
+  opts: { now?: () => Date; access?: AccessService } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
 
   // public-attachment cache: recomputed after any publish-state mutation
   // (and on a slow TTL as a safety net), so going live is instant
@@ -32,7 +37,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
     const page = await repo.getPage(pageId)
     if (!page) throw new PagesError('NOT_FOUND', 'Page not found.')
     const space = await repo.getSpace(page.spaceId)
-    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+    // editors can publish pages; the site's own settings stay with its owner
+    if (!space || !(await access.can(space, user, 'write'))) {
       throw new PagesError('NOT_FOUND', 'Page not found.')
     }
     return { page, space }
@@ -173,7 +179,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
-      if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      if (!space || !(await access.can(space, user, 'owner'))) {
         throw new PagesError('NOT_FOUND', 'Space not found.')
       }
       if (input.enabled && !input.host) {

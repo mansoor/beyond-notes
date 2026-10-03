@@ -89,6 +89,17 @@ export type ApiTokenRow = {
   revokedAt: Date | null
 }
 
+export type ShareRole = 'viewer' | 'editor'
+export type SpaceShareRow = {
+  spaceId: string
+  principalType: 'user' | 'group'
+  principalId: string
+  role: ShareRole
+  createdAt: Date
+}
+export type UserGroupRow = { id: string; name: string; createdAt: Date }
+export type UserGroupMemberRow = { groupId: string; userId: string }
+
 export type ResetTokenRow = {
   id: string
   userId: string
@@ -495,6 +506,78 @@ export function createRepo(appDb: AppDb) {
         .where(lt(t.auditEvents.at, cutoff))
         .returning({ id: t.auditEvents.id })
       return rows.length
+    },
+
+    // ---- sharing ----
+
+    async listAllSpaceShares(): Promise<SpaceShareRow[]> {
+      return (await db.select().from(t.spaceShares)) as SpaceShareRow[]
+    },
+    async listSpaceShares(spaceId: string): Promise<SpaceShareRow[]> {
+      return (await db
+        .select()
+        .from(t.spaceShares)
+        .where(eq(t.spaceShares.spaceId, spaceId))) as SpaceShareRow[]
+    },
+    /** Insert, or change the role of, one share. */
+    async putSpaceShare(row: SpaceShareRow): Promise<void> {
+      await db
+        .insert(t.spaceShares)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [t.spaceShares.spaceId, t.spaceShares.principalType, t.spaceShares.principalId],
+          set: { role: row.role },
+        })
+    },
+    async deleteSpaceShare(
+      spaceId: string,
+      principalType: 'user' | 'group',
+      principalId: string,
+    ): Promise<void> {
+      await db
+        .delete(t.spaceShares)
+        .where(
+          and(
+            eq(t.spaceShares.spaceId, spaceId),
+            eq(t.spaceShares.principalType, principalType),
+            eq(t.spaceShares.principalId, principalId),
+          ),
+        )
+    },
+    /** A deleted group or person stops being shared with anywhere. */
+    async deleteSharesForPrincipal(principalType: 'user' | 'group', principalId: string) {
+      await db
+        .delete(t.spaceShares)
+        .where(
+          and(
+            eq(t.spaceShares.principalType, principalType),
+            eq(t.spaceShares.principalId, principalId),
+          ),
+        )
+    },
+
+    async listUserGroups(): Promise<UserGroupRow[]> {
+      return (await db.select().from(t.userGroups)) as UserGroupRow[]
+    },
+    async insertUserGroup(row: UserGroupRow): Promise<void> {
+      await db.insert(t.userGroups).values(row)
+    },
+    async renameUserGroup(id: string, name: string): Promise<void> {
+      await db.update(t.userGroups).set({ name }).where(eq(t.userGroups.id, id))
+    },
+    async deleteUserGroup(id: string): Promise<void> {
+      await db.delete(t.userGroups).where(eq(t.userGroups.id, id))
+    },
+    async listAllUserGroupMembers(): Promise<UserGroupMemberRow[]> {
+      return (await db.select().from(t.userGroupMembers)) as UserGroupMemberRow[]
+    },
+    async addUserGroupMember(row: UserGroupMemberRow): Promise<void> {
+      await db.insert(t.userGroupMembers).values(row).onConflictDoNothing()
+    },
+    async removeUserGroupMember(groupId: string, userId: string): Promise<void> {
+      await db
+        .delete(t.userGroupMembers)
+        .where(and(eq(t.userGroupMembers.groupId, groupId), eq(t.userGroupMembers.userId, userId)))
     },
 
     async insertApiToken(row: ApiTokenRow): Promise<void> {

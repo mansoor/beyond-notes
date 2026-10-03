@@ -98,6 +98,8 @@ export function DocumentEditor(props: {
    * editor's remount key, and throw away the cursor mid-typing.
    */
   onSaved?: (content: string) => void
+  /** a space shared with this person read-only: show the page, take no edits */
+  readOnly?: boolean
 }) {
   const save = trpc.pages.saveDoc.useMutation()
   const utils = trpc.useUtils()
@@ -181,7 +183,8 @@ export function DocumentEditor(props: {
       <div className="-mx-4 lg:-mx-[54px]">
         <BlockNoteView
           editor={editor}
-          onChange={scheduleSave}
+          editable={!props.readOnly}
+          onChange={props.readOnly ? undefined : scheduleSave}
           theme={dark ? 'dark' : 'light'}
           formattingToolbar={false}
         >

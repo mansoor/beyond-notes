@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import pkg from '../package.json'
+import { createAccess } from './access'
 import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuditService } from './audit'
@@ -140,14 +141,17 @@ export async function buildServer(
     onLogin: (user, ip) => void audit.record({ action: 'auth.proxy_login', actor: user, ip }),
   })
   const embedder = createEmbedder(config)
+  // who may do what in which space; one instance so share changes apply everywhere
+  const access = createAccess(repo)
   const pages = createPagesService(repo, {
     embedder,
     embedThreshold: config.GRAPH_EMBED_THRESHOLD,
     embedNeighbors: config.GRAPH_EMBED_NEIGHBORS,
+    access,
   })
-  const daily = createDailyService(repo)
-  const tasks = createTasksService(repo)
-  const publishing = createPublishingService(repo)
+  const daily = createDailyService(repo, { access })
+  const tasks = createTasksService(repo, { access })
+  const publishing = createPublishingService(repo, { access })
   // set once the edition module has loaded (below); until then, no gate
   let siteGate: SiteGate | null = null
   const publicSrv = createPublicServer(repo, publishing, {
@@ -222,6 +226,7 @@ export async function buildServer(
     auth,
     settings,
     audit,
+    access,
     version,
     resolveSession: (req) => resolveSession(req),
     log: {
@@ -516,7 +521,7 @@ export async function buildServer(
     const user = await userFromRequest(req)
     if (!user) return reply.code(401).send({ error: 'sign in first' })
     const space = await repo.getSpace(String(req.params.id ?? ''))
-    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+    if (!(await access.can(space, user, 'read')) || !space) {
       return reply.code(404).send({ error: 'not found' })
     }
     const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
@@ -633,9 +638,8 @@ export async function buildServer(
       return reply.redirect(config.BASE_URL)
     }
     const space = await repo.getSpace(spaceId)
-    // same visibility rule as the app: household spaces open to any member,
-    // a personal space only to its owner
-    if (!space || (space.ownerId !== null && space.ownerId !== viewer.id)) {
+    // same visibility rule as the app (access.ts)
+    if (!space || !(await access.can(space, viewer, 'read'))) {
       return reply.code(404).send({ error: 'not found' })
     }
     await publicSrv.serveDraft(space, decodeURIComponent(rest), `/s/draft/${spaceId}`, reply)
@@ -728,6 +732,7 @@ export async function buildServer(
         tables,
         locks,
         backup,
+        access,
         offsite,
         restore,
         sso,
@@ -745,7 +750,7 @@ export async function buildServer(
 
   // personal-access-token surface: REST (/api/v1) and MCP (/api/mcp)
   registerPublicApi(server, {
-    api: createPublicApi({ repo, pages, daily, tasks, locks }),
+    api: createPublicApi({ repo, pages, daily, tasks, locks, access }),
     tokens,
     version,
   })

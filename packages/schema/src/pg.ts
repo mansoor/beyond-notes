@@ -600,3 +600,48 @@ export const dbRows = pgTable('db_rows', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
+
+// ---- sharing (managed by an edition; the core only reads these) ----
+
+/** Named sets of people, e.g. "Family". Space shares can name a group. */
+export const userGroups = pgTable('user_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const userGroupMembers = pgTable(
+  'user_group_members',
+  {
+    groupId: text('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
+)
+
+/**
+ * A personal space shared with a person or a group. viewer = read only;
+ * editor = edit pages. Space settings stay with the owner.
+ */
+export const spaceShares = pgTable(
+  'space_shares',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    principalType: text('principal_type', { enum: ['user', 'group'] }).notNull(),
+    principalId: text('principal_id').notNull(),
+    role: text('role', { enum: ['viewer', 'editor'] })
+      .notNull()
+      .default('viewer'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.principalType, t.principalId] }),
+    index('space_shares_principal_idx').on(t.principalType, t.principalId),
+  ],
+)

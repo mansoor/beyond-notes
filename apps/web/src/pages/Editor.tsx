@@ -51,6 +51,7 @@ export function EditorPage() {
       page={q.data.page}
       doc={q.data.doc}
       publishing={q.data.publishing}
+      canEdit={q.data.canEdit}
     />
   )
 }
@@ -138,6 +139,7 @@ function PageView(props: {
   page: PageMeta
   doc: Parameters<typeof DocumentEditor>[0]['doc']
   publishing: PublishingView
+  canEdit: boolean
 }) {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
@@ -202,6 +204,7 @@ function PageView(props: {
             className="flex-1 min-w-0 bg-transparent text-3xl font-bold outline-none"
             value={title}
             placeholder="Untitled"
+            readOnly={!props.canEdit}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
@@ -209,10 +212,20 @@ function PageView(props: {
           <SaveBadge state={state} />
           <ContextDrawerButton page={props.page} publishing={props.publishing} />
         </div>
-        <TemplatePicker page={props.page} doc={props.doc} />
+        {props.canEdit ? (
+          <TemplatePicker page={props.page} doc={props.doc} />
+        ) : (
+          <p
+            className="text-xs mb-3 rounded-lg px-3 py-1.5 inline-block"
+            style={{ background: 'var(--sunk, var(--bg))', color: 'var(--text-3)' }}
+          >
+            View only. This notebook was shared with you to read.
+          </p>
+        )}
         <DocumentEditor
           pageId={props.page.id}
           doc={props.doc}
+          readOnly={!props.canEdit}
           onSaved={setContent}
           onStateChange={(s) => {
             setState(s)
@@ -225,7 +238,7 @@ function PageView(props: {
           onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
         />
         <MermaidPreview content={content} />
-        {props.page.pageType === 'gallery' && <GalleryManager page={props.page} />}
+        {props.page.pageType === 'gallery' && props.canEdit && <GalleryManager page={props.page} />}
       </div>
       <aside
         className="w-72 shrink-0 border-l px-5 py-8 hidden lg:block"

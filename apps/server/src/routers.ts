@@ -272,12 +272,17 @@ function rethrow(err: unknown): never {
   throw err
 }
 
-function toSpaceView(s: SpaceRow): SpaceView {
+function toSpaceView(
+  s: SpaceRow,
+  viewer: { id: string; role: SpaceView['role'] } | null = null,
+): SpaceView {
   return {
     id: s.id,
     name: s.name,
     category: s.category,
     personal: s.ownerId !== null,
+    role: viewer?.role ?? 'owner',
+    sharedWithMe: viewer !== null && s.ownerId !== null && s.ownerId !== viewer.id,
     publicEnabled: s.publicEnabled,
     publicMaintenance: s.publicMaintenance,
     publicHost: s.publicHost,
@@ -657,7 +662,7 @@ const searchRouter = router({
         ctx.locks.hiddenPageIds(ctx.sessionToken, ctx.user),
       ])
       const accessible = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+        spaces.filter(await ctx.access.filter(ctx.user)).map((s) => [s.id, s]),
       )
       const results: SearchResult[] = []
       const needle = input.q.toLowerCase()
@@ -733,7 +738,8 @@ const usersRouter = router({
 const spacesRouter = router({
   list: authedProcedure.query(async ({ ctx }) => {
     const spaces = await ctx.pages.listSpaces(ctx.user)
-    return spaces.map(toSpaceView)
+    const roleOf = await ctx.access.roles(ctx.user)
+    return spaces.map((s) => toSpaceView(s, { id: ctx.user.id, role: roleOf(s) ?? 'viewer' }))
   }),
 
   create: authedProcedure.input(createSpaceInput).mutation(async ({ ctx, input }) => {
@@ -809,46 +815,51 @@ const pagesRouter = router({
     }
   }),
 
-  get: authedProcedure
-    .input(z.object({ pageId: z.string() }))
-    .query(
-      async ({
-        ctx,
-        input,
-      }): Promise<{ page: PageMeta; doc: DocumentView; publishing: PublishingView }> => {
-        try {
-          // the lock is checked before the document is read, so a locked page
-          // never leaves the server even as a rejected response body
-          const locked = await ctx.repo.getPage(input.pageId)
-          if (locked) await ctx.locks.assertPageOpen(ctx.sessionToken, locked)
-          const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
-          const space = await ctx.repo.getSpace(page.spaceId)
-          if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
-          const publishing =
-            space.kind === 'tree'
-              ? await ctx.publishing.status(page, space)
-              : {
-                  spaceEnabled: false,
-                  host: null,
-                  live: null,
-                  pending: false,
-                  slugPath: null,
-                  scheduledAt: null,
-                }
-          return {
-            page: toPageMeta(page),
-            doc: {
-              content: doc.content,
-              schemaVersion: doc.schemaVersion,
-              updatedAt: doc.updatedAt.toISOString(),
-            },
-            publishing,
-          }
-        } catch (err) {
-          rethrow(err)
+  get: authedProcedure.input(z.object({ pageId: z.string() })).query(
+    async ({
+      ctx,
+      input,
+    }): Promise<{
+      page: PageMeta
+      doc: DocumentView
+      publishing: PublishingView
+      /** false in a space shared with this person read-only */
+      canEdit: boolean
+    }> => {
+      try {
+        // the lock is checked before the document is read, so a locked page
+        // never leaves the server even as a rejected response body
+        const locked = await ctx.repo.getPage(input.pageId)
+        if (locked) await ctx.locks.assertPageOpen(ctx.sessionToken, locked)
+        const { page, doc } = await ctx.pages.getPage(ctx.user, input.pageId)
+        const space = await ctx.repo.getSpace(page.spaceId)
+        if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
+        const publishing =
+          space.kind === 'tree'
+            ? await ctx.publishing.status(page, space)
+            : {
+                spaceEnabled: false,
+                host: null,
+                live: null,
+                pending: false,
+                slugPath: null,
+                scheduledAt: null,
+              }
+        return {
+          page: toPageMeta(page),
+          doc: {
+            content: doc.content,
+            schemaVersion: doc.schemaVersion,
+            updatedAt: doc.updatedAt.toISOString(),
+          },
+          publishing,
+          canEdit: await ctx.access.can(space, ctx.user, 'write'),
         }
-      },
-    ),
+      } catch (err) {
+        rethrow(err)
+      }
+    },
+  ),
 
   rename: authedProcedure.input(renamePageInput).mutation(async ({ ctx, input }) => {
     try {
@@ -957,7 +968,7 @@ const pagesRouter = router({
         ctx.repo.listSpaces(),
       ])
       const spaceById = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+        spaces.filter(await ctx.access.filter(ctx.user)).map((s) => [s.id, s]),
       )
       const byId = new Map(pages.map((p) => [p.id, p]))
       return fromIds
@@ -1019,10 +1030,10 @@ const pagesRouter = router({
     .input(z.object({ days: z.number().int().min(1).max(3650).default(180) }))
     .query(async ({ ctx, input }): Promise<StalePage[]> => {
       const [pages, spaces] = await Promise.all([ctx.repo.listAllPages(), ctx.repo.listSpaces()])
+      // a worklist: only spaces this person can edit
+      const writable = await ctx.access.filter(ctx.user, 'write')
       const spaceById = new Map(
-        spaces
-          .filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === ctx.user.id))
-          .map((s) => [s.id, s]),
+        spaces.filter((s) => s.kind === 'tree' && writable(s)).map((s) => [s.id, s]),
       )
       const cutoff = Date.now() - input.days * 24 * 60 * 60 * 1000
       return pages
@@ -1048,10 +1059,9 @@ const pagesRouter = router({
   /** Most recently edited pages across accessible tree spaces (Today rail). */
   recent: authedProcedure.query(async ({ ctx }): Promise<RecentPage[]> => {
     const [pages, spaces] = await Promise.all([ctx.repo.listAllPages(), ctx.repo.listSpaces()])
+    const readable = await ctx.access.filter(ctx.user)
     const spaceById = new Map(
-      spaces
-        .filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === ctx.user.id))
-        .map((s) => [s.id, s]),
+      spaces.filter((s) => s.kind === 'tree' && readable(s)).map((s) => [s.id, s]),
     )
     return pages
       .filter((p) => spaceById.has(p.spaceId) && !p.archivedAt && !p.trashedAt)
@@ -1196,7 +1206,7 @@ const publishRouter = router({
   updateAnalytics: authedProcedure.input(updateAnalyticsInput).mutation(async ({ ctx, input }) => {
     const space = await ctx.repo.getSpace(input.spaceId)
     if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
-    if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
+    if (!(await ctx.access.can(space, ctx.user, 'owner'))) {
       throw new TRPCError({ code: 'FORBIDDEN' })
     }
     const off = input.provider === 'none'
@@ -1302,9 +1312,7 @@ const tagsRouter = router({
       ctx.repo.listSpaces(),
       ctx.repo.listMemos(ctx.user.id),
     ])
-    const accessible = new Set(
-      spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => s.id),
-    )
+    const accessible = new Set(spaces.filter(await ctx.access.filter(ctx.user)).map((s) => s.id))
     const visible = new Map(
       pages
         .filter((p) => accessible.has(p.spaceId) && !p.archivedAt && !p.trashedAt)
@@ -1337,7 +1345,7 @@ const tagsRouter = router({
         ctx.repo.listMemos(ctx.user.id),
       ])
       const spaceById = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === ctx.user.id).map((s) => [s.id, s]),
+        spaces.filter(await ctx.access.filter(ctx.user)).map((s) => [s.id, s]),
       )
       const byId = new Map(pages.map((p) => [p.id, p]))
       const items: TagItem[] = []
@@ -1378,14 +1386,14 @@ const tagsRouter = router({
     }),
 
   add: authedProcedure.input(pageTagInput).mutation(async ({ ctx, input }) => {
-    await ctx.pages.getPage(ctx.user, input.pageId)
+    await ctx.pages.checkPage(ctx.user, input.pageId, 'write')
     await ctx.repo.addManualPageTag(input.pageId, input.tag)
     return { ok: true }
   }),
 
   /** Only manual tags can be removed here; inline ones live in the text. */
   remove: authedProcedure.input(pageTagInput).mutation(async ({ ctx, input }) => {
-    await ctx.pages.getPage(ctx.user, input.pageId)
+    await ctx.pages.checkPage(ctx.user, input.pageId, 'write')
     await ctx.repo.removeManualPageTag(input.pageId, input.tag)
     return { ok: true }
   }),
@@ -2039,7 +2047,7 @@ const galleryRouter = router({
     .input(z.object({ pageId: z.string(), attachmentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.pages.checkPage(ctx.user, input.pageId, 'write')
         await ctx.attachments.addToGallery(input.pageId, input.attachmentId)
         return { ok: true }
       } catch (err) {
@@ -2051,7 +2059,7 @@ const galleryRouter = router({
     .input(z.object({ pageId: z.string(), itemId: z.string(), caption: z.string().max(300) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.pages.checkPage(ctx.user, input.pageId, 'write')
         await ctx.attachments.setCaption(input.itemId, input.caption)
         return { ok: true }
       } catch (err) {
@@ -2063,7 +2071,7 @@ const galleryRouter = router({
     .input(z.object({ pageId: z.string(), itemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await ctx.pages.getPage(ctx.user, input.pageId)
+        await ctx.pages.checkPage(ctx.user, input.pageId, 'write')
         await ctx.attachments.removeFromGallery(input.itemId)
         return { ok: true }
       } catch (err) {
@@ -2344,10 +2352,11 @@ const locksRouter = router({
   /** Locked things this session may currently open — drives the 🔒 in the UI. */
   list: authedProcedure.query(async ({ ctx }): Promise<LockStateView[]> => {
     const [spaces, pages] = await Promise.all([ctx.repo.listSpaces(), ctx.repo.listLockedPages()])
+    const readable = await ctx.access.filter(ctx.user)
     const out: LockStateView[] = []
     for (const space of spaces) {
       if (!space.lockPolicy) continue
-      if (space.ownerId !== null && space.ownerId !== ctx.user.id) continue
+      if (!readable(space)) continue
       out.push({
         target: 'space',
         id: space.id,
@@ -2383,7 +2392,7 @@ const locksRouter = router({
     if (input.target === 'space') {
       const space = await ctx.repo.getSpace(input.id)
       if (!space) throw new TRPCError({ code: 'NOT_FOUND' })
-      if (space.ownerId !== null && space.ownerId !== ctx.user.id) {
+      if (!(await ctx.access.can(space, ctx.user, 'owner'))) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
       await ctx.repo.setSpaceLock(space.id, input.policy, input.idleMinutes)
@@ -2391,7 +2400,7 @@ const locksRouter = router({
       const page = await ctx.repo.getPage(input.id)
       if (!page) throw new TRPCError({ code: 'NOT_FOUND' })
       const space = await ctx.repo.getSpace(page.spaceId)
-      if (!space || (space.ownerId !== null && space.ownerId !== ctx.user.id)) {
+      if (!space || !(await ctx.access.can(space, ctx.user, 'write'))) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
       // a page that is live on a public site cannot also be private

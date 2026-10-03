@@ -1,6 +1,7 @@
 import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
+import type { AccessService } from './access'
 import type { ApiTokenService } from './apitokens'
 import type { AttachmentsService } from './attachments'
 import type { AuditService } from './audit'
@@ -64,6 +65,7 @@ export type Context = {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  access: AccessService
   offsite: OffsiteService
   restore: RestoreService
   sso: SsoService
@@ -94,6 +96,7 @@ export function makeCreateContext(deps: {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  access: AccessService
   offsite: OffsiteService
   restore: RestoreService
   sso: SsoService

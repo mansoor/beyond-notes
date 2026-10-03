@@ -539,3 +539,48 @@ export const dbRows = sqliteTable('db_rows', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// ---- sharing (managed by an edition; the core only reads these) ----
+
+/** Named sets of people, e.g. "Family". Space shares can name a group. */
+export const userGroups = sqliteTable('user_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const userGroupMembers = sqliteTable(
+  'user_group_members',
+  {
+    groupId: text('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
+)
+
+/**
+ * A personal space shared with a person or a group. viewer = read only;
+ * editor = edit pages. Space settings stay with the owner.
+ */
+export const spaceShares = sqliteTable(
+  'space_shares',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    principalType: text('principal_type', { enum: ['user', 'group'] }).notNull(),
+    principalId: text('principal_id').notNull(),
+    role: text('role', { enum: ['viewer', 'editor'] })
+      .notNull()
+      .default('viewer'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.principalType, t.principalId] }),
+    index('space_shares_principal_idx').on(t.principalType, t.principalId),
+  ],
+)

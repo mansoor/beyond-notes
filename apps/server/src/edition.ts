@@ -14,6 +14,7 @@
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { AccessService } from './access'
 import type { AuditService } from './audit'
 import type { AuthService } from './auth'
 import type { Config } from './config'
@@ -41,6 +42,8 @@ export type EditionDeps = {
   auth: AuthService
   settings: SettingsService
   audit: AuditService
+  /** spaces, shares and groups (access.ts); an edition manages sharing through it */
+  access: AccessService
   version: string
   /** who a request is signed in as (proxy header or session cookie) */
   resolveSession: (req: {

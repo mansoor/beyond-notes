@@ -47,6 +47,9 @@ const DATE_COLUMNS: Record<string, string[]> = {
   dbRows: ['createdAt', 'updatedAt'],
   userIdentities: ['createdAt', 'lastLoginAt'],
   passkeys: ['createdAt', 'lastUsedAt'],
+  userGroups: ['createdAt'],
+  userGroupMembers: [],
+  spaceShares: ['createdAt'],
 }
 
 export type Dump = {
@@ -97,6 +100,10 @@ async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
     // still knows who signs in with SSO or a passkey
     userIdentities: await repo.listAllIdentities(),
     passkeys: await repo.listAllPasskeys(),
+    // who a personal space is shared with
+    userGroups: await repo.listUserGroups(),
+    userGroupMembers: await repo.listAllUserGroupMembers(),
+    spaceShares: await repo.listAllSpaceShares(),
   } as unknown as Dump['tables']
 
   return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
@@ -199,6 +206,9 @@ export async function importInstance(
   for (const row of rows('passkeys')) await repo.insertPasskey(row as never)
   for (const row of rows('invites')) await repo.insertInvite(row as never)
   for (const row of rows('spaces')) await repo.insertSpace(row as never)
+  for (const row of rows('userGroups')) await repo.insertUserGroup(row as never)
+  for (const row of rows('userGroupMembers')) await repo.addUserGroupMember(row as never)
+  for (const row of rows('spaceShares')) await repo.putSpaceShare(row as never)
   for (const row of topoSortPages(rows('pages'))) await repo.insertPage(row as never)
   for (const row of rows('documents')) await repo.insertDocument(row as never)
   for (const row of rows('pageVersions')) await repo.insertPageVersion(row as never)

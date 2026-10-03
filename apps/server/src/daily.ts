@@ -1,5 +1,6 @@
 import { plainText } from '@bn/renderer'
 import { nanoid } from 'nanoid'
+import { type AccessService, createAccess } from './access'
 import { PagesError } from './pages'
 import type { MemoRow, PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
@@ -9,8 +10,12 @@ const EMPTY_DOC = '[]'
 const DOC_SCHEMA_VERSION = 1
 const TASKS_INBOX_KEY = 'inbox' // sentinel dateKey for the per-user tasks-inbox page
 
-export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createDailyService(
+  repo: Repo,
+  opts: { now?: () => Date; access?: AccessService } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
 
   async function ensureJournalSpace(user: UserRow): Promise<SpaceRow> {
     const existing = await repo.getSpaceByOwnerAndKind(user.id, 'journal')
@@ -313,11 +318,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
     async promoteToNote(user: UserRow, memoId: string, spaceId: string): Promise<PageRow> {
       const memo = await this.requireMemo(user, memoId)
       const space = await repo.getSpace(spaceId)
-      if (
-        !space ||
-        (space.ownerId !== null && space.ownerId !== user.id) ||
-        space.kind !== 'tree'
-      ) {
+      if (!space || space.kind !== 'tree' || !(await access.can(space, user, 'write'))) {
         throw new PagesError('NOT_FOUND', 'Space not found.')
       }
       const siblings = (await repo.listPagesInSpace(spaceId)).filter((p) => p.parentId === null)

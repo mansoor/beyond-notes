@@ -499,11 +499,21 @@ function SpaceItem(props: { space: SpaceView }) {
         >
           {props.space.name}
         </button>
-        {props.space.personal && (
+        {props.space.sharedWithMe ? (
+          <span
+            className="text-[10px]"
+            style={{ color: 'var(--text-3)' }}
+            title={
+              props.space.role === 'viewer' ? 'Shared with you to read' : 'Shared with you to edit'
+            }
+          >
+            ⇄
+          </span>
+        ) : props.space.personal ? (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal space">
             ⛭
           </span>
-        )}
+        ) : null}
         {props.space.publicEnabled && (
           <span
             className="text-[10px] font-semibold uppercase rounded px-1"
@@ -550,15 +560,17 @@ function SpaceItem(props: { space: SpaceView }) {
                 ↗
               </a>
             ) : null}
-            <button
-              type="button"
-              title="New page"
-              onClick={() => addPage(null)}
-              className="text-xs px-1"
-              style={{ color: 'var(--text-3)' }}
-            >
-              ＋
-            </button>
+            {props.space.role !== 'viewer' && (
+              <button
+                type="button"
+                title="New page"
+                onClick={() => addPage(null)}
+                className="text-xs px-1"
+                style={{ color: 'var(--text-3)' }}
+              >
+                ＋
+              </button>
+            )}
             <SpaceMenu
               space={props.space}
               onLock={() => setLockOpen(true)}
@@ -710,25 +722,29 @@ function SpaceMenu(props: {
               Preview draft ↗
             </a>
           )}
-          {item('Rename', 'Rename this space', props.onRename)}
-          {item(
-            lock ? 'Remove the lock…' : 'Lock with my password…',
-            lock
-              ? 'Open it without a password from now on'
-              : 'Ask for your account password before opening this space',
-            props.onLock,
-          )}
+          {props.space.role === 'owner' && item('Rename', 'Rename this space', props.onRename)}
+          {props.space.role === 'owner' &&
+            item(
+              lock ? 'Remove the lock…' : 'Lock with my password…',
+              lock
+                ? 'Open it without a password from now on'
+                : 'Ask for your account password before opening this space',
+              props.onLock,
+            )}
           {lock?.open &&
             item('Lock now', 'Close it now, until the password is entered again', () =>
               lockNow.mutate({ target: 'space', id: props.space.id }),
             )}
-          {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
-          {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
-          {item(
-            'Import pages…',
-            'From Notion, Obsidian, Evernote, Markdown or GitHub',
-            props.onImport,
-          )}
+          {props.space.role === 'owner' &&
+            item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
+          {props.space.role !== 'viewer' &&
+            item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
+          {props.space.role !== 'viewer' &&
+            item(
+              'Import pages…',
+              'From Notion, Obsidian, Evernote, Markdown or GitHub',
+              props.onImport,
+            )}
           <a
             href={`/api/export/space/${props.space.id}`}
             download
@@ -739,7 +755,8 @@ function SpaceMenu(props: {
           >
             Export as Markdown (.zip)
           </a>
-          {item('Delete space…', 'Deletes the space and all of its pages', props.onDelete, true)}
+          {props.space.role === 'owner' &&
+            item('Delete space…', 'Deletes the space and all of its pages', props.onDelete, true)}
         </div>
       )}
     </span>
@@ -776,6 +793,9 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
   const row =
     'block w-full text-left text-sm py-1.5 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5'
   const isSite = space.category === 'site' || space.category === 'wiki'
+  // a space shared with this person: viewers read, editors edit pages, owners do the rest
+  const isOwner = space.role === 'owner'
+  const canWrite = space.role !== 'viewer'
 
   return (
     <div>
@@ -783,15 +803,17 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
         Space
       </h2>
       <div className="flex flex-col">
-        <button
-          type="button"
-          className={row}
-          onClick={addPage}
-          disabled={createPage.isPending}
-          style={{ color: 'var(--text-2)' }}
-        >
-          New page
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={addPage}
+            disabled={createPage.isPending}
+            style={{ color: 'var(--text-2)' }}
+          >
+            New page
+          </button>
+        )}
         {isSite && (
           <a
             href={`/s/draft/${space.id}`}
@@ -814,22 +836,26 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
             Open published site ↗
           </a>
         )}
-        <button
-          type="button"
-          className={row}
-          onClick={() => setRenameOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setLockOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          {lock ? 'Remove the lock…' : 'Lock with my password…'}
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setRenameOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Rename
+          </button>
+        )}
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setLockOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            {lock ? 'Remove the lock…' : 'Lock with my password…'}
+          </button>
+        )}
         {lock?.open && (
           <button
             type="button"
@@ -840,30 +866,36 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
             Lock now
           </button>
         )}
-        <button
-          type="button"
-          className={row}
-          onClick={() => setPublishingOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Publishing settings
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setReorgOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Reorganize pages
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setImportOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Import pages…
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setPublishingOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Publishing settings
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setReorgOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Reorganize pages
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setImportOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Import pages…
+          </button>
+        )}
         <a
           href={`/api/export/space/${space.id}`}
           download
@@ -872,14 +904,16 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
         >
           Export as Markdown (.zip)
         </a>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setDeleteOpen(true)}
-          style={{ color: 'var(--danger)' }}
-        >
-          Delete space…
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setDeleteOpen(true)}
+            style={{ color: 'var(--danger)' }}
+          >
+            Delete space…
+          </button>
+        )}
       </div>
 
       {renameOpen && <RenameSpaceModal space={space} onClose={() => setRenameOpen(false)} />}

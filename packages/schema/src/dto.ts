@@ -257,6 +257,10 @@ export type SpaceView = {
   name: string
   category: SpaceCategory
   personal: boolean
+  /** what this person may do here: owner (settings too), editor (pages), viewer (read) */
+  role: 'owner' | 'editor' | 'viewer'
+  /** someone else's personal space, shared with this person */
+  sharedWithMe: boolean
   publicEnabled: boolean
   /** published, but serving a holding page instead of the content */
   publicMaintenance: boolean
