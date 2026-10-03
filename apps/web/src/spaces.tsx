@@ -29,7 +29,7 @@ import {
   useMenuAnchor,
   useSubmit,
 } from './components'
-import { webEdition } from './edition'
+import { type EditionSpaceAction, webEdition } from './edition'
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
 import {
@@ -404,6 +404,7 @@ function SpaceItem(props: { space: SpaceView }) {
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editionAction, setEditionAction] = useState<EditionSpaceAction | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [lockOpen, setLockOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -579,10 +580,18 @@ function SpaceItem(props: { space: SpaceView }) {
               onImport={() => setImportOpen(true)}
               onRename={() => setRenameOpen(true)}
               onDelete={() => setDeleteOpen(true)}
+              onAction={setEditionAction}
             />
           </span>
         )}
       </div>
+      {editionAction && (
+        <EditionActionModal
+          action={editionAction}
+          space={props.space}
+          onClose={() => setEditionAction(null)}
+        />
+      )}
       {unlockOpen && spaceLock && (
         <UnlockModal
           target="space"
@@ -660,6 +669,26 @@ function SpaceItem(props: { space: SpaceView }) {
  * the row; a space also needs rename and delete, and six icons is a puzzle
  * rather than a toolbar.
  */
+/** Space-menu entries an add-on edition contributes (edition/types.ts). */
+function editionActionsFor(space: SpaceView): EditionSpaceAction[] {
+  return (webEdition.spaceActions ?? []).filter(
+    (a) => (!a.ownerOnly || space.role === 'owner') && !a.hidden?.(space),
+  )
+}
+
+function EditionActionModal(props: {
+  action: EditionSpaceAction
+  space: SpaceView
+  onClose: () => void
+}) {
+  const { Component } = props.action
+  return (
+    <Modal title={`${props.action.label} — ${props.space.name}`} onClose={props.onClose} width="lg">
+      <Component space={props.space} onClose={props.onClose} />
+    </Modal>
+  )
+}
+
 function SpaceMenu(props: {
   space: SpaceView
   onPublishing: () => void
@@ -668,6 +697,7 @@ function SpaceMenu(props: {
   onRename: () => void
   onDelete: () => void
   onLock: () => void
+  onAction: (action: EditionSpaceAction) => void
 }) {
   const [open, setOpen] = useState(false)
   const lock = useLockState('space', props.space.id)
@@ -737,6 +767,9 @@ function SpaceMenu(props: {
             )}
           {props.space.role === 'owner' &&
             item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
+          {editionActionsFor(props.space).map((a) => (
+            <span key={a.id}>{item(a.label, a.hint, () => props.onAction(a))}</span>
+          ))}
           {props.space.role !== 'viewer' &&
             item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
           {props.space.role !== 'viewer' &&
@@ -783,6 +816,7 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editionAction, setEditionAction] = useState<EditionSpaceAction | null>(null)
 
   const addPage = async () => {
     const page = await createPage.mutateAsync({ spaceId: space.id, parentId: null, title: '' })
@@ -876,6 +910,18 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
             Publishing settings
           </button>
         )}
+        {editionActionsFor(space).map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className={row}
+            title={a.hint}
+            onClick={() => setEditionAction(a)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            {a.label}
+          </button>
+        ))}
         {canWrite && (
           <button
             type="button"
@@ -917,6 +963,13 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
       </div>
 
       {renameOpen && <RenameSpaceModal space={space} onClose={() => setRenameOpen(false)} />}
+      {editionAction && (
+        <EditionActionModal
+          action={editionAction}
+          space={space}
+          onClose={() => setEditionAction(null)}
+        />
+      )}
       {lockOpen && (
         <LockModal
           target="space"

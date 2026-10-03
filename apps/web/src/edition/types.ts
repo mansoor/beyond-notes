@@ -38,8 +38,31 @@ export type EditionPublishingTab = {
   Component: ComponentType<{ space: PublishingTabSpace }>
 }
 
+/** The space a space-menu action is about. */
+export type ActionSpace = PublishingTabSpace & {
+  personal: boolean
+  role: 'owner' | 'editor' | 'viewer'
+  sharedWithMe: boolean
+}
+
+/**
+ * An entry in a space's ⋯ menu (sidebar and space page) that opens a dialog.
+ * The core supplies the dialog frame; Component is its body.
+ */
+export type EditionSpaceAction = {
+  id: string
+  label: string
+  hint: string
+  /** only the space's owner sees it */
+  ownerOnly?: boolean
+  /** hide it for this space (e.g. sharing makes no sense for a shared space) */
+  hidden?: (space: ActionSpace) => boolean
+  Component: ComponentType<{ space: ActionSpace; onClose: () => void }>
+}
+
 export type WebEdition = {
   name: string
   settingsTabs?: EditionSettingsTab[]
   publishingTabs?: EditionPublishingTab[]
+  spaceActions?: EditionSpaceAction[]
 }

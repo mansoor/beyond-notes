@@ -3,7 +3,9 @@ import edition from '@bn/edition-web'
 import type { WebEdition } from './types'
 
 export type {
+  ActionSpace,
   EditionPublishingTab,
+  EditionSpaceAction,
   EditionSettingsTab,
   PublishingTabSpace,
   WebEdition,
