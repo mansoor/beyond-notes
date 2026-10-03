@@ -190,6 +190,7 @@ function toUserView(u: UserRow): UserView {
     passwordSet: u.passwordSet,
     name: u.name,
     role: u.role,
+    disabled: u.disabledAt !== null,
     emailNotifications: u.emailNotifications,
     createdAt: u.createdAt.toISOString(),
   }
@@ -725,6 +726,31 @@ const usersRouter = router({
       emailed,
     }
   }),
+
+  /** Deactivate or reactivate an account. Its content stays either way. */
+  setActive: adminProcedure
+    .input(z.object({ userId: z.string(), active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.repo.getUserById(input.userId)
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND' })
+      if (!input.active) {
+        if (user.id === ctx.user.id) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: "You can't deactivate yourself." })
+        }
+        const activeAdmins = (await ctx.repo.listUsers()).filter(
+          (u) => u.role === 'admin' && !u.disabledAt,
+        )
+        if (user.role === 'admin' && activeAdmins.length <= 1) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Keep at least one active admin.' })
+        }
+      }
+      await ctx.auth.setDisabled(user.id, !input.active)
+      await note(ctx, input.active ? 'user.reactivated' : 'user.deactivated', {
+        target: user.email,
+      })
+      const users = await ctx.repo.listUsers()
+      return users.map(toUserView)
+    }),
 
   revokeInvite: adminProcedure
     .input(z.object({ id: z.string() }))

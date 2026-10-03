@@ -68,6 +68,8 @@ export const auditAction = z.enum([
   'auth.token_revoked',
   'user.invited',
   'user.invite_revoked',
+  'user.deactivated',
+  'user.reactivated',
   'settings.saved',
   'backup.created',
   'backup.deleted',
@@ -172,6 +174,8 @@ export type UserView = {
   email: string
   name: string
   role: 'admin' | 'member'
+  /** deactivated: can't sign in; their content stays */
+  disabled: boolean
   emailNotifications: boolean
   /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
   sidebarHidden: string[]

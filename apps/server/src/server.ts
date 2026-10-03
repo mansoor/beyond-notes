@@ -12,7 +12,7 @@ import { createAccess } from './access'
 import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuditService } from './audit'
-import { createAuthService } from './auth'
+import { AuthError, createAuthService } from './auth'
 import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
 import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
@@ -660,7 +660,9 @@ export async function buildServer(
   // provider identity to the current account instead of signing in.
   const OIDC_STATE_COOKIE = 'bn_oidc'
   const ssoFail = (reply: any, err: unknown, to: string) => {
-    const message = err instanceof SsoError ? err.message : 'Single sign-on failed.'
+    // our own explanations (not allowed, deactivated…) are fit to show
+    const message =
+      err instanceof SsoError || err instanceof AuthError ? err.message : 'Single sign-on failed.'
     if (!(err instanceof SsoError)) server.log.error(err)
     return reply.redirect(`${to}?sso_error=${encodeURIComponent(message)}`)
   }

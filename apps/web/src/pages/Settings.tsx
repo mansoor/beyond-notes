@@ -2628,6 +2628,9 @@ function StorageCard() {
 
 function UsersTab() {
   const utils = trpc.useUtils()
+  const setActive = trpc.users.setActive.useMutation({
+    onSuccess: (list) => utils.users.list.setData(undefined, list),
+  })
   const status = trpc.auth.status.useQuery()
   const users = trpc.users.list.useQuery()
   const invites = trpc.users.invites.useQuery()
@@ -2692,15 +2695,47 @@ function UsersTab() {
         {users.data?.map((u) => (
           <li
             key={u.id}
-            className="flex justify-between py-2 border-b last:border-0"
-            style={{ borderColor: 'var(--border)' }}
+            className="flex items-center gap-3 py-2 border-b last:border-0"
+            style={{ borderColor: 'var(--border)', opacity: u.disabled ? 0.6 : 1 }}
           >
-            <span>
+            <span className="flex-1 min-w-0 truncate">
               {u.name} <span style={{ color: 'var(--text-3)' }}>({u.email})</span>
             </span>
-            <span style={{ color: 'var(--text-2)' }}>{u.role}</span>
+            <span className="shrink-0" style={{ color: 'var(--text-2)' }}>
+              {u.disabled ? 'deactivated' : u.role}
+            </span>
+            {u.id !== status.data?.me?.id && (
+              <button
+                type="button"
+                className="underline text-xs shrink-0 disabled:opacity-60"
+                style={{ color: u.disabled ? 'var(--accent)' : 'var(--danger)' }}
+                disabled={setActive.isPending}
+                title={
+                  u.disabled
+                    ? 'Let them sign in again'
+                    : 'Sign them out everywhere and stop them signing in. Their notes stay.'
+                }
+                onClick={() => {
+                  if (
+                    u.disabled ||
+                    window.confirm(
+                      `Deactivate ${u.name}? They're signed out everywhere and can't sign in until you reactivate them. Nothing they made is deleted.`,
+                    )
+                  ) {
+                    setActive.mutate({ userId: u.id, active: u.disabled })
+                  }
+                }}
+              >
+                {u.disabled ? 'Reactivate' : 'Deactivate'}
+              </button>
+            )}
           </li>
         ))}
+        {setActive.error && (
+          <li className="text-xs pt-2" style={{ color: 'var(--danger)' }}>
+            {setActive.error.message}
+          </li>
+        )}
       </ul>
       {(invites.data?.length ?? 0) > 0 && (
         <ul className="text-sm">
@@ -2757,6 +2792,8 @@ const AUDIT_LABEL: Record<string, string> = {
   'auth.token_revoked': 'Revoked an API token',
   'user.invited': 'Invited someone',
   'user.invite_revoked': 'Revoked an invite',
+  'user.deactivated': 'Deactivated an account',
+  'user.reactivated': 'Reactivated an account',
   'settings.saved': 'Changed settings',
   'backup.created': 'Made a backup',
   'backup.deleted': 'Deleted a backup',

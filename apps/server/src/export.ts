@@ -23,7 +23,7 @@ export const EXPORT_VERSION = 1
 
 // Dates cross the JSON boundary as ISO strings; these are the columns to revive.
 const DATE_COLUMNS: Record<string, string[]> = {
-  users: ['createdAt'],
+  users: ['createdAt', 'disabledAt'],
   invites: ['createdAt', 'expiresAt', 'usedAt', 'revokedAt'],
   spaces: ['createdAt'],
   pages: ['createdAt', 'updatedAt', 'archivedAt', 'trashedAt'],

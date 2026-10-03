@@ -30,6 +30,8 @@ export type UserRow = {
   graphMobile: boolean
   /** default app theme, adopted on a device that has not picked one */
   defaultTheme: 'light' | 'paper' | 'navy' | 'dark'
+  /** deactivated at; null = active */
+  disabledAt: Date | null
   createdAt: Date
 }
 
@@ -367,6 +369,15 @@ export function createRepo(appDb: AppDb) {
       return rows.length
     },
 
+    /** People who can sign in (what a per-seat licence counts). */
+    async countActiveUsers(): Promise<number> {
+      const rows = await db
+        .select({ id: t.users.id })
+        .from(t.users)
+        .where(isNull(t.users.disabledAt))
+      return rows.length
+    },
+
     async getUserByEmail(email: string): Promise<UserRow | null> {
       const rows = await db.select().from(t.users).where(eq(t.users.email, email)).limit(1)
       return rows[0] ?? null
@@ -407,10 +418,16 @@ export function createRepo(appDb: AppDb) {
           | 'graphEdges'
           | 'graphMobile'
           | 'defaultTheme'
+          | 'disabledAt'
         >
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    /** End every session of one person (deactivation, forced password reset). */
+    async deleteSessionsForUser(userId: string): Promise<void> {
+      await db.delete(t.sessions).where(eq(t.sessions.userId, userId))
     },
 
     async getIdentity(issuer: string, subject: string): Promise<IdentityRow | null> {

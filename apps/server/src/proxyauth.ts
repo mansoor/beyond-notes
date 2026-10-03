@@ -161,7 +161,8 @@ export function createProxyAuth(deps: {
       const user = await userFor(email, header(req, cfg.nameHeader), groups)
       // the proxy vouched for someone with no account here: signed out, and
       // deliberately not falling back to whatever the cookie says
-      if (!user) return { user: null, token: null, fresh: false, expiresAt: null }
+      if (!user || user.disabledAt)
+        return { user: null, token: null, fresh: false, expiresAt: null }
       const session = await deps.auth.sessionFor(user.id)
       cache.set(email, session)
       deps.onLogin?.(user, req.socket?.remoteAddress ?? '')

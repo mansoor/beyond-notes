@@ -19,7 +19,8 @@ export class AuthError extends Error {
       | 'TOTP_REQUIRED'
       | 'TOTP_INVALID'
       | 'RESET_INVALID'
-      | 'PASSWORD_LOGIN_DISABLED',
+      | 'PASSWORD_LOGIN_DISABLED'
+      | 'ACCOUNT_DISABLED',
     message: string,
   ) {
     super(message)
@@ -82,9 +83,12 @@ export function newUserRow(
     graphEdges: '["concept","link","tag","relation","semantic"]',
     graphMobile: true,
     defaultTheme: 'light',
+    disabledAt: null,
     ...fields,
   }
 }
+
+const DISABLED_MESSAGE = 'This account has been deactivated. Ask an admin to turn it back on.'
 
 export function createAuthService(
   repo: Repo,
@@ -170,6 +174,7 @@ export function createAuthService(
         }
       }
       limiter.clear(input.email)
+      if (user.disabledAt) throw new AuthError('ACCOUNT_DISABLED', DISABLED_MESSAGE)
       return { user, session: await createSession(user.id) }
     },
 
@@ -274,8 +279,22 @@ export function createAuthService(
     },
 
     /** A session for someone the identity provider already vouched for. */
+    /**
+     * A new session for someone who just proved who they are some other way
+     * (passkey, SSO, forward-auth, an edition's SAML). Every such path comes
+     * through here, so a deactivated account is refused in one place.
+     */
     async sessionFor(userId: string) {
+      const user = await repo.getUserById(userId)
+      if (!user) throw new AuthError('BAD_CREDENTIALS', 'No such account.')
+      if (user.disabledAt) throw new AuthError('ACCOUNT_DISABLED', DISABLED_MESSAGE)
       return createSession(userId)
+    },
+
+    /** Deactivate (sessions end at once) or reactivate an account. */
+    async setDisabled(userId: string, disabled: boolean): Promise<void> {
+      await repo.updateUser(userId, { disabledAt: disabled ? now() : null })
+      if (disabled) await repo.deleteSessionsForUser(userId)
     },
 
     /** An account made on first single sign-on. Its password is random and
@@ -341,7 +360,9 @@ export function createAuthService(
         await repo.deleteSession(session.id)
         return null
       }
-      return repo.getUserById(session.userId)
+      const user = await repo.getUserById(session.userId)
+      // a deactivated account's sessions are dead even if one survived
+      return user && !user.disabledAt ? user : null
     },
 
     /** Admin creates an invite; the raw token is returned exactly once. */

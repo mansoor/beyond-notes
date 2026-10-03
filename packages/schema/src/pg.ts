@@ -71,6 +71,9 @@ export const users = pgTable('users', {
   defaultTheme: text('default_theme', { enum: ['light', 'paper', 'navy', 'dark'] })
     .notNull()
     .default('light'),
+  // Deactivated by an admin (or a provisioning system): can't sign in, sessions
+  // and API tokens stop working. Everything the person made stays.
+  disabledAt: timestamp('disabled_at', { withTimezone: true, mode: 'date' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
 
