@@ -76,6 +76,7 @@ export const auditAction = z.enum([
   'backup.downloaded',
   'backup.restored',
   'export.space',
+  'newsletter.sent',
 ])
 export type AuditAction = z.infer<typeof auditAction>
 

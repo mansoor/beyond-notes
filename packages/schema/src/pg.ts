@@ -696,3 +696,61 @@ export const documentLiveStates = pgTable('document_live_states', {
   // documents.updated_at this state matches
   contentAt: timestamp('content_at', { withTimezone: true, mode: 'date' }).notNull(),
 })
+
+// ---- newsletters ----
+
+/**
+ * People who asked a published site to email them its new posts. A signup is
+ * 'pending' until the address is confirmed from the email it receives; the
+ * token is in every email they get, for confirming and unsubscribing.
+ */
+export const newsletterSubscribers = pgTable(
+  'newsletter_subscribers',
+  {
+    id: text('id').primaryKey(),
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    // lower-cased
+    email: text('email').notNull(),
+    status: text('status', { enum: ['pending', 'active', 'unsubscribed'] }).notNull(),
+    token: text('token').notNull(),
+    // 'form' (the site), 'manual' (added by the owner), 'import'
+    source: text('source').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true, mode: 'date' }),
+    unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [
+    uniqueIndex('newsletter_subscribers_space_email').on(t.spaceId, t.email),
+    uniqueIndex('newsletter_subscribers_token').on(t.token),
+  ],
+)
+
+/** A post emailed to a site's subscribers: queued, sending, then sent. */
+export const newsletterIssues = pgTable(
+  'newsletter_issues',
+  {
+    id: text('id').primaryKey(),
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    pageId: text('page_id').references(() => pages.id, { onDelete: 'set null' }),
+    subject: text('subject').notNull(),
+    status: text('status', {
+      enum: ['queued', 'sending', 'sent', 'cancelled', 'failed'],
+    }).notNull(),
+    // not before this (a short hold after an automatic send, to fix a typo)
+    sendAfter: timestamp('send_after', { withTimezone: true, mode: 'date' }).notNull(),
+    // subscribers are sent to in id order; the last one done, for resuming
+    cursor: text('cursor'),
+    recipients: integer('recipients').notNull().default(0),
+    sent: integer('sent').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    error: text('error'),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [index('newsletter_issues_space_idx').on(t.spaceId)],
+)

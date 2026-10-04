@@ -2800,6 +2800,7 @@ const AUDIT_LABEL: Record<string, string> = {
   'backup.downloaded': 'Downloaded a backup',
   'backup.restored': 'Restored from a backup',
   'export.space': 'Exported a space',
+  'newsletter.sent': 'Sent a newsletter',
 }
 
 /** Events an admin should notice when skimming. */

@@ -1,5 +1,15 @@
-import { createTransport } from 'nodemailer'
+import { type Transporter, createTransport } from 'nodemailer'
 import type { SettingsService } from './settings'
+
+/** Extras for mail that isn't a plain notice (newsletters). */
+export type MailExtras = {
+  /** an HTML part; `text` stays as the plain-text alternative */
+  html?: string
+  /** display name for the sender; the address stays the configured one */
+  fromName?: string
+  replyTo?: string
+  headers?: Record<string, string>
+}
 
 // The email seam. Everything that sends mail goes through this interface so
 // dev/test run on a log (or capture) mailer. SMTP resolves through the
@@ -8,27 +18,58 @@ import type { SettingsService } from './settings'
 export interface Mailer {
   /** false = no SMTP anywhere; the UI hides email-dependent flows entirely */
   readonly configured: boolean
-  send(to: string, subject: string, text: string): Promise<void>
+  send(to: string, subject: string, text: string, extras?: MailExtras): Promise<void>
+}
+
+/** The address inside a From value: `Name <a@b.c>` or a bare `a@b.c`. */
+export function fromAddress(from: string): string {
+  return from.match(/<([^>]+)>/)?.[1]?.trim() ?? from.trim()
+}
+
+/** A From header with this display name, safely quoted. */
+export function withFromName(from: string, name: string | undefined): string {
+  const clean = (name ?? '').replace(/["\\\r\n<>]/g, '').trim()
+  return clean ? `"${clean}" <${fromAddress(from)}>` : from
 }
 
 export function createDynamicMailer(settings: SettingsService, log: (msg: string) => void): Mailer {
+  // one pooled connection per SMTP config, so a newsletter isn't a new
+  // connection per subscriber; an edited config gets a fresh pool
+  let pool: { key: string; transport: Transporter } | null = null
+  const transportFor = (smtp: NonNullable<ReturnType<SettingsService['effectiveSmtp']>>) => {
+    const key = JSON.stringify([smtp.host, smtp.port, smtp.secure, smtp.user, smtp.pass])
+    if (pool?.key === key) return pool.transport
+    pool?.transport.close()
+    const transport = createTransport({
+      pool: true,
+      maxConnections: 2,
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+    })
+    pool = { key, transport }
+    return transport
+  }
   return {
     get configured() {
       return settings.effectiveSmtp() !== null
     },
-    async send(to, subject, text) {
+    async send(to, subject, text, extras) {
       const smtp = settings.effectiveSmtp()
       if (!smtp) {
         log(`[mail] (no SMTP configured) to=${to} subject=${subject}\n${text}`)
         return
       }
-      const transport = createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+      await transportFor(smtp).sendMail({
+        from: withFromName(smtp.from, extras?.fromName),
+        to,
+        subject,
+        text,
+        html: extras?.html,
+        replyTo: extras?.replyTo,
+        headers: extras?.headers,
       })
-      await transport.sendMail({ from: smtp.from, to, subject, text })
     },
   }
 }

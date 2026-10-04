@@ -33,11 +33,11 @@ import { type OffsiteService, createOffsiteService } from './offsite'
 import { createPagesService } from './pages'
 import { createPasskeyService } from './passkeys'
 import { createProxyAuth, proxyAuthSettings } from './proxyauth'
-import { createPublicServer } from './public'
+import { UNSUBSCRIBE_PATH, createPublicServer } from './public'
 import { createPublicApi } from './publicapi'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
-import { type UserRow, createRepo } from './repo'
+import { type SpaceRow, type UserRow, createRepo } from './repo'
 import { registerPublicApi } from './restapi'
 import { createRestoreService } from './restore'
 import { appRouter } from './routers'
@@ -154,10 +154,14 @@ export async function buildServer(
   })
   const daily = createDailyService(repo, { access })
   const tasks = createTasksService(repo, { access })
-  const publishing = createPublishingService(repo, { access })
+  const publishing = createPublishingService(repo, {
+    access,
+    onListenerError: (err) => server.log.error(err, 'after-publish step failed'),
+  })
   // set once the edition module has loaded (below); until then, no gate
   let siteGate: SiteGate | null = null
   let countsVisits: ((spaceId: string) => boolean) | null = null
+  let editionSite: Pick<ServerEdition, 'siteRoutes' | 'siteHtml'> = {}
   const visits = createVisitRecorder({
     repo,
     onError: (err) => server.log.error(err, 'visit counts could not be saved'),
@@ -178,7 +182,21 @@ export async function buildServer(
         siteHost: space.publicHost ?? '',
       })
     },
+    siteRoutes: async (space, req, reply, ctx) =>
+      editionSite.siteRoutes ? editionSite.siteRoutes(space, req, reply, ctx) : false,
+    siteHtml: (space, slot, ctx) => editionSite.siteHtml?.(space, slot, ctx) ?? '',
   })
+  // where a published space is reached from outside: its own host when that
+  // looks like a real domain, else the /s/<host> path every instance serves
+  const appBase = config.BASE_URL.replace(/\/+$/, '')
+  const siteUrls = (space: SpaceRow) => {
+    const host = space.publicHost ?? ''
+    if (host.includes('.') && !/^(localhost|127\.|0\.0\.0\.0)/.test(host)) {
+      const origin = `${new URL(config.BASE_URL).protocol}//${host}`
+      return { site: origin, origin }
+    }
+    return { site: `${appBase}/s/${host}`, origin: appBase }
+  }
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
@@ -240,6 +258,10 @@ export async function buildServer(
   const edition = editionHandle(editionModule)
   siteGate = editionModule.siteGate ?? null
   countsVisits = editionModule.countVisits ? (id) => Boolean(editionModule.countVisits?.(id)) : null
+  editionSite = {
+    siteRoutes: editionModule.siteRoutes?.bind(editionModule),
+    siteHtml: editionModule.siteHtml?.bind(editionModule),
+  }
   await editionModule.register(server, {
     config,
     repo,
@@ -256,6 +278,14 @@ export async function buildServer(
         session.token,
         sessionCookieOptions(config, session.expiresAt),
       )
+    },
+    mailer,
+    sites: {
+      urls: siteUrls,
+      noticePage: (space, basePath, heading, html) =>
+        publicSrv.notice(space, basePath, heading, html),
+      emailFor: (space, pageId) => publicSrv.emailFor(space, pageId, siteUrls(space)),
+      onPublished: (listener) => publishing.onPublished(listener),
     },
     log: {
       info: (msg) => server.log.info(msg),
@@ -684,6 +714,26 @@ export async function buildServer(
     // an async hook that has replied must return the reply, or Fastify may
     // route the request on and answer it a second time
     if (handled) return reply
+  })
+
+  // A newsletter's unsubscribe button, and mail apps' one-click unsubscribe
+  // (RFC 8058: a POST to the List-Unsubscribe URL). The token rides the URL.
+  const unsubscribe = async (req: any, reply: any, host: string, basePath: string) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const token = String((req.query as { t?: string }).t ?? body.t ?? '')
+    const html = await publicSrv.unsubscribe(host, token, basePath)
+    if (html === null) return reply.code(404).send({ error: 'not found' })
+    return reply
+      .header('cache-control', 'private, no-store')
+      .type('text/html; charset=utf-8')
+      .send(html)
+  }
+  server.post(UNSUBSCRIBE_PATH, (req, reply) =>
+    unsubscribe(req, reply, String(req.headers.host ?? ''), ''),
+  )
+  server.post(`/s/:host${UNSUBSCRIBE_PATH}`, (req, reply) => {
+    const host = String((req.params as { host?: string }).host ?? '')
+    return unsubscribe(req, reply, host, `/s/${host}`)
   })
 
   // Path-based escape hatch (/s/<host>/...) so a published site can be viewed

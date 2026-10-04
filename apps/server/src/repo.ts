@@ -1,4 +1,18 @@
-import { and, desc, eq, gte, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lt,
+  lte,
+  or,
+  sql as sqlOp,
+} from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -99,6 +113,36 @@ export type SiteVisitRow = {
   visitors: number
 }
 export type SiteReferrerRow = { spaceId: string; day: string; host: string; views: number }
+
+export type SubscriberStatus = 'pending' | 'active' | 'unsubscribed'
+export type NewsletterSubscriberRow = {
+  id: string
+  spaceId: string
+  email: string
+  status: SubscriberStatus
+  token: string
+  source: string
+  createdAt: Date
+  confirmedAt: Date | null
+  unsubscribedAt: Date | null
+}
+export type IssueStatus = 'queued' | 'sending' | 'sent' | 'cancelled' | 'failed'
+export type NewsletterIssueRow = {
+  id: string
+  spaceId: string
+  pageId: string | null
+  subject: string
+  status: IssueStatus
+  sendAfter: Date
+  cursor: string | null
+  recipients: number
+  sent: number
+  failed: number
+  error: string | null
+  createdBy: string | null
+  createdAt: Date
+  finishedAt: Date | null
+}
 
 export type ShareRole = 'viewer' | 'editor'
 export type SpaceShareRow = {
@@ -594,6 +638,149 @@ export function createRepo(appDb: AppDb) {
     async deleteSiteVisitsBefore(day: string): Promise<void> {
       await db.delete(t.siteVisitsDaily).where(lt(t.siteVisitsDaily.day, day))
       await db.delete(t.siteReferrersDaily).where(lt(t.siteReferrersDaily.day, day))
+    },
+
+    // ---- newsletters ----
+
+    async insertSubscriber(row: NewsletterSubscriberRow): Promise<void> {
+      await db.insert(t.newsletterSubscribers).values(row)
+    },
+    async updateSubscriber(
+      id: string,
+      patch: Partial<
+        Pick<
+          NewsletterSubscriberRow,
+          'status' | 'token' | 'source' | 'confirmedAt' | 'unsubscribedAt' | 'createdAt'
+        >
+      >,
+    ): Promise<void> {
+      await db.update(t.newsletterSubscribers).set(patch).where(eq(t.newsletterSubscribers.id, id))
+    },
+    async deleteSubscriber(id: string): Promise<void> {
+      await db.delete(t.newsletterSubscribers).where(eq(t.newsletterSubscribers.id, id))
+    },
+    async getSubscriber(id: string): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    async getSubscriberByToken(token: string): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.token, token))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    async getSubscriberByEmail(
+      spaceId: string,
+      email: string,
+    ): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(
+          and(
+            eq(t.newsletterSubscribers.spaceId, spaceId),
+            eq(t.newsletterSubscribers.email, email),
+          ),
+        )
+        .limit(1)
+      return rows[0] ?? null
+    },
+    /** A site's subscribers in id order; `after` and `limit` page through them. */
+    async listSubscribers(
+      spaceId: string,
+      opts: { status?: SubscriberStatus; after?: string | null; limit?: number } = {},
+    ): Promise<NewsletterSubscriberRow[]> {
+      const where = [
+        eq(t.newsletterSubscribers.spaceId, spaceId),
+        opts.status ? eq(t.newsletterSubscribers.status, opts.status) : undefined,
+        opts.after ? gt(t.newsletterSubscribers.id, opts.after) : undefined,
+      ].filter(Boolean)
+      const q = db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(and(...where))
+        .orderBy(asc(t.newsletterSubscribers.id))
+      return opts.limit ? q.limit(opts.limit) : q
+    },
+    async countSubscribers(spaceId: string): Promise<Record<SubscriberStatus, number>> {
+      const rows = (await db
+        .select({ status: t.newsletterSubscribers.status, n: sqlOp`count(*)` })
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.spaceId, spaceId))
+        .groupBy(t.newsletterSubscribers.status)) as Array<{ status: SubscriberStatus; n: unknown }>
+      const out: Record<SubscriberStatus, number> = { pending: 0, active: 0, unsubscribed: 0 }
+      for (const r of rows) out[r.status] = Number(r.n)
+      return out
+    },
+    /** Unconfirmed signups older than this go (nobody confirmed them). */
+    async deletePendingSubscribersBefore(cutoff: Date): Promise<number> {
+      const rows = await db
+        .delete(t.newsletterSubscribers)
+        .where(
+          and(
+            eq(t.newsletterSubscribers.status, 'pending'),
+            lt(t.newsletterSubscribers.createdAt, cutoff),
+          ),
+        )
+        .returning({ id: t.newsletterSubscribers.id })
+      return rows.length
+    },
+    async listAllSubscribers(): Promise<NewsletterSubscriberRow[]> {
+      return db.select().from(t.newsletterSubscribers)
+    },
+
+    async insertIssue(row: NewsletterIssueRow): Promise<void> {
+      await db.insert(t.newsletterIssues).values(row)
+    },
+    async updateIssue(
+      id: string,
+      patch: Partial<Omit<NewsletterIssueRow, 'id' | 'spaceId' | 'createdAt' | 'createdBy'>>,
+    ): Promise<void> {
+      await db.update(t.newsletterIssues).set(patch).where(eq(t.newsletterIssues.id, id))
+    },
+    async getIssue(id: string): Promise<NewsletterIssueRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterIssues)
+        .where(eq(t.newsletterIssues.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    /** A site's issues, newest first. */
+    async listIssues(spaceId: string, limit = 50): Promise<NewsletterIssueRow[]> {
+      return db
+        .select()
+        .from(t.newsletterIssues)
+        .where(eq(t.newsletterIssues.spaceId, spaceId))
+        .orderBy(desc(t.newsletterIssues.createdAt))
+        .limit(limit)
+    },
+    /** Issues for these pages (has this post gone out already?). */
+    async listIssuesForPages(pageIds: string[]): Promise<NewsletterIssueRow[]> {
+      if (pageIds.length === 0) return []
+      return db.select().from(t.newsletterIssues).where(inArray(t.newsletterIssues.pageId, pageIds))
+    },
+    /** Issues to work on now: due queued ones, and any left mid-send by a restart. */
+    async listDueIssues(at: Date): Promise<NewsletterIssueRow[]> {
+      return db
+        .select()
+        .from(t.newsletterIssues)
+        .where(
+          or(
+            eq(t.newsletterIssues.status, 'sending'),
+            and(eq(t.newsletterIssues.status, 'queued'), lte(t.newsletterIssues.sendAfter, at)),
+          ),
+        )
+        .orderBy(asc(t.newsletterIssues.sendAfter))
+    },
+    async listAllIssues(): Promise<NewsletterIssueRow[]> {
+      return db.select().from(t.newsletterIssues)
     },
 
     // ---- sharing ----

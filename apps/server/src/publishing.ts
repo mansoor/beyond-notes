@@ -10,6 +10,16 @@ import type { PageRow, PageVersionRow, PreviewRow, Repo, SpaceRow, UserRow } fro
 
 export const SCHEDULED_PUBLISH = 'scheduled-publish'
 
+/** A page went live (publish, or a scheduled publish coming due). */
+export type PublishedEvent = {
+  space: SpaceRow
+  page: PageRow
+  version: PageVersionRow
+  /** this page had never been published before */
+  firstTime: boolean
+  by: UserRow
+}
+
 /**
  * The publish pipeline. Two-track rule made physical: the working copy is
  * never public, the published snapshot is never edited. Public output is
@@ -18,7 +28,7 @@ export const SCHEDULED_PUBLISH = 'scheduled-publish'
  */
 export function createPublishingService(
   repo: Repo,
-  opts: { now?: () => Date; access?: AccessService } = {},
+  opts: { now?: () => Date; access?: AccessService; onListenerError?: (err: unknown) => void } = {},
 ) {
   const now = opts.now ?? (() => new Date())
   const access = opts.access ?? createAccess(repo)
@@ -29,6 +39,7 @@ export function createPublishingService(
   const invalidateAttachmentCache = () => {
     attachmentCache = null
   }
+  const publishedListeners = new Set<(e: PublishedEvent) => void | Promise<void>>()
 
   async function requirePage(
     pageId: string,
@@ -131,7 +142,27 @@ export function createPublishingService(
       // record the slug in history too — redirect resolution reads one table
       await repo.addPageSlug(pageId, slug, now())
       invalidateAttachmentCache()
+      const event: PublishedEvent = {
+        space,
+        page: { ...page, slug },
+        version,
+        firstTime: existing.length === 0,
+        by: user,
+      }
+      for (const listener of publishedListeners) {
+        try {
+          await listener(event)
+        } catch (err) {
+          opts.onListenerError?.(err)
+        }
+      }
       return version
+    },
+
+    /** Be told when a page goes live (an edition's newsletter). */
+    onPublished(listener: (e: PublishedEvent) => void | Promise<void>): () => void {
+      publishedListeners.add(listener)
+      return () => publishedListeners.delete(listener)
     },
 
     /** Take the page off the site; history is kept, nothing is deleted. */

@@ -52,6 +52,8 @@ const DATE_COLUMNS: Record<string, string[]> = {
   spaceShares: ['createdAt'],
   siteVisits: [],
   siteReferrers: [],
+  newsletterSubscribers: ['createdAt', 'confirmedAt', 'unsubscribedAt'],
+  newsletterIssues: ['sendAfter', 'createdAt', 'finishedAt'],
 }
 
 export type Dump = {
@@ -109,6 +111,9 @@ async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
     // daily visit counts (totals only; there is nothing per-visitor to export)
     siteVisits: await repo.listAllSiteVisits(),
     siteReferrers: await repo.listAllSiteReferrers(),
+    // who a site's newsletter goes to (and who left), and what it sent
+    newsletterSubscribers: await repo.listAllSubscribers(),
+    newsletterIssues: await repo.listAllIssues(),
   } as unknown as Dump['tables']
 
   return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
@@ -252,6 +257,8 @@ export async function importInstance(
   for (const row of rows('dbDatabases')) await repo.insertDbDatabase(row as never)
   for (const row of rows('dbTables')) await repo.insertDbTable(row as never)
   for (const row of rows('dbRows')) await repo.insertDbRow(row as never)
+  for (const row of rows('newsletterSubscribers')) await repo.insertSubscriber(row as never)
+  for (const row of rows('newsletterIssues')) await repo.insertIssue(row as never)
   for (const row of rows('documents') as Array<{ pageId: string; content: string }>) {
     await reconcileLinks(repo, row.pageId, row.content)
   }

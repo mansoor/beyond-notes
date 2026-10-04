@@ -5,8 +5,9 @@
  * checks a licence. A separately distributed edition module can be named with
  * EDITION_MODULE (a package name or a file path). It is imported once at boot,
  * gets the core services it may use, and adds its own HTTP routes under
- * /api/ee/. The core only asks it two things: what to call itself, and whether
- * a named feature is on.
+ * /api/ee/. The core asks it what to call itself and whether a named feature
+ * is on, and offers it a few optional hooks into published sites (a gate,
+ * visit counts, its own pages under /_bn/, markup on blog pages).
  *
  * Nothing here depends on an edition existing, and nothing in the core imports
  * one statically, so the public build and images contain no edition code.
@@ -18,6 +19,8 @@ import type { AccessService } from './access'
 import type { AuditService } from './audit'
 import type { AuthService } from './auth'
 import type { Config } from './config'
+import type { Mailer } from './mailer'
+import type { PublishedEvent } from './publishing'
 import type { Repo, SpaceRow, UserRow } from './repo'
 import type { SettingsService } from './settings'
 
@@ -53,6 +56,10 @@ export type EditionDeps = {
   }) => Promise<{ user: UserRow | null; token: string | null }>
   /** Sign this person in on this response (the session cookie), e.g. after SAML. */
   startSession: (reply: FastifyReply, user: UserRow) => Promise<void>
+  /** outgoing email, as configured in Settings (check `configured` first) */
+  mailer: Mailer
+  /** published sites, for features that work with them (a newsletter) */
+  sites: SiteTools
   log: {
     info: (msg: string) => void
     warn: (msg: string) => void
@@ -83,6 +90,31 @@ export type SiteGate = {
   allowsFiles(spaceId: string, req: FastifyRequest): boolean | Promise<boolean>
 }
 
+/** Where on a published page an edition may add markup. */
+export type SiteSlot = 'blog' | 'post'
+
+/** A GET under /_bn/ on a published site, offered to the edition first. */
+export type SiteRouteContext = {
+  /** '' on the site's own host, '/s/<host>' on the app's */
+  basePath: string
+  path: string
+  query: Record<string, unknown>
+}
+
+export type SiteTools = {
+  /** where a published space is reached from outside: its pages, and its files (/api/files) */
+  urls(space: SpaceRow): { site: string; origin: string }
+  /** a small page in the site's look; `html` is trusted (escape what goes in it) */
+  noticePage(space: SpaceRow, basePath: string, heading: string, html: string): string
+  /** a published page as an email: the live version, every link absolute; null = not live */
+  emailFor(
+    space: SpaceRow,
+    pageId: string,
+  ): Promise<{ title: string; html: string; text: string; url: string; date: Date } | null>
+  /** be told when a page goes live; returns a function that stops it */
+  onPublished(listener: (e: PublishedEvent) => void | Promise<void>): () => void
+}
+
 /** The shape an edition module's default export must have. */
 export type ServerEdition = {
   name: string
@@ -94,6 +126,15 @@ export type ServerEdition = {
   siteGate?: SiteGate
   /** optional: count visits to this published space (visits.ts) */
   countVisits?(spaceId: string): boolean
+  /** optional: answer a GET under /_bn/ on a published site; true = answered */
+  siteRoutes?(
+    space: SpaceRow,
+    req: FastifyRequest,
+    reply: FastifyReply,
+    ctx: SiteRouteContext,
+  ): Promise<boolean>
+  /** optional: markup for a slot on published pages (a subscribe box), '' for none */
+  siteHtml?(space: SpaceRow, slot: SiteSlot, ctx: { basePath: string; pageId: string }): string
 }
 
 export const COMMUNITY: ServerEdition = {

@@ -741,6 +741,59 @@ ${socials}
 </html>`
 }
 
+/**
+ * A small standalone page in a site's theme, for answers that aren't content:
+ * "you're subscribed", "you're unsubscribed". `html` is trusted markup; the
+ * caller escapes anything it puts there.
+ */
+export function noticePage(input: {
+  siteTitle: string
+  theme: ThemeName
+  appearance?: ThemeAppearance
+  faviconUrl?: string | null
+  heading: string
+  html: string
+  /** "Back to <site>" link target, when there is a site to go back to */
+  homeUrl?: string | null
+}): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(input.heading)} — ${escapeHtml(input.siteTitle)}</title>${
+    input.faviconUrl ? `\n<link rel="icon" href="${escapeHtml(input.faviconUrl)}">` : ''
+  }
+<style>${themeCss(input.theme, input.appearance === 'toggle' ? 'auto' : (input.appearance ?? 'auto'))}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+background:var(--bg);color:var(--text);margin:0;min-height:100vh;
+display:flex;align-items:center;justify-content:center;padding:24px 16px;box-sizing:border-box}
+.card{width:100%;max-width:28rem;background:var(--panel);border:1px solid var(--border);
+border-radius:14px;padding:28px 24px;box-sizing:border-box}
+h1{font-size:21px;margin:0 0 10px}
+p{font-size:15px;line-height:1.65;color:var(--text2);margin:0 0 14px}
+form{margin:0}
+button{font:inherit;font-weight:600;padding:10px 18px;border:0;border-radius:8px;
+background:var(--accent);color:#fff;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+.site{font-size:13px;color:var(--text3);margin:18px 0 0}</style>
+</head>
+<body>
+<main class="card">
+<h1>${escapeHtml(input.heading)}</h1>
+${input.html}
+<p class="site">${
+    input.homeUrl
+      ? `<a href="${escapeHtml(input.homeUrl)}">${escapeHtml(input.siteTitle)}</a>`
+      : escapeHtml(input.siteTitle)
+  }</p>
+</main>
+</body>
+</html>`
+}
+
 // ---- feeds ----
 
 function escapeXml(s: string): string {

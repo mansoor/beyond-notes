@@ -21,6 +21,7 @@ export {
   siteTagPage,
   site404,
   maintenancePage,
+  noticePage,
   buildRss,
   buildSitemap,
   crumbsHtml,
