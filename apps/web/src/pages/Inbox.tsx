@@ -1,6 +1,7 @@
 import type { MemoView } from '@bn/schema'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { useAi } from '../ai'
 import { ErrorNote, Modal, SubmitButton, useSubmit } from '../components'
 import { toDateKey } from '../editor'
 import { trpc } from '../trpc'
@@ -122,6 +123,9 @@ function MemoItem(props: { memo: MemoView }) {
   const [choosingSpace, setChoosingSpace] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(props.memo.content)
+  const ai = useAi()
+  const suggest = trpc.ai.suggestTags.useMutation()
+  const [suggested, setSuggested] = useState<string[] | null>(null)
 
   const m = props.memo
   const when = new Date(m.createdAt)
@@ -214,6 +218,15 @@ function MemoItem(props: { memo: MemoView }) {
             disabled={busy}
             onClick={() => toTask.mutate({ memoId: m.id })}
           />
+          {ai.enabled ? (
+            <ActionButton
+              label={suggest.isPending ? '✨ Thinking…' : '✨ Tags'}
+              disabled={busy || suggest.isPending}
+              onClick={async () => {
+                setSuggested((await suggest.mutateAsync({ memoId: m.id })).tags)
+              }}
+            />
+          ) : null}
           <ActionButton
             label="Delete"
             danger
@@ -222,6 +235,41 @@ function MemoItem(props: { memo: MemoView }) {
           />
         </div>
       )}
+      {suggest.error ? (
+        <p className="text-xs mt-1.5" style={{ color: 'var(--danger)' }}>
+          {suggest.error.message}
+        </p>
+      ) : null}
+      {suggested && !m.promotedTo && !editing ? (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
+          <span style={{ color: 'var(--text-3)' }}>
+            {suggested.length ? 'Add a tag:' : 'No tags to suggest.'}
+          </span>
+          {suggested.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              disabled={busy}
+              className="rounded-full px-2 py-0.5 disabled:opacity-50"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+              onClick={async () => {
+                await update.mutateAsync({ memoId: m.id, content: `${m.content} #${tag}` })
+                setSuggested((prev) => (prev ?? []).filter((t) => t !== tag))
+              }}
+            >
+              #{tag}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="Dismiss the suggestions"
+            style={{ color: 'var(--text-3)' }}
+            onClick={() => setSuggested(null)}
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
       {choosingSpace && (
         <PromoteToNoteModal memoId={m.id} onClose={() => setChoosingSpace(false)} />
       )}

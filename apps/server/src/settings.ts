@@ -1,13 +1,18 @@
 import {
+  type AiSettings,
+  type AiSettingsView,
   type BackupSettings,
   type NtfySettings,
+  type OffsiteSettings,
   type OidcSettings,
   type RecaptchaSettings,
   type ServerSettingsView,
   type SmtpSettings,
   type StorageSettings,
+  aiSettings,
   backupSettings,
   ntfySettings,
+  offsiteSettings,
   oidcSettings,
   recaptchaSettings,
   smtpSettings,
@@ -35,7 +40,17 @@ import { decryptGroup, encryptGroup } from './secrets'
 export function createSettingsService(
   repo: Repo,
   config: Config,
-  opts: { now?: () => Date; secretsKey?: Buffer } = {},
+  opts: {
+    now?: () => Date
+    secretsKey?: Buffer
+    /** the offsite service's last upload, for the view (set after construction) */
+    offsiteLast?: () => {
+      at: string
+      name: string
+      ok: boolean
+      error: string | null
+    } | null
+  } = {},
 ) {
   const now = opts.now ?? (() => new Date())
   const secretsKey = opts.secretsKey
@@ -95,6 +110,10 @@ export function createSettingsService(
       return parse('backup', backupSettings) ?? backupSettings.parse({})
     },
 
+    offsite(): OffsiteSettings | null {
+      return parse('offsite', offsiteSettings)
+    },
+
     recaptcha(): RecaptchaSettings | null {
       return parse('recaptcha', recaptchaSettings)
     },
@@ -144,6 +163,57 @@ export function createSettingsService(
     passwordLoginEnabled(): boolean {
       const sso = this.effectiveOidc()
       return sso ? sso.passwordLogin : true
+    },
+
+    ai(): AiSettings | null {
+      return parse('ai', aiSettings)
+    },
+
+    /**
+     * The AI config in force, or null when AI is off. A saved group with a
+     * server address wins outright (including `enabled: false`); env turns it
+     * on when it names a server and a chat model.
+     */
+    effectiveAi(): (AiSettings & { source: 'db' | 'env' }) | null {
+      const db = this.ai()
+      const picked = db?.baseUrl
+        ? { ...db, source: 'db' as const }
+        : config.AI_BASE_URL && config.AI_CHAT_MODEL
+          ? {
+              enabled: true,
+              baseUrl: config.AI_BASE_URL,
+              apiKey: config.AI_API_KEY,
+              chatModel: config.AI_CHAT_MODEL,
+              embedModel: config.AI_EMBED_MODEL,
+              source: 'env' as const,
+            }
+          : null
+      if (!picked?.enabled || !picked.baseUrl || !picked.chatModel) return null
+      return picked
+    },
+
+    aiView(): AiSettingsView {
+      const db = this.ai()
+      const shown: AiSettings = db?.baseUrl
+        ? db
+        : {
+            enabled: Boolean(config.AI_BASE_URL && config.AI_CHAT_MODEL),
+            baseUrl: config.AI_BASE_URL,
+            apiKey: config.AI_API_KEY,
+            chatModel: config.AI_CHAT_MODEL,
+            embedModel: config.AI_EMBED_MODEL,
+          }
+      const { apiKey, ...rest } = shown
+      return { ...rest, hasKey: Boolean(apiKey), source: this.effectiveAi()?.source ?? 'off' }
+    },
+
+    /** Blank key keeps the stored one (or env's). */
+    async saveAi(input: AiSettings): Promise<void> {
+      const prev = this.ai()
+      await this.put('ai', {
+        ...input,
+        apiKey: input.apiKey || prev?.apiKey || config.AI_API_KEY || '',
+      })
     },
 
     /** Effective reCAPTCHA keys, or null when not fully configured. */
@@ -260,6 +330,16 @@ export function createSettingsService(
             : null
         })(),
         backup: this.backup(),
+        offsite: (() => {
+          const o = this.offsite() ?? offsiteSettings.parse({})
+          const { secretKey, passphrase, ...rest } = o
+          return {
+            ...rest,
+            hasSecret: Boolean(secretKey),
+            hasPassphrase: Boolean(passphrase),
+            last: opts.offsiteLast?.() ?? null,
+          }
+        })(),
         mailSource: mail?.source ?? 'off',
         ntfySource: ntfyEff?.source ?? 'off',
       }
@@ -269,6 +349,16 @@ export function createSettingsService(
     async saveSmtp(input: SmtpSettings): Promise<void> {
       const prev = this.smtp()
       await this.put('smtp', { ...input, pass: input.pass || prev?.pass || '' })
+    },
+
+    /** Offsite copies; blank secret key or passphrase keeps the stored one. */
+    async saveOffsite(input: OffsiteSettings): Promise<void> {
+      const prev = this.offsite()
+      await this.put('offsite', {
+        ...input,
+        secretKey: input.secretKey || prev?.secretKey || '',
+        passphrase: input.passphrase || prev?.passphrase || '',
+      })
     },
 
     async saveNtfy(input: NtfySettings): Promise<void> {

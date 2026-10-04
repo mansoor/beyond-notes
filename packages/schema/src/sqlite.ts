@@ -59,6 +59,9 @@ export const users = sqliteTable('users', {
   defaultTheme: text('default_theme', { enum: ['light', 'paper', 'navy', 'dark'] })
     .notNull()
     .default('light'),
+  // Deactivated by an admin (or a provisioning system): can't sign in, sessions
+  // and API tokens stop working. Everything the person made stays.
+  disabledAt: integer('disabled_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
@@ -539,3 +542,180 @@ export const dbRows = sqliteTable('db_rows', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// ---- sharing (managed by an edition; the core only reads these) ----
+
+/** Named sets of people, e.g. "Family". Space shares can name a group. */
+export const userGroups = sqliteTable('user_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const userGroupMembers = sqliteTable(
+  'user_group_members',
+  {
+    groupId: text('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
+)
+
+/**
+ * A personal space shared with a person or a group. viewer = read only;
+ * editor = edit pages. Space settings stay with the owner.
+ */
+export const spaceShares = sqliteTable(
+  'space_shares',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    principalType: text('principal_type', { enum: ['user', 'group'] }).notNull(),
+    principalId: text('principal_id').notNull(),
+    role: text('role', { enum: ['viewer', 'editor'] })
+      .notNull()
+      .default('viewer'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.principalType, t.principalId] }),
+    index('space_shares_principal_idx').on(t.principalType, t.principalId),
+  ],
+)
+
+// ---- built-in site visit counts (an edition switches counting on per site) ----
+
+/** Daily views and unique visitors per published page; path '' = the whole site. */
+export const siteVisitsDaily = sqliteTable(
+  'site_visits_daily',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    // UTC, YYYY-MM-DD
+    day: text('day').notNull(),
+    path: text('path').notNull(),
+    views: integer('views').notNull().default(0),
+    visitors: integer('visitors').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day, t.path] })],
+)
+
+/** Daily views arriving from another site, by its host name. */
+export const siteReferrersDaily = sqliteTable(
+  'site_referrers_daily',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    host: text('host').notNull(),
+    views: integer('views').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day, t.host] })],
+)
+
+// ---- live co-editing ----
+
+/**
+ * The collaborative (Yjs) state of a page being co-edited. Only a cache: it
+ * can always be rebuilt from documents.content, and is when content_at no
+ * longer matches the document (something else wrote the page meanwhile).
+ */
+export const documentLiveStates = sqliteTable('document_live_states', {
+  pageId: text('page_id')
+    .primaryKey()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  state: blob('state', { mode: 'buffer' }).notNull(),
+  // documents.updated_at this state matches
+  contentAt: integer('content_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// ---- newsletters ----
+
+/**
+ * People who asked a published site to email them its new posts. A signup is
+ * 'pending' until the address is confirmed from the email it receives; the
+ * token is in every email they get, for confirming and unsubscribing.
+ */
+export const newsletterSubscribers = sqliteTable(
+  'newsletter_subscribers',
+  {
+    id: text('id').primaryKey(),
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    // lower-cased
+    email: text('email').notNull(),
+    status: text('status', { enum: ['pending', 'active', 'unsubscribed'] }).notNull(),
+    token: text('token').notNull(),
+    // 'form' (the site), 'manual' (added by the owner), 'import'
+    source: text('source').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    confirmedAt: integer('confirmed_at', { mode: 'timestamp_ms' }),
+    unsubscribedAt: integer('unsubscribed_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [
+    uniqueIndex('newsletter_subscribers_space_email').on(t.spaceId, t.email),
+    uniqueIndex('newsletter_subscribers_token').on(t.token),
+  ],
+)
+
+/** A post emailed to a site's subscribers: queued, sending, then sent. */
+export const newsletterIssues = sqliteTable(
+  'newsletter_issues',
+  {
+    id: text('id').primaryKey(),
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    pageId: text('page_id').references(() => pages.id, { onDelete: 'set null' }),
+    subject: text('subject').notNull(),
+    status: text('status', {
+      enum: ['queued', 'sending', 'sent', 'cancelled', 'failed'],
+    }).notNull(),
+    // not before this (a short hold after an automatic send, to fix a typo)
+    sendAfter: integer('send_after', { mode: 'timestamp_ms' }).notNull(),
+    // subscribers are sent to in id order; the last one done, for resuming
+    cursor: text('cursor'),
+    recipients: integer('recipients').notNull().default(0),
+    sent: integer('sent').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    error: text('error'),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('newsletter_issues_space_idx').on(t.spaceId)],
+)
+
+// ---- AI ----
+
+/**
+ * The note index behind Ask: each page cut into passages, each passage as an
+ * embedding vector from the configured model. Only a cache — rebuilt from the
+ * pages whenever they change or the model does — so it isn't in exports.
+ */
+export const aiChunks = sqliteTable(
+  'ai_chunks',
+  {
+    id: text('id').primaryKey(),
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    spaceId: text('space_id').notNull(),
+    seq: integer('seq').notNull(),
+    text: text('text').notNull(),
+    model: text('model').notNull(),
+    // float32, little-endian
+    vector: blob('vector', { mode: 'buffer' }).notNull(),
+    // documents.updated_at this passage was cut from
+    sourceAt: integer('source_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [index('ai_chunks_page_idx').on(t.pageId)],
+)

@@ -1,6 +1,7 @@
 import { mergeDocuments, plainText } from '@bn/renderer'
 import { pageSubtreeIds, pageTypesByCategory } from '@bn/schema'
 import { nanoid } from 'nanoid'
+import { AccessError, type AccessService, type Need, createAccess } from './access'
 import { extractTriples } from './concepts'
 import { type Embedder, topSimilarPairs } from './embeddings'
 import { type GraphEdgeType, type GraphSimilar, type SpaceGraph, buildSpaceGraph } from './graph'
@@ -24,14 +25,6 @@ export class PagesError extends Error {
 /** A page id plus every descendant's, walked over one space's page list. */
 const subtreeIds = (all: PageRow[], rootId: string): string[] => pageSubtreeIds(all, rootId)
 
-function assertSpaceAccess(space: SpaceRow | null, user: UserRow): asserts space is SpaceRow {
-  if (!space) throw new PagesError('NOT_FOUND', 'Space not found.')
-  if (space.ownerId !== null && space.ownerId !== user.id) {
-    // personal spaces are invisible to everyone but their owner
-    throw new PagesError('NOT_FOUND', 'Space not found.')
-  }
-}
-
 export function createPagesService(
   repo: Repo,
   opts: {
@@ -39,9 +32,26 @@ export function createPagesService(
     embedder?: Embedder
     embedThreshold?: number
     embedNeighbors?: number
+    /** the app's one access service; a standalone service makes its own */
+    access?: AccessService
   } = {},
 ) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
+
+  /** The space, if this user has `need` in it (access.ts); PagesError otherwise. */
+  async function assertSpaceAccess(
+    space: SpaceRow | null,
+    user: UserRow,
+    need: Need,
+  ): Promise<SpaceRow> {
+    try {
+      return await access.assert(space, user, need)
+    } catch (err) {
+      if (err instanceof AccessError) throw new PagesError(err.code, err.message)
+      throw err
+    }
+  }
   const embedder = opts.embedder
   const embedThreshold = opts.embedThreshold ?? 0.55
   const embedNeighbors = opts.embedNeighbors ?? 4
@@ -73,11 +83,11 @@ export function createPagesService(
   async function requirePage(
     pageId: string,
     user: UserRow,
+    need: Need,
   ): Promise<{ page: PageRow; space: SpaceRow }> {
     const page = await repo.getPage(pageId)
     if (!page) throw new PagesError('NOT_FOUND', 'Page not found.')
-    const space = await repo.getSpace(page.spaceId)
-    assertSpaceAccess(space, user)
+    const space = await assertSpaceAccess(await repo.getSpace(page.spaceId), user, need)
     return { page, space }
   }
 
@@ -87,7 +97,8 @@ export function createPagesService(
     async listSpaces(user: UserRow): Promise<SpaceRow[]> {
       const all = await repo.listSpaces()
       // system spaces (journal) have their own surfaces; the sidebar lists trees only
-      return all.filter((s) => s.kind === 'tree' && (s.ownerId === null || s.ownerId === user.id))
+      const visible = await access.filter(user)
+      return all.filter((s) => s.kind === 'tree' && visible(s))
     },
 
     async createSpace(
@@ -126,19 +137,19 @@ export function createPagesService(
     },
 
     async renameSpace(user: UserRow, spaceId: string, name: string): Promise<void> {
-      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(spaceId), user, 'owner')
       await repo.renameSpace(spaceId, name)
     },
 
     async deleteSpace(user: UserRow, spaceId: string): Promise<void> {
-      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(spaceId), user, 'owner')
       await repo.deleteSpace(spaceId)
     },
 
     // ---- pages ----
 
     async tree(user: UserRow, spaceId: string): Promise<PageRow[]> {
-      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(spaceId), user, 'read')
       const pages = await repo.listPagesInSpace(spaceId)
       return pages
         .filter((p) => p.archivedAt === null && p.trashedAt === null)
@@ -151,7 +162,7 @@ export function createPagesService(
      * from the pages, so a category disappears when its last page lets it go.
      */
     async categories(user: UserRow, spaceId: string): Promise<string[]> {
-      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(spaceId), user, 'read')
       const seen = new Map<string, string>()
       for (const page of await repo.listPagesInSpace(spaceId)) {
         const name = page.category?.trim()
@@ -178,7 +189,7 @@ export function createPagesService(
       spaceId: string,
       opts: { excludePageIds?: Set<string>; edges?: Set<GraphEdgeType> } = {},
     ): Promise<SpaceGraph> {
-      assertSpaceAccess(await repo.getSpace(spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(spaceId), user, 'read')
       const on = (type: GraphEdgeType) => !opts.edges || opts.edges.has(type)
       const hidden = opts.excludePageIds ?? new Set<string>()
       const pages = (await repo.listPagesInSpace(spaceId))
@@ -226,7 +237,7 @@ export function createPagesService(
 
     /** Archive a page and its whole subtree. Publish state is untouched. */
     async archivePage(user: UserRow, pageId: string): Promise<void> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       const all = await repo.listPagesInSpace(page.spaceId)
       const ids = subtreeIds(all, pageId)
       await repo.setPagesArchived(ids, now(), user.id)
@@ -238,7 +249,7 @@ export function createPagesService(
      * space root rather than staying invisible under an archived ancestor.
      */
     async restorePage(user: UserRow, pageId: string): Promise<void> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       if (!page.archivedAt) return
       const all = await repo.listPagesInSpace(page.spaceId)
       const ids = subtreeIds(all, pageId)
@@ -256,9 +267,8 @@ export function createPagesService(
      */
     async listArchived(user: UserRow): Promise<Array<{ page: PageRow; space: SpaceRow }>> {
       const [archived, spaces] = await Promise.all([repo.listArchivedPages(), repo.listSpaces()])
-      const accessible = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
-      )
+      const writable = await access.filter(user, 'write')
+      const accessible = new Map(spaces.filter(writable).map((s) => [s.id, s]))
       const archivedIds = new Set(archived.map((p) => p.id))
       return archived
         .filter((p) => accessible.has(p.spaceId) && p.trashedAt === null)
@@ -275,13 +285,13 @@ export function createPagesService(
      * after TRASH_RETENTION_DAYS; until then it can be restored.
      */
     async trashPage(user: UserRow, pageId: string): Promise<void> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       const all = await repo.listPagesInSpace(page.spaceId)
       await repo.setPagesTrashed(subtreeIds(all, pageId), now(), user.id)
     },
 
     async restoreTrashedPage(user: UserRow, pageId: string): Promise<void> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       if (!page.trashedAt) return
       const all = await repo.listPagesInSpace(page.spaceId)
       const ids = subtreeIds(all, pageId)
@@ -302,9 +312,8 @@ export function createPagesService(
     /** Trash roots visible to this user — the units that were trashed. */
     async listTrashed(user: UserRow): Promise<Array<{ page: PageRow; space: SpaceRow }>> {
       const [trashed, spaces] = await Promise.all([repo.listTrashedPages(), repo.listSpaces()])
-      const accessible = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
-      )
+      const writable = await access.filter(user, 'write')
+      const accessible = new Map(spaces.filter(writable).map((s) => [s.id, s]))
       const trashedIds = new Set(trashed.map((p) => p.id))
       return trashed
         .filter((p) => accessible.has(p.spaceId))
@@ -315,7 +324,7 @@ export function createPagesService(
 
     /** "Delete forever" — only reachable for pages already in the trash. */
     async deleteForever(user: UserRow, pageId: string): Promise<void> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       if (!page.trashedAt)
         throw new PagesError('BAD_MOVE', 'Only trashed pages can be deleted forever.')
       await repo.deletePage(pageId)
@@ -335,7 +344,7 @@ export function createPagesService(
 
     /** Copy one page (content, type, gallery settings) as its next sibling. */
     async duplicatePage(user: UserRow, pageId: string): Promise<PageRow> {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'write')
       const doc = await repo.getDocument(pageId)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       const siblings = (await repo.listPagesInSpace(page.spaceId)).filter(
@@ -382,7 +391,7 @@ export function createPagesService(
         afterPageId?: string | null
       },
     ): Promise<PageRow> {
-      assertSpaceAccess(await repo.getSpace(input.spaceId), user)
+      await assertSpaceAccess(await repo.getSpace(input.spaceId), user, 'write')
       if (input.parentId) {
         const parent = await repo.getPage(input.parentId)
         if (!parent || parent.spaceId !== input.spaceId) {
@@ -444,8 +453,13 @@ export function createPagesService(
       return page
     },
 
+    /** Throws unless the user has `need` in the page's space (read, write, owner). */
+    async checkPage(user: UserRow, pageId: string, need: Need): Promise<void> {
+      await requirePage(pageId, user, need)
+    },
+
     async getPage(user: UserRow, pageId: string) {
-      const { page } = await requirePage(pageId, user)
+      const { page } = await requirePage(pageId, user, 'read')
       const doc = await repo.getDocument(pageId)
       if (!doc) throw new PagesError('NOT_FOUND', 'Document missing for page.')
       return { page, doc }
@@ -465,7 +479,7 @@ export function createPagesService(
         icon?: string | null
       },
     ): Promise<void> {
-      await requirePage(input.pageId, user)
+      await requirePage(input.pageId, user, 'write')
       const patch: Parameters<Repo['updatePage']>[1] = { updatedAt: now() }
       if (input.galleryLayout !== undefined) patch.galleryLayout = input.galleryLayout
       if (input.galleryAutoplaySecs !== undefined) {
@@ -483,7 +497,7 @@ export function createPagesService(
     },
 
     async renamePage(user: UserRow, pageId: string, title: string): Promise<void> {
-      await requirePage(pageId, user)
+      await requirePage(pageId, user, 'write')
       await repo.updatePage(pageId, { title, updatedAt: now() })
     },
 
@@ -496,7 +510,7 @@ export function createPagesService(
       pageId: string,
       pageType: 'doc' | 'blog' | 'gallery',
     ): Promise<void> {
-      const { space } = await requirePage(pageId, user)
+      const { space } = await requirePage(pageId, user, 'write')
       if (space.kind !== 'tree')
         throw new PagesError('BAD_MOVE', 'Journal pages have no page type.')
       if (!pageTypesByCategory[space.category].includes(pageType))
@@ -513,16 +527,12 @@ export function createPagesService(
       user: UserRow,
       input: { pageId: string; parentId: string | null; index: number; spaceId?: string },
     ): Promise<void> {
-      const { page } = await requirePage(input.pageId, user)
+      const { page } = await requirePage(input.pageId, user, 'write')
 
       // cross-space subtree move (how a note becomes a blog post)
       if (input.spaceId && input.spaceId !== page.spaceId) {
         const target = await repo.getSpace(input.spaceId)
-        if (
-          !target ||
-          target.kind !== 'tree' ||
-          (target.ownerId !== null && target.ownerId !== user.id)
-        ) {
+        if (!target || target.kind !== 'tree' || !(await access.can(target, user, 'write'))) {
           throw new PagesError('NOT_FOUND', 'Target space not found.')
         }
         const targetPages = await repo.listPagesInSpace(target.id)
@@ -615,7 +625,7 @@ export function createPagesService(
     },
 
     async deletePage(user: UserRow, pageId: string): Promise<void> {
-      await requirePage(pageId, user)
+      await requirePage(pageId, user, 'write')
       await repo.deletePage(pageId)
     },
 
@@ -632,8 +642,8 @@ export function createPagesService(
       if (input.sourceId === input.targetId) {
         throw new PagesError('BAD_MOVE', 'Cannot merge a page into itself.')
       }
-      const { page: source } = await requirePage(input.sourceId, user)
-      const { page: target } = await requirePage(input.targetId, user)
+      const { page: source } = await requirePage(input.sourceId, user, 'write')
+      const { page: target } = await requirePage(input.targetId, user, 'write')
       if (source.spaceId !== target.spaceId) {
         throw new PagesError('BAD_MOVE', 'Pages are in different spaces.')
       }
@@ -679,7 +689,7 @@ export function createPagesService(
       user: UserRow,
       input: { pageId: string; content: string; baseUpdatedAt: string },
     ): Promise<{ updatedAt: string }> {
-      const { page } = await requirePage(input.pageId, user)
+      const { page } = await requirePage(input.pageId, user, 'write')
       // A deleted page must stop accepting writes. Without this the editor left
       // open on a page someone trashed keeps autosaving into it, and the edits
       // reappear if the page is ever restored.

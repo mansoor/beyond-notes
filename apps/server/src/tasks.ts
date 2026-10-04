@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { type AccessService, createAccess } from './access'
 import { PagesError } from './pages'
 import type { Repo, TaskRow, UserRow } from './repo'
 
@@ -207,16 +208,20 @@ export async function reconcileTasks(
 
 // ---- agenda service ----
 
-export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createTasksService(
+  repo: Repo,
+  opts: { now?: () => Date; access?: AccessService } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
 
   return {
     /** Every task on a page the user can see, with page/space context. */
     async agenda(user: UserRow) {
       const [tasks, spaces] = await Promise.all([repo.listAllTasks(), repo.listSpaces()])
-      const accessible = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
-      )
+      // tasks this person can tick off: not a read-only shared space's
+      const writable = await access.filter(user, 'write')
+      const accessible = new Map(spaces.filter(writable).map((s) => [s.id, s]))
       const result = []
       for (const task of tasks.sort((a, b) => a.position - b.position)) {
         const page = await repo.getPage(task.pageId)
@@ -234,7 +239,7 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       if (!task) throw new PagesError('NOT_FOUND', 'Task not found.')
       const page = await repo.getPage(task.pageId)
       const space = page ? await repo.getSpace(page.spaceId) : null
-      if (!page || !space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      if (!page || !space || !(await access.can(space, user, 'write'))) {
         throw new PagesError('NOT_FOUND', 'Task not found.')
       }
       const doc = await repo.getDocument(page.id)
@@ -263,7 +268,7 @@ export function createTasksService(repo: Repo, opts: { now?: () => Date } = {}) 
       if (!task) throw new PagesError('NOT_FOUND', 'Task not found.')
       const page = await repo.getPage(task.pageId)
       const space = page ? await repo.getSpace(page.spaceId) : null
-      if (!page || !space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      if (!page || !space || !(await access.can(space, user, 'write'))) {
         throw new PagesError('NOT_FOUND', 'Task not found.')
       }
       const doc = await repo.getDocument(page.id)

@@ -17,6 +17,7 @@ import {
   extractHeadings,
   formHtml,
   maintenancePage,
+  noticePage,
   sectionListHtml,
   shareBarHtml,
   site404,
@@ -44,8 +45,9 @@ import {
   normalizeFormOrder,
 } from '@bn/schema'
 import type { DbCellValue, DbColumn, FormConfig } from '@bn/schema'
-import type { FastifyReply } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { effectiveCaptchaMode, makeMathChallenge } from './captcha'
+import type { SiteGate, SiteRouteContext, SiteSlot } from './edition'
 import type { PublishingService } from './publishing'
 import type { Repo, SpaceRow } from './repo'
 
@@ -54,6 +56,57 @@ export type PublicSecurity = {
   captchaSecret: Buffer
   recaptchaSiteKey: () => string | null
   now: () => number
+  /** an edition's gate for protected sites (edition.ts); none = every site is open */
+  siteGate?: () => SiteGate | null
+  /** count a served page (visits.ts), when the edition counts this space */
+  countVisit?: (space: SpaceRow, path: string, req: FastifyRequest) => void
+  /** an edition's own GET pages under /_bn/ on a site; true = answered */
+  siteRoutes?: (
+    space: SpaceRow,
+    req: FastifyRequest,
+    reply: FastifyReply,
+    ctx: SiteRouteContext,
+  ) => Promise<boolean>
+  /** an edition's markup for a slot on site pages (a subscribe box) */
+  siteHtml?: (space: SpaceRow, slot: SiteSlot, ctx: { basePath: string; pageId: string }) => string
+}
+
+/** Where a newsletter's unsubscribe link points, on the site's own host. */
+export const UNSUBSCRIBE_PATH = '/_bn/unsubscribe'
+
+/** a@example.com -> a•••@example.com: enough to recognise, not to harvest */
+function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@')
+  if (at < 1) return '•••'
+  return `${email.slice(0, 1)}•••${email.slice(at)}`
+}
+
+const escText = (v: string) =>
+  v
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+
+/**
+ * A published page's HTML made fit for an email: no scripts, every link and
+ * image absolute, and embedded forms or tables (which need the page) swapped
+ * for a link to it.
+ */
+export function htmlForEmail(
+  html: string,
+  urls: { site: string; origin: string },
+  pageUrl: string,
+): string {
+  const onSite = `<p><a href="${escText(pageUrl)}">Open this post to see everything in it.</a></p>`
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<p[^>]*>\s*\[\[(?:form:|table=)[^\]]*\]\]\s*<\/p>/g, onSite)
+    .replace(/\[\[(?:form:|table=)[^\]]*\]\]/g, '')
+    .replace(/(\s(?:src|href|poster)=")\/(?!\/)([^"]*)"/g, (_m, attr: string, rest: string) =>
+      rest.startsWith('api/') ? `${attr}${urls.origin}/${rest}"` : `${attr}${urls.site}/${rest}"`,
+    )
 }
 
 /**
@@ -110,6 +163,56 @@ export function createPublicServer(
     return usedHistory && hit ? hit.path : null
   }
 
+  /** A small page in this site's look (newsletter answers). */
+  function notice(space: SpaceRow, basePath: string, heading: string, html: string): string {
+    const faviconId = space.publicFaviconAttachmentId ?? space.publicLogoAttachmentId
+    return noticePage({
+      siteTitle: space.publicTitle || space.name,
+      theme: space.publicTheme,
+      appearance: space.publicAppearance,
+      faviconUrl: faviconId ? `/api/files/${faviconId}/thumb` : null,
+      heading,
+      html,
+      homeUrl: space.publicEnabled ? `${basePath}/` : null,
+    })
+  }
+
+  /** The unsubscribe link's page; `done` = the visitor just confirmed it. */
+  async function unsubscribePage(
+    space: SpaceRow,
+    token: string,
+    basePath: string,
+    done: boolean,
+  ): Promise<string> {
+    const title = escText(space.publicTitle || space.name)
+    const sub = token ? await repo.getSubscriberByToken(token) : null
+    if (!sub || sub.spaceId !== space.id) {
+      return notice(
+        space,
+        basePath,
+        'This link has expired',
+        `<p>This unsubscribe link isn't valid any more. If you still get emails from ${title}, use the link in the most recent one.</p>`,
+      )
+    }
+    const who = escText(maskEmail(sub.email))
+    if (done || sub.status === 'unsubscribed') {
+      return notice(
+        space,
+        basePath,
+        "You're unsubscribed",
+        `<p>${who} won't get any more emails from ${title}.</p>`,
+      )
+    }
+    return notice(
+      space,
+      basePath,
+      'Unsubscribe?',
+      `<p>Stop emails from ${title} to ${who}?</p><form method="post" action="${escText(
+        `${basePath}${UNSUBSCRIBE_PATH}?t=${encodeURIComponent(token)}`,
+      )}"><button type="submit">Unsubscribe</button></form>`,
+    )
+  }
+
   /** Returns true if it handled the request. basePath '' = host routing; '/s/<host>' = dev escape. */
   async function serve(
     host: string,
@@ -120,8 +223,26 @@ export function createPublicServer(
     /** editBase is the app's URL, set only when the visitor has a session */
     opts: { editBase?: string | null } = {},
   ): Promise<boolean> {
+    // A newsletter's unsubscribe link works whatever else is true of the site:
+    // taken offline, closed for maintenance, or protected.
+    if (rawPath === UNSUBSCRIBE_PATH) {
+      const owner = await repo.getSpaceByPublicHost(host.toLowerCase())
+      if (!owner) return false
+      reply.header('cache-control', 'private, no-store')
+      reply.header('x-robots-tag', 'noindex, nofollow')
+      reply.type('text/html; charset=utf-8')
+      reply.send(await unsubscribePage(owner, String(query.t ?? ''), basePath, false))
+      return true
+    }
+
     const space = await resolveSpace(host)
     if (!space) return false
+
+    // an edition's own pages (a newsletter's confirm link)
+    if (rawPath.startsWith('/_bn/') && security.siteRoutes) {
+      const ctx = { basePath, path: rawPath, query }
+      if (await security.siteRoutes(space, reply.request, reply, ctx)) return true
+    }
 
     // Maintenance mode: the site is still published (so the host resolves and
     // no raw 404 leaks), but every path answers a holding page. Short-circuit
@@ -140,6 +261,36 @@ export function createPublicServer(
         }),
       )
       return true
+    }
+
+    // A protected site (an edition's gate) answers nothing, not even a feed or
+    // a search, until the gate lets this visitor through. robots.txt is the one
+    // exception, and it says to stay out.
+    const gate = security.siteGate?.() ?? null
+    if (gate?.isGated(space.id)) {
+      if (rawPath === '/robots.txt') {
+        reply.type('text/plain; charset=utf-8')
+        reply.send('User-agent: *\nDisallow: /\n')
+        return true
+      }
+      if (await gate.check(space, reply.request, reply, { basePath, path: rawPath || '/' })) {
+        return true
+      }
+      reply.header('cache-control', 'private, no-store')
+      reply.header('x-robots-tag', 'noindex, nofollow')
+    }
+
+    // Built-in visit counts: a page that actually went out (200, HTML) counts;
+    // feeds, previews, the password page and 404s don't.
+    if (security.countVisit && !/^\/(_preview|_bn)\//.test(rawPath)) {
+      const req = reply.request
+      const path = rawPath || '/'
+      reply.raw.once('finish', () => {
+        const type = String(reply.getHeader('content-type') ?? '')
+        if (reply.statusCode === 200 && type.startsWith('text/html')) {
+          security.countVisit?.(space, path, req)
+        }
+      })
     }
 
     // Analytics is added once, here, rather than threaded through a dozen
@@ -456,6 +607,10 @@ export function createPublicServer(
       return [...seen.values()].sort((a, b) => a.localeCompare(b))
     }
 
+    // an edition's markup for this kind of page (a subscribe box), if any
+    const slot = (kind: SiteSlot, pageId: string) =>
+      security.siteHtml?.(space, kind, { basePath, pageId }) ?? ''
+
     // per-page opt-in share buttons, composed at serve time (needs the host)
     const shareFor = (entry: (typeof site.flat)[number]) =>
       entry.entry.page.shareEnabled
@@ -602,11 +757,12 @@ export function createPublicServer(
           nav,
           basePath,
           title: hit.entry.version.title,
-          introHtml: await expandForms(
-            repo,
-            rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
-            security,
-          ),
+          introHtml:
+            (await expandForms(
+              repo,
+              rewriteInternalLinks(hit.entry.version.html, site, basePath) + shareFor(hit),
+              security,
+            )) + slot('blog', hit.entry.page.id),
           posts: posts.map((p) => ({
             title: p.title,
             path: p.path,
@@ -649,16 +805,17 @@ export function createPublicServer(
           basePath,
           title: hit.entry.version.title,
           date: date.toISOString().slice(0, 10),
-          contentHtml: await expandForms(
-            repo,
-            rewriteInternalLinks(hit.entry.version.html, site, basePath) +
-              shareFor(hit) +
-              sectionListHtml(
-                postChildren.map((c) => ({ title: c.title, path: c.path })),
-                basePath,
-              ),
-            security,
-          ),
+          contentHtml:
+            (await expandForms(
+              repo,
+              rewriteInternalLinks(hit.entry.version.html, site, basePath) +
+                shareFor(hit) +
+                sectionListHtml(
+                  postChildren.map((c) => ({ title: c.title, path: c.path })),
+                  basePath,
+                ),
+              security,
+            )) + slot('post', hit.entry.page.id),
           blogPath: parentEntry.path,
           blogTitle: parentEntry.title,
           rssPath,
@@ -891,7 +1048,47 @@ export function createPublicServer(
     )
   }
 
-  return { serve, resolveSpace, serveDraft }
+  return {
+    serve,
+    resolveSpace,
+    serveDraft,
+    notice,
+    /**
+     * Unsubscribe by the token in a newsletter email (the button on the
+     * unsubscribe page, or a mail app's one-click unsubscribe). null = no site.
+     */
+    async unsubscribe(host: string, token: string, basePath: string): Promise<string | null> {
+      const space = await repo.getSpaceByPublicHost(host.toLowerCase())
+      if (!space) return null
+      const sub = token ? await repo.getSubscriberByToken(token) : null
+      if (sub && sub.spaceId === space.id && sub.status !== 'unsubscribed') {
+        await repo.updateSubscriber(sub.id, {
+          status: 'unsubscribed',
+          unsubscribedAt: new Date(security.now()),
+        })
+      }
+      return unsubscribePage(space, token, basePath, true)
+    },
+    /** A published page as an email: its live version, links made absolute. */
+    async emailFor(
+      space: SpaceRow,
+      pageId: string,
+      urls: { site: string; origin: string },
+    ): Promise<{ title: string; html: string; text: string; url: string; date: Date } | null> {
+      const site = await publishing.publicSite(space, null)
+      const hit = site.flat.find((f) => f.entry.page.id === pageId)
+      if (!hit) return null
+      const url = `${urls.site}${hit.path}`
+      const dates = await publishing.firstPublishedAt([pageId])
+      return {
+        title: hit.entry.version.title,
+        html: htmlForEmail(rewriteInternalLinks(hit.entry.version.html, site, ''), urls, url),
+        text: hit.entry.version.textPlain,
+        url,
+        date: dates.get(pageId) ?? hit.entry.version.createdAt,
+      }
+    },
+  }
 }
 
 /**

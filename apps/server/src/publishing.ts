@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { blocknoteToHtml, galleryHtml, plainText, slugify } from '@bn/renderer'
 import type { NavNode } from '@bn/renderer'
 import { nanoid } from 'nanoid'
+import { type AccessService, createAccess } from './access'
 import { extractAttachmentIds } from './attachments'
 import { hashToken } from './auth'
 import { PagesError } from './pages'
@@ -9,21 +10,36 @@ import type { PageRow, PageVersionRow, PreviewRow, Repo, SpaceRow, UserRow } fro
 
 export const SCHEDULED_PUBLISH = 'scheduled-publish'
 
+/** A page went live (publish, or a scheduled publish coming due). */
+export type PublishedEvent = {
+  space: SpaceRow
+  page: PageRow
+  version: PageVersionRow
+  /** this page had never been published before */
+  firstTime: boolean
+  by: UserRow
+}
+
 /**
  * The publish pipeline. Two-track rule made physical: the working copy is
  * never public, the published snapshot is never edited. Public output is
  * computed from live versions only; a page is publicly reachable only if all
  * of its ancestors are live too.
  */
-export function createPublishingService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createPublishingService(
+  repo: Repo,
+  opts: { now?: () => Date; access?: AccessService; onListenerError?: (err: unknown) => void } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
 
   // public-attachment cache: recomputed after any publish-state mutation
   // (and on a slow TTL as a safety net), so going live is instant
-  let attachmentCache: { ids: Set<string>; at: number } | null = null
+  let attachmentCache: { spaces: Map<string, Set<string>>; at: number } | null = null
   const invalidateAttachmentCache = () => {
     attachmentCache = null
   }
+  const publishedListeners = new Set<(e: PublishedEvent) => void | Promise<void>>()
 
   async function requirePage(
     pageId: string,
@@ -32,7 +48,8 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
     const page = await repo.getPage(pageId)
     if (!page) throw new PagesError('NOT_FOUND', 'Page not found.')
     const space = await repo.getSpace(page.spaceId)
-    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+    // editors can publish pages; the site's own settings stay with its owner
+    if (!space || !(await access.can(space, user, 'write'))) {
       throw new PagesError('NOT_FOUND', 'Page not found.')
     }
     return { page, space }
@@ -125,7 +142,27 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       // record the slug in history too — redirect resolution reads one table
       await repo.addPageSlug(pageId, slug, now())
       invalidateAttachmentCache()
+      const event: PublishedEvent = {
+        space,
+        page: { ...page, slug },
+        version,
+        firstTime: existing.length === 0,
+        by: user,
+      }
+      for (const listener of publishedListeners) {
+        try {
+          await listener(event)
+        } catch (err) {
+          opts.onListenerError?.(err)
+        }
+      }
       return version
+    },
+
+    /** Be told when a page goes live (an edition's newsletter). */
+    onPublished(listener: (e: PublishedEvent) => void | Promise<void>): () => void {
+      publishedListeners.add(listener)
+      return () => publishedListeners.delete(listener)
     },
 
     /** Take the page off the site; history is kept, nothing is deleted. */
@@ -173,7 +210,7 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
       },
     ): Promise<void> {
       const space = await repo.getSpace(input.spaceId)
-      if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+      if (!space || !(await access.can(space, user, 'owner'))) {
         throw new PagesError('NOT_FOUND', 'Space not found.')
       }
       if (input.enabled && !input.host) {
@@ -206,25 +243,41 @@ export function createPublishingService(repo: Repo, opts: { now?: () => Date } =
 
     /** Attachment ids visible to the public: union over live versions of enabled spaces. */
     async publicAttachmentIds(): Promise<Set<string>> {
+      return new Set((await this.publicAttachmentSpaces()).keys())
+    },
+
+    /**
+     * The same, with the enabled spaces each attachment is published in, so a
+     * protected site's files can be held back while an open site's stay public.
+     */
+    async publicAttachmentSpaces(): Promise<Map<string, Set<string>>> {
       if (attachmentCache && Date.now() - attachmentCache.at < 60_000) {
-        return attachmentCache.ids
+        return attachmentCache.spaces
       }
-      const ids = new Set<string>()
+      const map = new Map<string, Set<string>>()
+      const add = (id: string, spaceId: string) => {
+        let set = map.get(id)
+        if (!set) {
+          set = new Set()
+          map.set(id, set)
+        }
+        set.add(spaceId)
+      }
       const spaces = await repo.listSpaces()
       for (const space of spaces.filter((s) => s.publicEnabled)) {
         // the site logo is public chrome, servable while the site is enabled
-        if (space.publicLogoAttachmentId) ids.add(space.publicLogoAttachmentId)
+        if (space.publicLogoAttachmentId) add(space.publicLogoAttachmentId, space.id)
         const entries = await this.liveTree(space.id)
         for (const e of entries) {
           try {
-            for (const id of JSON.parse(e.version.attachmentIds) as string[]) ids.add(id)
+            for (const id of JSON.parse(e.version.attachmentIds) as string[]) add(id, space.id)
           } catch {
             // pre-attachment versions have no ids
           }
         }
       }
-      attachmentCache = { ids, at: Date.now() }
-      return ids
+      attachmentCache = { spaces: map, at: Date.now() }
+      return map
     },
 
     /** First-publish dates for a set of pages (post dates, RSS pubDates). */

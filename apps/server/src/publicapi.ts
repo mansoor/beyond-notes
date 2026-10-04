@@ -1,3 +1,4 @@
+import { blocknoteToMarkdown, dedupeBlockIds, markdownToBlocks, plainText } from '@bn/renderer'
 /**
  * The public API's core: what a personal access token can do, shared by the
  * REST routes (/api/v1) and the MCP server (/api/mcp) so both behave the same.
@@ -9,7 +10,7 @@
  * tRPC middleware normally guards writes against locks, and none of this goes
  * through tRPC, so every read and write here checks for itself.
  */
-import { blocknoteToMarkdown, dedupeBlockIds, markdownToBlocks, plainText } from '@bn/renderer'
+import { type AccessService, createAccess } from './access'
 import type { DailyService } from './daily'
 import { type LockService, LockedError } from './locks'
 import { PagesError, type PagesService } from './pages'
@@ -57,9 +58,11 @@ export function createPublicApi(deps: {
   daily: DailyService
   tasks: TasksService
   locks: LockService
+  access?: AccessService
   now?: () => Date
 }) {
   const { repo, pages, daily, tasks, locks } = deps
+  const access = deps.access ?? createAccess(repo)
   const now = deps.now ?? (() => new Date())
 
   /** The page, if this person may see it and it isn't locked. */
@@ -218,9 +221,8 @@ export function createPublicApi(deps: {
         repo.listSpaces(),
         locks.hiddenPageIds(null, user),
       ])
-      const visible = new Map(
-        spaces.filter((s) => s.ownerId === null || s.ownerId === user.id).map((s) => [s.id, s]),
-      )
+      const readable = await access.filter(user)
+      const visible = new Map(spaces.filter(readable).map((s) => [s.id, s]))
       const needle = q.toLowerCase()
       const results: Array<{
         kind: 'page' | 'inbox'

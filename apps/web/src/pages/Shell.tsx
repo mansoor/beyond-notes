@@ -3,6 +3,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { AboutModal } from '../about'
+import { useAi } from '../ai'
 import { BrandMark, Modal, useIsMobile } from '../components'
 import { todayKey } from '../editor'
 import { useInstallPrompt } from '../pwa'
@@ -590,6 +591,7 @@ function DailyNav() {
   const memos = trpc.memos.list.useQuery()
   const agenda = trpc.tasks.agenda.useQuery()
   const prefs = useSidebarPrefs()
+  const ai = useAi()
   const today = todayKey()
 
   const inboxCount = (memos.data ?? []).filter((m) => !m.promotedTo).length
@@ -610,6 +612,8 @@ function DailyNav() {
     ...(prefs.isHidden(TAGS_NAV_TOKEN)
       ? []
       : [{ label: 'Tags', to: '/tags', params: {}, count: null as number | null }]),
+    // only where an admin has set up AI (Settings → AI)
+    ...(ai.enabled ? [{ label: 'Ask', to: '/ask', params: {}, count: null as number | null }] : []),
   ]
 
   return (

@@ -274,6 +274,48 @@
       "when": 1790471578685,
       "tag": "0038_common_agent_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791062199139,
+      "tag": "0039_true_slyde",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791067398079,
+      "tag": "0040_hard_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791070293029,
+      "tag": "0041_pink_leopardon",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791075503095,
+      "tag": "0042_friendly_sleepwalker",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791088532550,
+      "tag": "0043_dapper_tombstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791135602594,
+      "tag": "0044_worried_mentor",
+      "breakpoints": true
     }
   ]
 }

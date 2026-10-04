@@ -1,4 +1,18 @@
-import { and, desc, eq, isNull, like, lt, sql as sqlOp } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lt,
+  lte,
+  or,
+  sql as sqlOp,
+} from 'drizzle-orm'
 import type { AppDb } from './db'
 
 export type UserRow = {
@@ -30,6 +44,8 @@ export type UserRow = {
   graphMobile: boolean
   /** default app theme, adopted on a device that has not picked one */
   defaultTheme: 'light' | 'paper' | 'navy' | 'dark'
+  /** deactivated at; null = active */
+  disabledAt: Date | null
   createdAt: Date
 }
 
@@ -88,6 +104,67 @@ export type ApiTokenRow = {
   lastUsedAt: Date | null
   revokedAt: Date | null
 }
+
+export type SiteVisitRow = {
+  spaceId: string
+  day: string
+  path: string
+  views: number
+  visitors: number
+}
+export type SiteReferrerRow = { spaceId: string; day: string; host: string; views: number }
+
+export type SubscriberStatus = 'pending' | 'active' | 'unsubscribed'
+export type NewsletterSubscriberRow = {
+  id: string
+  spaceId: string
+  email: string
+  status: SubscriberStatus
+  token: string
+  source: string
+  createdAt: Date
+  confirmedAt: Date | null
+  unsubscribedAt: Date | null
+}
+export type IssueStatus = 'queued' | 'sending' | 'sent' | 'cancelled' | 'failed'
+export type NewsletterIssueRow = {
+  id: string
+  spaceId: string
+  pageId: string | null
+  subject: string
+  status: IssueStatus
+  sendAfter: Date
+  cursor: string | null
+  recipients: number
+  sent: number
+  failed: number
+  error: string | null
+  createdBy: string | null
+  createdAt: Date
+  finishedAt: Date | null
+}
+
+export type AiChunkRow = {
+  id: string
+  pageId: string
+  spaceId: string
+  seq: number
+  text: string
+  model: string
+  vector: Uint8Array
+  sourceAt: Date
+}
+
+export type ShareRole = 'viewer' | 'editor'
+export type SpaceShareRow = {
+  spaceId: string
+  principalType: 'user' | 'group'
+  principalId: string
+  role: ShareRole
+  createdAt: Date
+}
+export type UserGroupRow = { id: string; name: string; createdAt: Date }
+export type UserGroupMemberRow = { groupId: string; userId: string }
 
 export type ResetTokenRow = {
   id: string
@@ -328,6 +405,7 @@ export type DbRowRow = {
 // for the portable SQL this repo restricts itself to (see TECH-PLAN, database
 // section). Types are enforced at this boundary, not inside the queries.
 export function createRepo(appDb: AppDb) {
+  let documentListener: ((pageId: string, content: string) => void) | null = null
   const db = appDb.db
   const t = appDb.tables as any
 
@@ -353,6 +431,15 @@ export function createRepo(appDb: AppDb) {
 
     async countUsers(): Promise<number> {
       const rows = await db.select({ id: t.users.id }).from(t.users)
+      return rows.length
+    },
+
+    /** People who can sign in (what a per-seat licence counts). */
+    async countActiveUsers(): Promise<number> {
+      const rows = await db
+        .select({ id: t.users.id })
+        .from(t.users)
+        .where(isNull(t.users.disabledAt))
       return rows.length
     },
 
@@ -396,10 +483,16 @@ export function createRepo(appDb: AppDb) {
           | 'graphEdges'
           | 'graphMobile'
           | 'defaultTheme'
+          | 'disabledAt'
         >
       >,
     ): Promise<void> {
       await db.update(t.users).set(patch).where(eq(t.users.id, id))
+    },
+
+    /** End every session of one person (deactivation, forced password reset). */
+    async deleteSessionsForUser(userId: string): Promise<void> {
+      await db.delete(t.sessions).where(eq(t.sessions.userId, userId))
     },
 
     async getIdentity(issuer: string, subject: string): Promise<IdentityRow | null> {
@@ -495,6 +588,331 @@ export function createRepo(appDb: AppDb) {
         .where(lt(t.auditEvents.at, cutoff))
         .returning({ id: t.auditEvents.id })
       return rows.length
+    },
+
+    // ---- built-in visit counts ----
+
+    async addSiteVisits(
+      rows: Array<{ spaceId: string; day: string; path: string; views: number; visitors: number }>,
+    ): Promise<void> {
+      for (const r of rows) {
+        await db
+          .insert(t.siteVisitsDaily)
+          .values(r)
+          .onConflictDoUpdate({
+            target: [t.siteVisitsDaily.spaceId, t.siteVisitsDaily.day, t.siteVisitsDaily.path],
+            set: {
+              views: sqlOp`${t.siteVisitsDaily.views} + ${r.views}`,
+              visitors: sqlOp`${t.siteVisitsDaily.visitors} + ${r.visitors}`,
+            },
+          })
+      }
+    },
+    async addSiteReferrers(
+      rows: Array<{ spaceId: string; day: string; host: string; views: number }>,
+    ): Promise<void> {
+      for (const r of rows) {
+        await db
+          .insert(t.siteReferrersDaily)
+          .values(r)
+          .onConflictDoUpdate({
+            target: [
+              t.siteReferrersDaily.spaceId,
+              t.siteReferrersDaily.day,
+              t.siteReferrersDaily.host,
+            ],
+            set: { views: sqlOp`${t.siteReferrersDaily.views} + ${r.views}` },
+          })
+      }
+    },
+    /** Daily rows for one site from `fromDay` (inclusive, YYYY-MM-DD). */
+    async listSiteVisits(spaceId: string, fromDay: string): Promise<SiteVisitRow[]> {
+      return db
+        .select()
+        .from(t.siteVisitsDaily)
+        .where(and(eq(t.siteVisitsDaily.spaceId, spaceId), gte(t.siteVisitsDaily.day, fromDay)))
+    },
+    async listSiteReferrers(spaceId: string, fromDay: string): Promise<SiteReferrerRow[]> {
+      return db
+        .select()
+        .from(t.siteReferrersDaily)
+        .where(
+          and(eq(t.siteReferrersDaily.spaceId, spaceId), gte(t.siteReferrersDaily.day, fromDay)),
+        )
+    },
+    async listAllSiteVisits(): Promise<SiteVisitRow[]> {
+      return db.select().from(t.siteVisitsDaily)
+    },
+    async listAllSiteReferrers(): Promise<SiteReferrerRow[]> {
+      return db.select().from(t.siteReferrersDaily)
+    },
+    async deleteSiteVisitsBefore(day: string): Promise<void> {
+      await db.delete(t.siteVisitsDaily).where(lt(t.siteVisitsDaily.day, day))
+      await db.delete(t.siteReferrersDaily).where(lt(t.siteReferrersDaily.day, day))
+    },
+
+    // ---- newsletters ----
+
+    async insertSubscriber(row: NewsletterSubscriberRow): Promise<void> {
+      await db.insert(t.newsletterSubscribers).values(row)
+    },
+    async updateSubscriber(
+      id: string,
+      patch: Partial<
+        Pick<
+          NewsletterSubscriberRow,
+          'status' | 'token' | 'source' | 'confirmedAt' | 'unsubscribedAt' | 'createdAt'
+        >
+      >,
+    ): Promise<void> {
+      await db.update(t.newsletterSubscribers).set(patch).where(eq(t.newsletterSubscribers.id, id))
+    },
+    async deleteSubscriber(id: string): Promise<void> {
+      await db.delete(t.newsletterSubscribers).where(eq(t.newsletterSubscribers.id, id))
+    },
+    async getSubscriber(id: string): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    async getSubscriberByToken(token: string): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.token, token))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    async getSubscriberByEmail(
+      spaceId: string,
+      email: string,
+    ): Promise<NewsletterSubscriberRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(
+          and(
+            eq(t.newsletterSubscribers.spaceId, spaceId),
+            eq(t.newsletterSubscribers.email, email),
+          ),
+        )
+        .limit(1)
+      return rows[0] ?? null
+    },
+    /** A site's subscribers in id order; `after` and `limit` page through them. */
+    async listSubscribers(
+      spaceId: string,
+      opts: { status?: SubscriberStatus; after?: string | null; limit?: number } = {},
+    ): Promise<NewsletterSubscriberRow[]> {
+      const where = [
+        eq(t.newsletterSubscribers.spaceId, spaceId),
+        opts.status ? eq(t.newsletterSubscribers.status, opts.status) : undefined,
+        opts.after ? gt(t.newsletterSubscribers.id, opts.after) : undefined,
+      ].filter(Boolean)
+      const q = db
+        .select()
+        .from(t.newsletterSubscribers)
+        .where(and(...where))
+        .orderBy(asc(t.newsletterSubscribers.id))
+      return opts.limit ? q.limit(opts.limit) : q
+    },
+    async countSubscribers(spaceId: string): Promise<Record<SubscriberStatus, number>> {
+      const rows = (await db
+        .select({ status: t.newsletterSubscribers.status, n: sqlOp`count(*)` })
+        .from(t.newsletterSubscribers)
+        .where(eq(t.newsletterSubscribers.spaceId, spaceId))
+        .groupBy(t.newsletterSubscribers.status)) as Array<{ status: SubscriberStatus; n: unknown }>
+      const out: Record<SubscriberStatus, number> = { pending: 0, active: 0, unsubscribed: 0 }
+      for (const r of rows) out[r.status] = Number(r.n)
+      return out
+    },
+    /** Unconfirmed signups older than this go (nobody confirmed them). */
+    async deletePendingSubscribersBefore(cutoff: Date): Promise<number> {
+      const rows = await db
+        .delete(t.newsletterSubscribers)
+        .where(
+          and(
+            eq(t.newsletterSubscribers.status, 'pending'),
+            lt(t.newsletterSubscribers.createdAt, cutoff),
+          ),
+        )
+        .returning({ id: t.newsletterSubscribers.id })
+      return rows.length
+    },
+    async listAllSubscribers(): Promise<NewsletterSubscriberRow[]> {
+      return db.select().from(t.newsletterSubscribers)
+    },
+
+    async insertIssue(row: NewsletterIssueRow): Promise<void> {
+      await db.insert(t.newsletterIssues).values(row)
+    },
+    async updateIssue(
+      id: string,
+      patch: Partial<Omit<NewsletterIssueRow, 'id' | 'spaceId' | 'createdAt' | 'createdBy'>>,
+    ): Promise<void> {
+      await db.update(t.newsletterIssues).set(patch).where(eq(t.newsletterIssues.id, id))
+    },
+    async getIssue(id: string): Promise<NewsletterIssueRow | null> {
+      const rows = await db
+        .select()
+        .from(t.newsletterIssues)
+        .where(eq(t.newsletterIssues.id, id))
+        .limit(1)
+      return rows[0] ?? null
+    },
+    /** A site's issues, newest first. */
+    async listIssues(spaceId: string, limit = 50): Promise<NewsletterIssueRow[]> {
+      return db
+        .select()
+        .from(t.newsletterIssues)
+        .where(eq(t.newsletterIssues.spaceId, spaceId))
+        .orderBy(desc(t.newsletterIssues.createdAt))
+        .limit(limit)
+    },
+    /** Issues for these pages (has this post gone out already?). */
+    async listIssuesForPages(pageIds: string[]): Promise<NewsletterIssueRow[]> {
+      if (pageIds.length === 0) return []
+      return db.select().from(t.newsletterIssues).where(inArray(t.newsletterIssues.pageId, pageIds))
+    },
+    /** Issues to work on now: due queued ones, and any left mid-send by a restart. */
+    async listDueIssues(at: Date): Promise<NewsletterIssueRow[]> {
+      return db
+        .select()
+        .from(t.newsletterIssues)
+        .where(
+          or(
+            eq(t.newsletterIssues.status, 'sending'),
+            and(eq(t.newsletterIssues.status, 'queued'), lte(t.newsletterIssues.sendAfter, at)),
+          ),
+        )
+        .orderBy(asc(t.newsletterIssues.sendAfter))
+    },
+    async listAllIssues(): Promise<NewsletterIssueRow[]> {
+      return db.select().from(t.newsletterIssues)
+    },
+
+    // ---- AI passage index ----
+
+    /** One row per indexed page: which model, cut from which document version. */
+    async listAiIndexHeads(): Promise<
+      Array<{ pageId: string; model: string; sourceAt: Date; chunks: number }>
+    > {
+      const rows = (await db
+        .select({
+          pageId: t.aiChunks.pageId,
+          model: t.aiChunks.model,
+          sourceAt: sqlOp`max(${t.aiChunks.sourceAt})`,
+          chunks: sqlOp`count(*)`,
+        })
+        .from(t.aiChunks)
+        .groupBy(t.aiChunks.pageId, t.aiChunks.model)) as Array<{
+        pageId: string
+        model: string
+        sourceAt: unknown
+        chunks: unknown
+      }>
+      return rows.map((r) => ({
+        pageId: r.pageId,
+        model: r.model,
+        // the aggregate comes back raw: epoch ms on sqlite, a timestamp on pg
+        sourceAt: new Date(typeof r.sourceAt === 'number' ? r.sourceAt : String(r.sourceAt)),
+        chunks: Number(r.chunks),
+      }))
+    },
+    /** A page's passages, replaced in one go. */
+    async replaceAiChunks(pageId: string, rows: AiChunkRow[]): Promise<void> {
+      await db.delete(t.aiChunks).where(eq(t.aiChunks.pageId, pageId))
+      for (const row of rows) {
+        await db.insert(t.aiChunks).values({ ...row, vector: Buffer.from(row.vector) })
+      }
+    },
+    async deleteAiChunksForPage(pageId: string): Promise<void> {
+      await db.delete(t.aiChunks).where(eq(t.aiChunks.pageId, pageId))
+    },
+    async deleteAllAiChunks(): Promise<void> {
+      await db.delete(t.aiChunks)
+    },
+    async listAiChunks(model: string): Promise<AiChunkRow[]> {
+      const rows = (await db
+        .select()
+        .from(t.aiChunks)
+        .where(eq(t.aiChunks.model, model))) as AiChunkRow[]
+      return rows.map((r) => ({ ...r, vector: new Uint8Array(r.vector) }))
+    },
+
+    // ---- sharing ----
+
+    async listAllSpaceShares(): Promise<SpaceShareRow[]> {
+      return (await db.select().from(t.spaceShares)) as SpaceShareRow[]
+    },
+    async listSpaceShares(spaceId: string): Promise<SpaceShareRow[]> {
+      return (await db
+        .select()
+        .from(t.spaceShares)
+        .where(eq(t.spaceShares.spaceId, spaceId))) as SpaceShareRow[]
+    },
+    /** Insert, or change the role of, one share. */
+    async putSpaceShare(row: SpaceShareRow): Promise<void> {
+      await db
+        .insert(t.spaceShares)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [t.spaceShares.spaceId, t.spaceShares.principalType, t.spaceShares.principalId],
+          set: { role: row.role },
+        })
+    },
+    async deleteSpaceShare(
+      spaceId: string,
+      principalType: 'user' | 'group',
+      principalId: string,
+    ): Promise<void> {
+      await db
+        .delete(t.spaceShares)
+        .where(
+          and(
+            eq(t.spaceShares.spaceId, spaceId),
+            eq(t.spaceShares.principalType, principalType),
+            eq(t.spaceShares.principalId, principalId),
+          ),
+        )
+    },
+    /** A deleted group or person stops being shared with anywhere. */
+    async deleteSharesForPrincipal(principalType: 'user' | 'group', principalId: string) {
+      await db
+        .delete(t.spaceShares)
+        .where(
+          and(
+            eq(t.spaceShares.principalType, principalType),
+            eq(t.spaceShares.principalId, principalId),
+          ),
+        )
+    },
+
+    async listUserGroups(): Promise<UserGroupRow[]> {
+      return (await db.select().from(t.userGroups)) as UserGroupRow[]
+    },
+    async insertUserGroup(row: UserGroupRow): Promise<void> {
+      await db.insert(t.userGroups).values(row)
+    },
+    async renameUserGroup(id: string, name: string): Promise<void> {
+      await db.update(t.userGroups).set({ name }).where(eq(t.userGroups.id, id))
+    },
+    async deleteUserGroup(id: string): Promise<void> {
+      await db.delete(t.userGroups).where(eq(t.userGroups.id, id))
+    },
+    async listAllUserGroupMembers(): Promise<UserGroupMemberRow[]> {
+      return (await db.select().from(t.userGroupMembers)) as UserGroupMemberRow[]
+    },
+    async addUserGroupMember(row: UserGroupMemberRow): Promise<void> {
+      await db.insert(t.userGroupMembers).values(row).onConflictDoNothing()
+    },
+    async removeUserGroupMember(groupId: string, userId: string): Promise<void> {
+      await db
+        .delete(t.userGroupMembers)
+        .where(and(eq(t.userGroupMembers.groupId, groupId), eq(t.userGroupMembers.userId, userId)))
     },
 
     async insertApiToken(row: ApiTokenRow): Promise<void> {
@@ -849,8 +1267,44 @@ export function createRepo(appDb: AppDb) {
       return rows[0] ?? null
     },
 
-    async updateDocument(pageId: string, content: string, updatedAt: Date): Promise<void> {
+    /**
+     * The one write path for page content. Anything listening (live
+     * co-editing) hears about writes that didn't come from itself.
+     */
+    async updateDocument(
+      pageId: string,
+      content: string,
+      updatedAt: Date,
+      source: 'collab' | null = null,
+    ): Promise<void> {
       await db.update(t.documents).set({ content, updatedAt }).where(eq(t.documents.pageId, pageId))
+      if (source !== 'collab') documentListener?.(pageId, content)
+    },
+    /** Hear about page content written outside live co-editing. */
+    onDocumentWritten(listener: ((pageId: string, content: string) => void) | null) {
+      documentListener = listener
+    },
+
+    async getLiveState(pageId: string): Promise<{ state: Uint8Array; contentAt: Date } | null> {
+      const rows = await db
+        .select()
+        .from(t.documentLiveStates)
+        .where(eq(t.documentLiveStates.pageId, pageId))
+        .limit(1)
+      const row = rows[0]
+      return row
+        ? { state: new Uint8Array(row.state as Uint8Array), contentAt: row.contentAt }
+        : null
+    },
+    async putLiveState(pageId: string, state: Uint8Array, contentAt: Date): Promise<void> {
+      const value = Buffer.from(state)
+      await db
+        .insert(t.documentLiveStates)
+        .values({ pageId, state: value, contentAt })
+        .onConflictDoUpdate({
+          target: t.documentLiveStates.pageId,
+          set: { state: value, contentAt },
+        })
     },
 
     // ---- journal helpers ----

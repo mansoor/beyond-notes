@@ -1,6 +1,7 @@
 import type { AuditEventView, AuditFamily, GraphEdgeKind, OidcSettings } from '@bn/schema'
 import { useEffect, useState } from 'react'
 import { ErrorNote, Field, Modal, SubmitButton, useSubmit } from '../components'
+import { webEdition } from '../edition'
 import { passkeyErrorMessage, passkeysSupported, startRegistration } from '../passkey'
 import {
   type HideableKind,
@@ -23,13 +24,14 @@ const TABS = [
   'Security',
   'Notifications',
   'Integrations',
+  'AI',
   'Users',
   'Storage',
   'Backup',
   'Activity',
 ] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup', 'Activity']
+const ADMIN_TABS: Tab[] = ['AI', 'Users', 'Storage', 'Backup', 'Activity']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
@@ -37,6 +39,7 @@ const TAB_ICONS: Record<Tab, string> = {
   Security: '🔒',
   Notifications: '🔔',
   Integrations: '🔗',
+  AI: '✨',
   Users: '👥',
   Storage: '🗄',
   Backup: '💾',
@@ -47,11 +50,21 @@ export function SettingsPage() {
   const status = trpc.auth.status.useQuery()
   const isAdmin = status.data?.me?.role === 'admin'
   // the SSO link flow returns to /settings?sso=linked (or ?sso_error=…)
-  const [tab, setTab] = useState<Tab>(() => {
+  // a core tab name, or the id of a tab an add-on edition contributes
+  const [tab, setTab] = useState<string>(() => {
     const q = new URLSearchParams(window.location.search)
     return q.has('sso') || q.has('sso_error') ? 'Security' : 'Account'
   })
-  const tabs = TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin)
+  const extraTabs = (webEdition.settingsTabs ?? []).filter((t) => !t.adminOnly || isAdmin)
+  const tabs = [
+    ...TABS.filter((t) => !ADMIN_TABS.includes(t) || isAdmin).map((t) => ({
+      id: t as string,
+      label: t as string,
+      icon: TAB_ICONS[t],
+    })),
+    ...extraTabs,
+  ]
+  const ExtraTab = extraTabs.find((t) => t.id === tab)?.Component
 
   return (
     <div className="max-w-5xl mx-auto px-4 lg:px-10 py-6 lg:py-8">
@@ -64,29 +77,29 @@ export function SettingsPage() {
           className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
           value={tab}
-          onChange={(e) => setTab(e.target.value as Tab)}
+          onChange={(e) => setTab(e.target.value)}
         >
           {tabs.map((t) => (
-            <option key={t} value={t}>
-              {TAB_ICONS[t]} {t}
+            <option key={t.id} value={t.id}>
+              {t.icon} {t.label}
             </option>
           ))}
         </select>
         <nav className="hidden md:flex md:flex-col md:gap-0.5 md:w-44 md:shrink-0 md:sticky md:top-8">
           {tabs.map((t) => (
             <button
-              key={t}
+              key={t.id}
               type="button"
-              onClick={() => setTab(t)}
+              onClick={() => setTab(t.id)}
               className="flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg"
               style={{
-                color: tab === t ? 'var(--accent)' : 'var(--text-2)',
-                background: tab === t ? 'var(--accent-soft)' : undefined,
-                fontWeight: tab === t ? 600 : 400,
+                color: tab === t.id ? 'var(--accent)' : 'var(--text-2)',
+                background: tab === t.id ? 'var(--accent-soft)' : undefined,
+                fontWeight: tab === t.id ? 600 : 400,
               }}
             >
-              <span className="text-xs">{TAB_ICONS[t]}</span>
-              {t}
+              <span className="text-xs">{t.icon}</span>
+              {t.label}
             </button>
           ))}
         </nav>
@@ -97,10 +110,12 @@ export function SettingsPage() {
           {tab === 'Security' && <SecurityTab />}
           {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
           {tab === 'Integrations' && <IntegrationsTab />}
+          {tab === 'AI' && isAdmin && <AiTab />}
           {tab === 'Users' && isAdmin && <UsersTab />}
           {tab === 'Storage' && isAdmin && <StorageTab />}
           {tab === 'Backup' && isAdmin && <BackupTab />}
           {tab === 'Activity' && isAdmin && <ActivityTab />}
+          {ExtraTab ? <ExtraTab /> : null}
         </div>
       </div>
     </div>
@@ -1439,6 +1454,250 @@ function WebhooksCard() {
   )
 }
 
+const AI_INPUT = 'w-full rounded-lg border px-3 py-1.5 text-sm'
+const AI_INPUT_STYLE = { borderColor: 'var(--border)', background: 'var(--bg)' } as const
+
+/** Admin: the model server behind Ask, summaries and tag suggestions. */
+function AiTab() {
+  const utils = trpc.useUtils()
+  const settings = trpc.ai.settings.useQuery()
+  const save = trpc.ai.saveSettings.useMutation()
+  const test = trpc.ai.test.useMutation()
+  const reindex = trpc.ai.reindex.useMutation()
+  const index = trpc.ai.index.useQuery(undefined, {
+    enabled: Boolean(settings.data?.embedModel),
+    refetchInterval: (q) =>
+      q.state.data?.running || (q.state.data?.pending ?? 0) > 0 ? 3000 : false,
+  })
+  const [form, setForm] = useState({
+    enabled: false,
+    baseUrl: '',
+    apiKey: '',
+    chatModel: '',
+    embedModel: '',
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const s = settings.data
+  if (s && !loaded) {
+    setForm({
+      enabled: s.enabled,
+      baseUrl: s.baseUrl,
+      apiKey: '',
+      chatModel: s.chatModel,
+      embedModel: s.embedModel,
+    })
+    setLoaded(true)
+  }
+  const set = (patch: Partial<typeof form>) => {
+    setForm({ ...form, ...patch })
+    setDone(false)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    setForm({ ...form, apiKey: '' })
+    await Promise.all([
+      utils.ai.settings.invalidate(),
+      utils.ai.status.invalidate(),
+      utils.ai.index.invalidate(),
+    ])
+    setDone(true)
+  })
+  const models = test.data?.models ?? []
+  const ix = index.data
+
+  return (
+    <>
+      <Card title="AI on your own model server">
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          Ask your notes, summaries of a day or week, and tag suggestions for the Inbox, using a
+          model server you run, such as{' '}
+          <a
+            href="https://ollama.com"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+            style={{ color: 'var(--accent)' }}
+          >
+            Ollama
+          </a>
+          . Notes go to that server and nowhere else, only what the person asking may open, and
+          never locked pages.
+        </p>
+        {s?.source === 'env' ? (
+          <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+            Set by environment variables. Saving here takes over from them.
+          </p>
+        ) : null}
+        <form onSubmit={onSubmit}>
+          <label className="flex items-center gap-2 text-sm font-medium mb-4">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => set({ enabled: e.target.checked })}
+            />
+            Use AI
+          </label>
+          <label className="block text-sm mb-3">
+            <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+              Server address
+            </span>
+            <input
+              className={AI_INPUT}
+              style={AI_INPUT_STYLE}
+              value={form.baseUrl}
+              placeholder="http://localhost:11434"
+              onChange={(e) => set({ baseUrl: e.target.value })}
+            />
+            <span className="block text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+              Ollama, LM Studio, llama.cpp, or any OpenAI-compatible server. From Docker, Ollama on
+              the same machine is http://host.docker.internal:11434.
+            </span>
+          </label>
+          <label className="block text-sm mb-3">
+            <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+              API key
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              className={AI_INPUT}
+              style={AI_INPUT_STYLE}
+              value={form.apiKey}
+              placeholder={
+                s?.hasKey ? 'Saved (leave blank to keep it)' : 'Only if your server asks for one'
+              }
+              onChange={(e) => set({ apiKey: e.target.value })}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-x-4">
+            <label className="block text-sm mb-3">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Chat model
+              </span>
+              <input
+                className={AI_INPUT}
+                style={AI_INPUT_STYLE}
+                list="ai-models"
+                value={form.chatModel}
+                placeholder="llama3.2"
+                onChange={(e) => set({ chatModel: e.target.value })}
+              />
+            </label>
+            <label className="block text-sm mb-3">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Embedding model
+              </span>
+              <input
+                className={AI_INPUT}
+                style={AI_INPUT_STYLE}
+                list="ai-models"
+                value={form.embedModel}
+                placeholder="nomic-embed-text"
+                onChange={(e) => set({ embedModel: e.target.value })}
+              />
+            </label>
+          </div>
+          <datalist id="ai-models">
+            {models.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+            The embedding model is optional: with one, Ask finds notes by meaning; without it, by
+            their words. With Ollama: <code>ollama pull llama3.2</code> and{' '}
+            <code>ollama pull nomic-embed-text</code>.
+          </p>
+          <ErrorNote message={error} />
+          <div className="flex items-center gap-3">
+            <div className="w-32">
+              <SubmitButton label="Save" busy={busy} />
+            </div>
+            <button
+              type="button"
+              disabled={test.isPending || !s?.enabled}
+              onClick={() => test.mutate()}
+              className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+              title={s?.enabled ? 'Try the saved settings' : 'Save with AI switched on first'}
+            >
+              {test.isPending ? 'Testing…' : 'Test connection'}
+            </button>
+            {done && !busy ? (
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                Saved.
+              </span>
+            ) : null}
+          </div>
+        </form>
+        {test.data ? (
+          <div className="text-sm mt-4" aria-live="polite">
+            {test.data.ok ? (
+              <p style={{ color: 'var(--live)' }}>
+                ✓ Connected. The chat model answers
+                {s?.embedModel ? ' and the embedding model works' : ''}.
+              </p>
+            ) : (
+              <>
+                {test.data.chat ? (
+                  <p style={{ color: 'var(--danger)' }}>Chat: {test.data.chat}</p>
+                ) : null}
+                {test.data.embed ? (
+                  <p style={{ color: 'var(--danger)' }}>Embeddings: {test.data.embed}</p>
+                ) : null}
+              </>
+            )}
+            {models.length > 0 ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+                Models on the server: {models.join(', ')}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
+
+      {s?.embedModel ? (
+        <Card title="Note index">
+          <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+            Every page is read in passages and kept as embeddings, so Ask can find notes by meaning.
+            It keeps up as pages change, a few minutes behind.
+          </p>
+          {ix ? (
+            <p className="text-sm mb-3">
+              {ix.pages.toLocaleString()} page{ix.pages === 1 ? '' : 's'} in{' '}
+              {ix.chunks.toLocaleString()} passage{ix.chunks === 1 ? '' : 's'}
+              {ix.running ? ' · indexing now…' : ix.pending > 0 ? ` · ${ix.pending} waiting` : ''}
+              {ix.lastRunAt ? (
+                <span style={{ color: 'var(--text-3)' }}>
+                  {' '}
+                  · last run {new Date(ix.lastRunAt).toLocaleTimeString()}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+          {ix?.lastError ? (
+            <p className="text-sm mb-3" style={{ color: 'var(--danger)' }}>
+              {ix.lastError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            disabled={reindex.isPending || ix?.running}
+            onClick={async () => {
+              await reindex.mutateAsync()
+              await utils.ai.index.invalidate()
+            }}
+            className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          >
+            Rebuild the index
+          </button>
+        </Card>
+      ) : null}
+    </>
+  )
+}
+
 function StorageTab() {
   return <StorageCard />
 }
@@ -1584,6 +1843,8 @@ function BackupTab() {
         </form>
       </Card>
 
+      <OffsiteCard />
+
       <Card title="Backups">
         <div className="flex items-center gap-3 mb-4">
           <button
@@ -1592,6 +1853,8 @@ function BackupTab() {
             onClick={async () => {
               await runNow.mutateAsync()
               await utils.settings.listBackups.invalidate()
+              // the offsite card shows how the copy went
+              await utils.settings.get.invalidate()
             }}
             className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
             style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
@@ -1656,6 +1919,239 @@ function BackupTab() {
       </Card>
 
       {restoreName && <RestoreModal name={restoreName} onClose={() => setRestoreName(null)} />}
+    </>
+  )
+}
+
+/**
+ * Offsite copies: each backup encrypted here (age, with a passphrase) and
+ * uploaded to a bucket somewhere else. Fetching one brings it back into the
+ * local list below, where Restore works as usual.
+ */
+function OffsiteCard() {
+  const utils = trpc.useUtils()
+  const settings = trpc.settings.get.useQuery()
+  const save = trpc.settings.saveOffsite.useMutation()
+  const o = settings.data?.offsite
+  const [form, setForm] = useState({
+    enabled: false,
+    endpoint: '',
+    region: 'us-east-1',
+    bucket: '',
+    prefix: 'beyond-notes/',
+    accessKey: '',
+    secretKey: '',
+    passphrase: '',
+    forcePathStyle: true,
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const [showCopies, setShowCopies] = useState(false)
+  if (o && !loaded) {
+    setForm({
+      enabled: o.enabled,
+      endpoint: o.endpoint,
+      region: o.region,
+      bucket: o.bucket,
+      prefix: o.prefix,
+      accessKey: o.accessKey,
+      secretKey: '',
+      passphrase: '',
+      forcePathStyle: o.forcePathStyle,
+    })
+    setLoaded(true)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    setDone(false)
+    await save.mutateAsync(form)
+    await utils.settings.get.invalidate()
+    setForm((f) => ({ ...f, secretKey: '', passphrase: '' }))
+    setDone(true)
+  })
+  const active = Boolean(o?.enabled && o.bucket && o.hasPassphrase)
+
+  return (
+    <Card title="Offsite copies">
+      <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+        Send an encrypted copy of every backup to an S3-compatible bucket somewhere else, such as
+        Backblaze B2, Wasabi, Cloudflare R2 or a NAS at another address. Copies are encrypted on
+        this server with your passphrase, so whoever runs the bucket can't read them.
+      </p>
+      <form onSubmit={onSubmit}>
+        <label className="flex items-center gap-2 text-sm font-medium mb-4">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+          />
+          Copy each backup offsite
+        </label>
+        {form.enabled && (
+          <>
+            <div className="grid grid-cols-2 gap-x-4">
+              <Field
+                label="Bucket"
+                value={form.bucket}
+                onChange={(v) => setForm({ ...form, bucket: v })}
+              />
+              <Field
+                label="Folder in the bucket"
+                value={form.prefix}
+                onChange={(v) => setForm({ ...form, prefix: v })}
+              />
+              <Field
+                label="Endpoint"
+                hint="Blank = AWS"
+                value={form.endpoint}
+                onChange={(v) => setForm({ ...form, endpoint: v })}
+              />
+              <Field
+                label="Region"
+                value={form.region}
+                onChange={(v) => setForm({ ...form, region: v })}
+              />
+              <Field
+                label="Access key"
+                value={form.accessKey}
+                onChange={(v) => setForm({ ...form, accessKey: v })}
+              />
+              <Field
+                label={o?.hasSecret ? 'Secret key (blank = keep saved)' : 'Secret key'}
+                type="password"
+                value={form.secretKey}
+                onChange={(v) => setForm({ ...form, secretKey: v })}
+              />
+            </div>
+            <Field
+              label={
+                o?.hasPassphrase
+                  ? 'Encryption passphrase (blank = keep saved)'
+                  : 'Encryption passphrase'
+              }
+              type="password"
+              value={form.passphrase}
+              onChange={(v) => setForm({ ...form, passphrase: v })}
+              hint="At least 12 characters. Write it down somewhere other than this server: without it, nobody (you included) can open the copies. Changing it only affects new copies."
+            />
+            <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+              Saving checks the bucket with a real encrypted write, read and delete. The folder
+              keeps as many copies as "Keep last" above, so give each instance its own folder. Any
+              copy also opens with the standard{' '}
+              <a
+                href="https://age-encryption.org"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                age
+              </a>{' '}
+              tool: <code>age -d copy.zip.age &gt; backup.zip</code>
+            </p>
+          </>
+        )}
+        <ErrorNote message={error} />
+        {done && !busy && (
+          <p className="text-sm mb-3" style={{ color: 'var(--live)' }}>
+            Saved.
+          </p>
+        )}
+        <SubmitButton label="Save offsite copies" busy={busy} />
+      </form>
+
+      {active && (
+        <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          {o?.last ? (
+            <p
+              className="text-sm mb-3"
+              style={{ color: o.last.ok ? 'var(--text-2)' : 'var(--danger)' }}
+            >
+              {o.last.ok
+                ? `Last copy sent ${new Date(o.last.at).toLocaleString()}.`
+                : `The last copy failed (${new Date(o.last.at).toLocaleString()}): ${o.last.error}`}
+            </p>
+          ) : null}
+          {showCopies ? (
+            <OffsiteCopies />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCopies(true)}
+              className="rounded-lg border px-3 py-1.5 text-sm"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+            >
+              Show copies in the bucket
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function OffsiteCopies() {
+  const utils = trpc.useUtils()
+  const copies = trpc.settings.offsiteList.useQuery()
+  const fetchCopy = trpc.settings.offsiteFetch.useMutation()
+  const [fetched, setFetched] = useState<string[]>([])
+
+  if (copies.isLoading) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+        Looking in the bucket…
+      </p>
+    )
+  }
+  if (copies.error) return <ErrorNote message={copies.error.message} />
+  const rows = copies.data ?? []
+  return (
+    <>
+      <p className="text-sm mb-2" style={{ color: 'var(--text-2)' }}>
+        Fetch a copy to bring it back into the backups below, then restore it from there.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+          No copies in the bucket yet.
+        </p>
+      ) : (
+        <div className="flex flex-col">
+          {rows.map((c) => (
+            <div
+              key={c.name}
+              className="flex items-center gap-3 py-2 border-b text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{new Date(c.createdAt).toLocaleString()}</span>
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  {fmtBytes(c.sizeBytes)}, encrypted
+                </span>
+              </span>
+              {fetched.includes(c.name) ? (
+                <span className="text-xs shrink-0" style={{ color: 'var(--text-3)' }}>
+                  Fetched
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={fetchCopy.isPending}
+                  onClick={async () => {
+                    await fetchCopy.mutateAsync({ name: c.name })
+                    await utils.settings.listBackups.invalidate()
+                    setFetched((f) => [...f, c.name])
+                  }}
+                  className="text-xs underline shrink-0 disabled:opacity-60"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {fetchCopy.isPending && fetchCopy.variables?.name === c.name
+                    ? 'Fetching…'
+                    : 'Fetch'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {fetchCopy.error && <ErrorNote message={fetchCopy.error.message} />}
     </>
   )
 }
@@ -2379,6 +2875,9 @@ function StorageCard() {
 
 function UsersTab() {
   const utils = trpc.useUtils()
+  const setActive = trpc.users.setActive.useMutation({
+    onSuccess: (list) => utils.users.list.setData(undefined, list),
+  })
   const status = trpc.auth.status.useQuery()
   const users = trpc.users.list.useQuery()
   const invites = trpc.users.invites.useQuery()
@@ -2443,15 +2942,47 @@ function UsersTab() {
         {users.data?.map((u) => (
           <li
             key={u.id}
-            className="flex justify-between py-2 border-b last:border-0"
-            style={{ borderColor: 'var(--border)' }}
+            className="flex items-center gap-3 py-2 border-b last:border-0"
+            style={{ borderColor: 'var(--border)', opacity: u.disabled ? 0.6 : 1 }}
           >
-            <span>
+            <span className="flex-1 min-w-0 truncate">
               {u.name} <span style={{ color: 'var(--text-3)' }}>({u.email})</span>
             </span>
-            <span style={{ color: 'var(--text-2)' }}>{u.role}</span>
+            <span className="shrink-0" style={{ color: 'var(--text-2)' }}>
+              {u.disabled ? 'deactivated' : u.role}
+            </span>
+            {u.id !== status.data?.me?.id && (
+              <button
+                type="button"
+                className="underline text-xs shrink-0 disabled:opacity-60"
+                style={{ color: u.disabled ? 'var(--accent)' : 'var(--danger)' }}
+                disabled={setActive.isPending}
+                title={
+                  u.disabled
+                    ? 'Let them sign in again'
+                    : 'Sign them out everywhere and stop them signing in. Their notes stay.'
+                }
+                onClick={() => {
+                  if (
+                    u.disabled ||
+                    window.confirm(
+                      `Deactivate ${u.name}? They're signed out everywhere and can't sign in until you reactivate them. Nothing they made is deleted.`,
+                    )
+                  ) {
+                    setActive.mutate({ userId: u.id, active: u.disabled })
+                  }
+                }}
+              >
+                {u.disabled ? 'Reactivate' : 'Deactivate'}
+              </button>
+            )}
           </li>
         ))}
+        {setActive.error && (
+          <li className="text-xs pt-2" style={{ color: 'var(--danger)' }}>
+            {setActive.error.message}
+          </li>
+        )}
       </ul>
       {(invites.data?.length ?? 0) > 0 && (
         <ul className="text-sm">
@@ -2508,12 +3039,15 @@ const AUDIT_LABEL: Record<string, string> = {
   'auth.token_revoked': 'Revoked an API token',
   'user.invited': 'Invited someone',
   'user.invite_revoked': 'Revoked an invite',
+  'user.deactivated': 'Deactivated an account',
+  'user.reactivated': 'Reactivated an account',
   'settings.saved': 'Changed settings',
   'backup.created': 'Made a backup',
   'backup.deleted': 'Deleted a backup',
   'backup.downloaded': 'Downloaded a backup',
   'backup.restored': 'Restored from a backup',
   'export.space': 'Exported a space',
+  'newsletter.sent': 'Sent a newsletter',
 }
 
 /** Events an admin should notice when skimming. */

@@ -1,6 +1,7 @@
 import { isComingUp } from '@bn/schema'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
+import { AiSummaryPanel, useAi } from '../ai'
 import { RightDrawer, fmtTime12, prefersReducedMotion, useDayRollover } from '../components'
 import {
   DocumentEditor,
@@ -53,6 +54,9 @@ export function JournalPage() {
   })
   const [addingNote, setAddingNote] = useState(false)
   const [noteTitle, setNoteTitle] = useState('')
+  const ai = useAi()
+  // an AI summary of this day or its week, open under the date
+  const [summary, setSummary] = useState<{ date: string; kind: 'day' | 'week' } | null>(null)
 
   const addNote = async () => {
     const title = noteTitle.trim()
@@ -273,7 +277,28 @@ export function JournalPage() {
           >
             next →
           </button>
+          {ai.enabled ? (
+            <>
+              <span className="flex-1" />
+              <span aria-hidden="true">✨</span>
+              <button type="button" onClick={() => setSummary({ date, kind: 'day' })}>
+                summarise day
+              </button>
+              <span>·</span>
+              <button type="button" onClick={() => setSummary({ date, kind: 'week' })}>
+                week
+              </button>
+            </>
+          ) : null}
         </div>
+        {summary && summary.date === date ? (
+          <AiSummaryPanel
+            date={summary.date}
+            kind={summary.kind}
+            onClose={() => setSummary(null)}
+            onKept={() => void utils.journal.notes.invalidate({ date })}
+          />
+        ) : null}
 
         {notes.data ? (
           notes.data.map((note) => (

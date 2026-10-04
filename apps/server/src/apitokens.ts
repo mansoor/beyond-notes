@@ -53,7 +53,7 @@ export function createApiTokenService(deps: { repo: Repo; now?: () => Date }) {
       if (!row || row.revokedAt) return null
       if (row.expiresAt && row.expiresAt.getTime() <= now().getTime()) return null
       const user = await repo.getUserById(row.userId)
-      if (!user) return null
+      if (!user || user.disabledAt) return null
       if (!row.lastUsedAt || now().getTime() - row.lastUsedAt.getTime() > TOUCH_EVERY_MS) {
         await repo.touchApiToken(row.id, now())
       }

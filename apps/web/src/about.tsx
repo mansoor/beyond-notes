@@ -43,6 +43,15 @@ const CREDITS: [string, string][] = [
 // this is what the About dialog's "What's new" shows, and it drifts otherwise.
 const RELEASE_NOTES: { v: string; notes: string[] }[] = [
   {
+    v: '0.8.27',
+    notes: [
+      'Ask your notes, day and week summaries, and Inbox tag suggestions, on your own AI model server such as Ollama',
+      'Encrypted offsite copies of your backups, to any S3-compatible storage',
+      'Admins can deactivate and reactivate accounts',
+      'After signing in, you land on the page you were trying to open',
+    ],
+  },
+  {
     v: '0.8.26',
     notes: [
       'Browser clipper for Chrome, Edge, Brave and Firefox: save pages, selections and links',
@@ -152,6 +161,8 @@ export function AboutModal(props: { onClose: () => void }) {
   // the server asks the releases feed (cached, at most twice a day)
   const updates = trpc.system.updates.useQuery(undefined, { staleTime: 60 * 60 * 1000 })
   const update = updates.data?.available ? updates.data : null
+  const edition = trpc.system.edition.useQuery(undefined, { staleTime: 5 * 60 * 1000 })
+  const editionLabel = edition.data && edition.data.name !== 'community' ? edition.data.label : null
 
   return (
     <Modal title="About Beyond Notes" onClose={props.onClose} width="lg">
@@ -163,7 +174,10 @@ export function AboutModal(props: { onClose: () => void }) {
             className="text-xs flex flex-wrap items-center gap-x-2"
             style={{ color: 'var(--text-3)' }}
           >
-            <span>Version {version}</span>
+            <span>
+              Version {version}
+              {editionLabel ? ` · ${editionLabel}` : ''}
+            </span>
             {update ? (
               <a
                 href={update.url ?? `${LINKS.github}/releases/latest`}

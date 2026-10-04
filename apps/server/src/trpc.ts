@@ -1,6 +1,8 @@
 import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
+import type { AccessService } from './access'
+import type { AiClient, AiIndex, Assistant } from './ai'
 import type { ApiTokenService } from './apitokens'
 import type { AttachmentsService } from './attachments'
 import type { AuditService } from './audit'
@@ -8,9 +10,11 @@ import type { AuthService } from './auth'
 import type { BackupService } from './backup'
 import type { Config } from './config'
 import type { DailyService } from './daily'
+import type { Edition } from './edition'
 import type { ImportStash } from './importstash'
 import { type LockService, LockedError } from './locks'
 import type { Mailer } from './mailer'
+import type { OffsiteService } from './offsite'
 import type { PagesService } from './pages'
 import type { PasskeyService } from './passkeys'
 import type { ProxyAuth } from './proxyauth'
@@ -62,6 +66,8 @@ export type Context = {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  access: AccessService
+  offsite: OffsiteService
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth
@@ -70,6 +76,10 @@ export type Context = {
   tokens: ApiTokenService
   importStash: ImportStash
   updates: UpdateChecker
+  edition: Edition
+  ai: Assistant
+  aiClient: AiClient
+  aiIndex: AiIndex
   user: UserRow | null
   sessionToken: string | null
 }
@@ -90,6 +100,8 @@ export function makeCreateContext(deps: {
   tables: TablesService
   locks: LockService
   backup: BackupService
+  access: AccessService
+  offsite: OffsiteService
   restore: RestoreService
   sso: SsoService
   proxy: ProxyAuth
@@ -98,6 +110,10 @@ export function makeCreateContext(deps: {
   tokens: ApiTokenService
   importStash: ImportStash
   updates: UpdateChecker
+  edition: Edition
+  ai: Assistant
+  aiClient: AiClient
+  aiIndex: AiIndex
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

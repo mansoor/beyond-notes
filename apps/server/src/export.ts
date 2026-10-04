@@ -23,7 +23,7 @@ export const EXPORT_VERSION = 1
 
 // Dates cross the JSON boundary as ISO strings; these are the columns to revive.
 const DATE_COLUMNS: Record<string, string[]> = {
-  users: ['createdAt'],
+  users: ['createdAt', 'disabledAt'],
   invites: ['createdAt', 'expiresAt', 'usedAt', 'revokedAt'],
   spaces: ['createdAt'],
   pages: ['createdAt', 'updatedAt', 'archivedAt', 'trashedAt'],
@@ -47,6 +47,13 @@ const DATE_COLUMNS: Record<string, string[]> = {
   dbRows: ['createdAt', 'updatedAt'],
   userIdentities: ['createdAt', 'lastLoginAt'],
   passkeys: ['createdAt', 'lastUsedAt'],
+  userGroups: ['createdAt'],
+  userGroupMembers: [],
+  spaceShares: ['createdAt'],
+  siteVisits: [],
+  siteReferrers: [],
+  newsletterSubscribers: ['createdAt', 'confirmedAt', 'unsubscribedAt'],
+  newsletterIssues: ['sendAfter', 'createdAt', 'finishedAt'],
 }
 
 export type Dump = {
@@ -97,6 +104,16 @@ async function collectDump(repo: Repo, secretsKey?: Buffer): Promise<Dump> {
     // still knows who signs in with SSO or a passkey
     userIdentities: await repo.listAllIdentities(),
     passkeys: await repo.listAllPasskeys(),
+    // who a personal space is shared with
+    userGroups: await repo.listUserGroups(),
+    userGroupMembers: await repo.listAllUserGroupMembers(),
+    spaceShares: await repo.listAllSpaceShares(),
+    // daily visit counts (totals only; there is nothing per-visitor to export)
+    siteVisits: await repo.listAllSiteVisits(),
+    siteReferrers: await repo.listAllSiteReferrers(),
+    // who a site's newsletter goes to (and who left), and what it sent
+    newsletterSubscribers: await repo.listAllSubscribers(),
+    newsletterIssues: await repo.listAllIssues(),
   } as unknown as Dump['tables']
 
   return { version: EXPORT_VERSION, exportedAt: new Date().toISOString(), tables }
@@ -199,6 +216,11 @@ export async function importInstance(
   for (const row of rows('passkeys')) await repo.insertPasskey(row as never)
   for (const row of rows('invites')) await repo.insertInvite(row as never)
   for (const row of rows('spaces')) await repo.insertSpace(row as never)
+  for (const row of rows('userGroups')) await repo.insertUserGroup(row as never)
+  for (const row of rows('userGroupMembers')) await repo.addUserGroupMember(row as never)
+  for (const row of rows('spaceShares')) await repo.putSpaceShare(row as never)
+  await repo.addSiteVisits(rows('siteVisits') as never)
+  await repo.addSiteReferrers(rows('siteReferrers') as never)
   for (const row of topoSortPages(rows('pages'))) await repo.insertPage(row as never)
   for (const row of rows('documents')) await repo.insertDocument(row as never)
   for (const row of rows('pageVersions')) await repo.insertPageVersion(row as never)
@@ -235,6 +257,8 @@ export async function importInstance(
   for (const row of rows('dbDatabases')) await repo.insertDbDatabase(row as never)
   for (const row of rows('dbTables')) await repo.insertDbTable(row as never)
   for (const row of rows('dbRows')) await repo.insertDbRow(row as never)
+  for (const row of rows('newsletterSubscribers')) await repo.insertSubscriber(row as never)
+  for (const row of rows('newsletterIssues')) await repo.insertIssue(row as never)
   for (const row of rows('documents') as Array<{ pageId: string; content: string }>) {
     await reconcileLinks(repo, row.pageId, row.content)
   }

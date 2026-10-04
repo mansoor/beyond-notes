@@ -325,6 +325,27 @@ became.
 - **Pinned favorites** and **recently edited** at the top of the sidebar
 - **Stale pages** view: published pages that haven't been touched in a while
 
+### AI on your own model server (optional)
+
+Point Beyond Notes at a model server you run, such as
+[Ollama](https://ollama.com), and you get:
+
+- **Ask**: questions answered from your notes, with the notes each answer
+  cites. It only reads what the person asking can open, and never locked pages.
+- **Summaries** of a journal day or week (entries, finished tasks, what you
+  captured), which you can keep on the day's page
+- **Tag suggestions** for Inbox items, preferring tags you already use
+
+Nothing goes anywhere but the server you name. Any OpenAI-compatible server
+works (Ollama, LM Studio, llama.cpp, vLLM). Set it up in **Settings → AI** or
+with `AI_BASE_URL` and `AI_CHAT_MODEL`. Add an embedding model
+(`nomic-embed-text`) and Ask finds notes by meaning, not only by their words:
+
+```bash
+ollama pull llama3.2
+ollama pull nomic-embed-text
+```
+
 ### Databases, forms and table embeds
 
 The **Databases** section of the sidebar holds databases; each database holds
@@ -522,6 +543,7 @@ possibly `DATABASE_URL`.
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | *(empty)* | Enables forgot-password, emailed invites and email notifications. Unset = those flows are hidden in the UI rather than failing |
 | `NTFY_URL` / `NTFY_TOPIC` | *(empty)* | Push notifications via [ntfy](https://ntfy.sh) |
 | `S3_BUCKET` / `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_FORCE_PATH_STYLE` | *(empty)* | Setting `S3_BUCKET` switches the blob store to S3. Empty endpoint = real AWS |
+| `AI_BASE_URL` / `AI_CHAT_MODEL` / `AI_EMBED_MODEL` / `AI_API_KEY` | *(empty)* | AI on your own model server, e.g. Ollama at `http://host.docker.internal:11434`. Setting the address and a chat model turns it on |
 | `WEB_DIST` / `MIGRATIONS_DIR` | preset in the image | Only relevant when running from source |
 
 ### In-app settings
@@ -691,6 +713,24 @@ docker compose exec postgres pg_dump -U beyond beyond_notes > backup.sql
 …plus a copy of the app's data volume (uploads and `secrets.key` are *not* in
 Postgres unless you selected database storage). Restore into a fresh instance:
 start Postgres, `psql < backup.sql`, restore the volume, start the app.
+
+**Offsite copies:** in **Settings → Backup → Offsite copies**, point Beyond
+Notes at any S3-compatible bucket (Backblaze B2, Wasabi, Cloudflare R2, MinIO
+on another machine) and give it a passphrase. Every backup, scheduled or
+manual, is then encrypted on your server with [age](https://age-encryption.org)
+and uploaded, so the bucket's owner only ever sees ciphertext. The bucket keeps
+as many copies as "Keep last". Use a separate folder for each instance.
+
+To recover on a new server, enter the same bucket and passphrase, choose
+**Show copies in the bucket**, **Fetch** one, then **Restore** it. You can also
+open any copy without Beyond Notes:
+
+```bash
+age -d beyond-notes-backup-….zip.age > backup.zip
+```
+
+Keep the passphrase somewhere other than the server. Without it nobody can open
+the copies, including you.
 
 > **Test the restore once before trusting it.** A backup that has never been
 > restored is a hope, not a backup.

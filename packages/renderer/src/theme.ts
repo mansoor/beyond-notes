@@ -2,8 +2,8 @@ import {
   APPEARANCE_CSS,
   APPEARANCE_JS,
   APPEARANCE_RESTORE_JS,
-  BEYOND_LINK,
   CHROME_JS,
+  CREDIT_HTML,
   GALLERY_CSS,
   type SocialLink,
   appearanceToggleHtml,
@@ -462,7 +462,7 @@ ${docsMetaHtml(title, siteTitle, meta)}
 </head>
 <body data-appearance="${appearance}">
 ${body}
-<footer><span>${escapeHtml(footer)}</span><span>Built with ${BEYOND_LINK}</span></footer>
+<footer><span>${escapeHtml(footer)}</span>${CREDIT_HTML}</footer>
 <script>${CHROME_JS}${SIDEBAR_DRAG_JS}${DOCS_JS}${appearance === 'toggle' ? APPEARANCE_JS : ''}</script>
 </body>
 </html>`

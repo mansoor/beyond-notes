@@ -107,6 +107,35 @@ for (const dialect of dialects) {
         createdBy: user.id,
         createdAt: new Date(),
       })
+      // a site newsletter: who it goes to, and what it sent
+      const at = new Date('2026-10-01T10:00:00Z')
+      await repo.insertSubscriber({
+        id: 'sub1',
+        spaceId: space.id,
+        email: 'reader@x.dev',
+        status: 'active',
+        token: 'reader-token-0123456789abcdef',
+        source: 'form',
+        createdAt: at,
+        confirmedAt: at,
+        unsubscribedAt: null,
+      })
+      await repo.insertIssue({
+        id: 'iss1',
+        spaceId: space.id,
+        pageId: child.id,
+        subject: 'Setup',
+        status: 'sent',
+        sendAfter: at,
+        cursor: 'sub1',
+        recipients: 1,
+        sent: 1,
+        failed: 0,
+        error: null,
+        createdBy: user.id,
+        createdAt: at,
+        finishedAt: at,
+      })
       return { appDb, repo, pages, blobs, user, space, parent, child }
     }
 
@@ -138,6 +167,16 @@ for (const dialect of dialects) {
       expect(tasks.some((t) => t.text === 'download it')).toBe(true)
       const reminders = await destRepo.listAllReminders()
       expect(reminders[0]?.title).toBe('Renew domain')
+
+      // the newsletter list (and its unsubscribe tokens) and send history
+      const subs = await destRepo.listAllSubscribers()
+      expect(subs).toHaveLength(1)
+      expect(subs[0]).toMatchObject({
+        email: 'reader@x.dev',
+        token: 'reader-token-0123456789abcdef',
+      })
+      expect(subs[0]?.confirmedAt).toBeInstanceOf(Date)
+      expect(await destRepo.getIssue('iss1')).toMatchObject({ pageId: src.child.id, sent: 1 })
 
       // blobs came along
       expect(await destBlobs.exists('deadbeef')).toBe(true)

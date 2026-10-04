@@ -29,6 +29,7 @@ import {
   useMenuAnchor,
   useSubmit,
 } from './components'
+import { type EditionSpaceAction, webEdition } from './edition'
 import { ImportModal } from './import'
 import { LockModal, UnlockModal, useLockState } from './locks'
 import {
@@ -403,6 +404,7 @@ function SpaceItem(props: { space: SpaceView }) {
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editionAction, setEditionAction] = useState<EditionSpaceAction | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [lockOpen, setLockOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -498,11 +500,21 @@ function SpaceItem(props: { space: SpaceView }) {
         >
           {props.space.name}
         </button>
-        {props.space.personal && (
+        {props.space.sharedWithMe ? (
+          <span
+            className="text-[10px]"
+            style={{ color: 'var(--text-3)' }}
+            title={
+              props.space.role === 'viewer' ? 'Shared with you to read' : 'Shared with you to edit'
+            }
+          >
+            ⇄
+          </span>
+        ) : props.space.personal ? (
           <span className="text-[10px]" style={{ color: 'var(--text-3)' }} title="Personal space">
             ⛭
           </span>
-        )}
+        ) : null}
         {props.space.publicEnabled && (
           <span
             className="text-[10px] font-semibold uppercase rounded px-1"
@@ -549,15 +561,17 @@ function SpaceItem(props: { space: SpaceView }) {
                 ↗
               </a>
             ) : null}
-            <button
-              type="button"
-              title="New page"
-              onClick={() => addPage(null)}
-              className="text-xs px-1"
-              style={{ color: 'var(--text-3)' }}
-            >
-              ＋
-            </button>
+            {props.space.role !== 'viewer' && (
+              <button
+                type="button"
+                title="New page"
+                onClick={() => addPage(null)}
+                className="text-xs px-1"
+                style={{ color: 'var(--text-3)' }}
+              >
+                ＋
+              </button>
+            )}
             <SpaceMenu
               space={props.space}
               onLock={() => setLockOpen(true)}
@@ -566,10 +580,18 @@ function SpaceItem(props: { space: SpaceView }) {
               onImport={() => setImportOpen(true)}
               onRename={() => setRenameOpen(true)}
               onDelete={() => setDeleteOpen(true)}
+              onAction={setEditionAction}
             />
           </span>
         )}
       </div>
+      {editionAction && (
+        <EditionActionModal
+          action={editionAction}
+          space={props.space}
+          onClose={() => setEditionAction(null)}
+        />
+      )}
       {unlockOpen && spaceLock && (
         <UnlockModal
           target="space"
@@ -647,6 +669,31 @@ function SpaceItem(props: { space: SpaceView }) {
  * the row; a space also needs rename and delete, and six icons is a puzzle
  * rather than a toolbar.
  */
+/** Space-menu entries an add-on edition contributes (edition/types.ts). */
+function editionActionsFor(space: SpaceView): EditionSpaceAction[] {
+  return (webEdition.spaceActions ?? []).filter(
+    (a) => (!a.ownerOnly || space.role === 'owner') && !a.hidden?.(space),
+  )
+}
+
+function EditionActionModal(props: {
+  action: EditionSpaceAction
+  space: SpaceView
+  onClose: () => void
+}) {
+  const { Component } = props.action
+  return (
+    <Modal
+      // a menu label's trailing "…" (it opens a dialog) has no place in the title
+      title={`${props.action.label.replace(/…$/, '')} — ${props.space.name}`}
+      onClose={props.onClose}
+      width="lg"
+    >
+      <Component space={props.space} onClose={props.onClose} />
+    </Modal>
+  )
+}
+
 function SpaceMenu(props: {
   space: SpaceView
   onPublishing: () => void
@@ -655,6 +702,7 @@ function SpaceMenu(props: {
   onRename: () => void
   onDelete: () => void
   onLock: () => void
+  onAction: (action: EditionSpaceAction) => void
 }) {
   const [open, setOpen] = useState(false)
   const lock = useLockState('space', props.space.id)
@@ -709,25 +757,32 @@ function SpaceMenu(props: {
               Preview draft ↗
             </a>
           )}
-          {item('Rename', 'Rename this space', props.onRename)}
-          {item(
-            lock ? 'Remove the lock…' : 'Lock with my password…',
-            lock
-              ? 'Open it without a password from now on'
-              : 'Ask for your account password before opening this space',
-            props.onLock,
-          )}
+          {props.space.role === 'owner' && item('Rename', 'Rename this space', props.onRename)}
+          {props.space.role === 'owner' &&
+            item(
+              lock ? 'Remove the lock…' : 'Lock with my password…',
+              lock
+                ? 'Open it without a password from now on'
+                : 'Ask for your account password before opening this space',
+              props.onLock,
+            )}
           {lock?.open &&
             item('Lock now', 'Close it now, until the password is entered again', () =>
               lockNow.mutate({ target: 'space', id: props.space.id }),
             )}
-          {item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
-          {item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
-          {item(
-            'Import pages…',
-            'From Notion, Obsidian, Evernote, Markdown or GitHub',
-            props.onImport,
-          )}
+          {props.space.role === 'owner' &&
+            item('Publishing settings', 'Public host, theme, branding', props.onPublishing)}
+          {editionActionsFor(props.space).map((a) => (
+            <span key={a.id}>{item(a.label, a.hint, () => props.onAction(a))}</span>
+          ))}
+          {props.space.role !== 'viewer' &&
+            item('Reorganize pages', 'Move and nest pages', props.onReorganize)}
+          {props.space.role !== 'viewer' &&
+            item(
+              'Import pages…',
+              'From Notion, Obsidian, Evernote, Markdown or GitHub',
+              props.onImport,
+            )}
           <a
             href={`/api/export/space/${props.space.id}`}
             download
@@ -738,7 +793,8 @@ function SpaceMenu(props: {
           >
             Export as Markdown (.zip)
           </a>
-          {item('Delete space…', 'Deletes the space and all of its pages', props.onDelete, true)}
+          {props.space.role === 'owner' &&
+            item('Delete space…', 'Deletes the space and all of its pages', props.onDelete, true)}
         </div>
       )}
     </span>
@@ -765,6 +821,7 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
   const [publishingOpen, setPublishingOpen] = useState(false)
   const [reorgOpen, setReorgOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [editionAction, setEditionAction] = useState<EditionSpaceAction | null>(null)
 
   const addPage = async () => {
     const page = await createPage.mutateAsync({ spaceId: space.id, parentId: null, title: '' })
@@ -775,6 +832,9 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
   const row =
     'block w-full text-left text-sm py-1.5 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5'
   const isSite = space.category === 'site' || space.category === 'wiki'
+  // a space shared with this person: viewers read, editors edit pages, owners do the rest
+  const isOwner = space.role === 'owner'
+  const canWrite = space.role !== 'viewer'
 
   return (
     <div>
@@ -782,15 +842,17 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
         Space
       </h2>
       <div className="flex flex-col">
-        <button
-          type="button"
-          className={row}
-          onClick={addPage}
-          disabled={createPage.isPending}
-          style={{ color: 'var(--text-2)' }}
-        >
-          New page
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={addPage}
+            disabled={createPage.isPending}
+            style={{ color: 'var(--text-2)' }}
+          >
+            New page
+          </button>
+        )}
         {isSite && (
           <a
             href={`/s/draft/${space.id}`}
@@ -813,22 +875,26 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
             Open published site ↗
           </a>
         )}
-        <button
-          type="button"
-          className={row}
-          onClick={() => setRenameOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setLockOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          {lock ? 'Remove the lock…' : 'Lock with my password…'}
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setRenameOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Rename
+          </button>
+        )}
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setLockOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            {lock ? 'Remove the lock…' : 'Lock with my password…'}
+          </button>
+        )}
         {lock?.open && (
           <button
             type="button"
@@ -839,30 +905,48 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
             Lock now
           </button>
         )}
-        <button
-          type="button"
-          className={row}
-          onClick={() => setPublishingOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Publishing settings
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setReorgOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Reorganize pages
-        </button>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setImportOpen(true)}
-          style={{ color: 'var(--text-2)' }}
-        >
-          Import pages…
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setPublishingOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Publishing settings
+          </button>
+        )}
+        {editionActionsFor(space).map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className={row}
+            title={a.hint}
+            onClick={() => setEditionAction(a)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            {a.label}
+          </button>
+        ))}
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setReorgOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Reorganize pages
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setImportOpen(true)}
+            style={{ color: 'var(--text-2)' }}
+          >
+            Import pages…
+          </button>
+        )}
         <a
           href={`/api/export/space/${space.id}`}
           download
@@ -871,17 +955,26 @@ export function SpaceActionsPanel(props: { space: SpaceView }) {
         >
           Export as Markdown (.zip)
         </a>
-        <button
-          type="button"
-          className={row}
-          onClick={() => setDeleteOpen(true)}
-          style={{ color: 'var(--danger)' }}
-        >
-          Delete space…
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={row}
+            onClick={() => setDeleteOpen(true)}
+            style={{ color: 'var(--danger)' }}
+          >
+            Delete space…
+          </button>
+        )}
       </div>
 
       {renameOpen && <RenameSpaceModal space={space} onClose={() => setRenameOpen(false)} />}
+      {editionAction && (
+        <EditionActionModal
+          action={editionAction}
+          space={space}
+          onClose={() => setEditionAction(null)}
+        />
+      )}
       {lockOpen && (
         <LockModal
           target="space"
@@ -1074,15 +1167,18 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
   const isWiki = s.category === 'wiki'
   // wikis get social links too (product docs usually have a wider web presence),
   // but not the logo/tagline/header-layout that only the website chrome renders
-  const tabs = [
+  // tabs an add-on edition contributes (edition/types.ts) follow the core's
+  const editionTabs = webEdition.publishingTabs ?? []
+  const tabs: Array<{ id: string; label: string; icon: string }> = [
     { id: 'general', label: 'General', icon: '🌐' },
     { id: 'appearance', label: 'Appearance', icon: '🎨' },
     ...(isSite || isWiki
       ? [{ id: 'branding', label: isSite ? 'Branding' : 'Social', icon: isSite ? '✦' : '🔗' }]
       : []),
     { id: 'analytics', label: 'Analytics', icon: '📈' },
-  ] as const
-  const [tab, setTab] = useState<(typeof tabs)[number]['id']>('general')
+    ...editionTabs.map((t) => ({ id: `ee:${t.id}`, label: t.label, icon: t.icon })),
+  ]
+  const [tab, setTab] = useState<string>('general')
 
   return (
     <Modal title={`Publishing — ${s.name}`} onClose={props.onClose} dirty={dirty} width="lg">
@@ -1094,7 +1190,7 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
             className="md:hidden w-full rounded-lg border px-3 py-2 text-sm"
             style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
             value={tab}
-            onChange={(e) => setTab(e.target.value as (typeof tabs)[number]['id'])}
+            onChange={(e) => setTab(e.target.value)}
           >
             {tabs.map((t) => (
               <option key={t.id} value={t.id}>
@@ -1164,6 +1260,20 @@ function SpacePublishingModal(props: { space: SpaceView; onClose: () => void }) 
               </>
             )}
             {tab === 'analytics' && <AnalyticsTab space={s} />}
+            {editionTabs.map((t) =>
+              tab === `ee:${t.id}` ? (
+                <t.Component
+                  key={t.id}
+                  space={{
+                    id: s.id,
+                    name: s.name,
+                    category: s.category,
+                    publicEnabled: s.publicEnabled,
+                    publicHost: s.publicHost,
+                  }}
+                />
+              ) : null,
+            )}
             {tab === 'appearance' && (
               <>
                 <label className="block mb-4">

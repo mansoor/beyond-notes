@@ -1,22 +1,29 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
+import { stripCredit } from '@bn/renderer'
+import { aiAskInput, aiSummaryInput } from '@bn/schema'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
+import fastifyWebsocket from '@fastify/websocket'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import pkg from '../package.json'
+import { createAccess } from './access'
+import { AiError, createAiClient, createAiIndex, createAssistant } from './ai'
 import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuditService } from './audit'
-import { createAuthService } from './auth'
+import { AuthError, createAuthService } from './auth'
 import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
 import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
+import { createCollab } from './collab'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
+import { type ServerEdition, type SiteGate, editionHandle, loadEdition } from './edition'
 import { createEmbedder } from './embeddings'
 import { exportSpaceZip } from './export'
 import { registerHardening } from './hardening'
@@ -24,14 +31,15 @@ import { ImportFormatError, type ImportKind, parseImport } from './importers'
 import { createImportStash } from './importstash'
 import { createLockService } from './locks'
 import { createDynamicMailer } from './mailer'
+import { type OffsiteService, createOffsiteService } from './offsite'
 import { createPagesService } from './pages'
 import { createPasskeyService } from './passkeys'
 import { createProxyAuth, proxyAuthSettings } from './proxyauth'
-import { createPublicServer } from './public'
+import { UNSUBSCRIBE_PATH, createPublicServer } from './public'
 import { createPublicApi } from './publicapi'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
-import { createRepo } from './repo'
+import { type SpaceRow, type UserRow, createRepo } from './repo'
 import { registerPublicApi } from './restapi'
 import { createRestoreService } from './restore'
 import { appRouter } from './routers'
@@ -49,6 +57,7 @@ import { TablesError, createTablesService } from './tables'
 import { createTasksService } from './tasks'
 import { SESSION_COOKIE, makeCreateContext, sessionCookieOptions } from './trpc'
 import { createUpdateChecker } from './updates'
+import { createVisitRecorder } from './visits'
 import { createWebhooksService } from './webhooks'
 
 function escapeText(s: string): string {
@@ -69,7 +78,11 @@ function formResultPage(ok: boolean, message: string): string {
   )}</p><p><a href="javascript:history.back()">← Go back</a></p></body></html>`
 }
 
-export async function buildServer(config: Config, appDb: AppDb) {
+export async function buildServer(
+  config: Config,
+  appDb: AppDb,
+  opts: { edition?: ServerEdition } = {},
+) {
   const proxyList = (config.TRUST_PROXY || config.AUTH_PROXY_TRUSTED_IPS)
     .split(',')
     .map((s) => s.trim())
@@ -91,8 +104,17 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   const repo = createRepo(appDb)
   const secretsKey = loadOrCreateSecretsKey(config)
-  const settings = createSettingsService(repo, config, { secretsKey })
+  // offsite is built after settings (it reads them); the view only asks it later
+  let offsite: OffsiteService | null = null
+  const settings = createSettingsService(repo, config, {
+    secretsKey,
+    offsiteLast: () => offsite?.lastResult() ?? null,
+  })
   await settings.load()
+  offsite = createOffsiteService({
+    getConfig: () => settings.offsite(),
+    log: (msg) => server.log.warn(msg),
+  })
   const audit = createAuditService({
     repo,
     onError: (err) => server.log.error(err, 'audit write failed'),
@@ -124,19 +146,59 @@ export async function buildServer(config: Config, appDb: AppDb) {
     onLogin: (user, ip) => void audit.record({ action: 'auth.proxy_login', actor: user, ip }),
   })
   const embedder = createEmbedder(config)
+  // who may do what in which space; one instance so share changes apply everywhere
+  const access = createAccess(repo)
   const pages = createPagesService(repo, {
     embedder,
     embedThreshold: config.GRAPH_EMBED_THRESHOLD,
     embedNeighbors: config.GRAPH_EMBED_NEIGHBORS,
+    access,
   })
-  const daily = createDailyService(repo)
-  const tasks = createTasksService(repo)
-  const publishing = createPublishingService(repo)
+  const daily = createDailyService(repo, { access })
+  const tasks = createTasksService(repo, { access })
+  const publishing = createPublishingService(repo, {
+    access,
+    onListenerError: (err) => server.log.error(err, 'after-publish step failed'),
+  })
+  // set once the edition module has loaded (below); until then, no gate
+  let siteGate: SiteGate | null = null
+  let countsVisits: ((spaceId: string) => boolean) | null = null
+  let editionSite: Pick<ServerEdition, 'siteRoutes' | 'siteHtml'> = {}
+  const visits = createVisitRecorder({
+    repo,
+    onError: (err) => server.log.error(err, 'visit counts could not be saved'),
+  })
   const publicSrv = createPublicServer(repo, publishing, {
     captchaSecret: secretsKey,
     recaptchaSiteKey: () => settings.effectiveRecaptcha()?.siteKey ?? null,
     now: () => Date.now(),
+    siteGate: () => siteGate,
+    countVisit: (space, path, req) => {
+      if (!countsVisits?.(space.id)) return
+      visits.record({
+        spaceId: space.id,
+        path,
+        ip: req.ip,
+        userAgent: String(req.headers['user-agent'] ?? ''),
+        referer: typeof req.headers.referer === 'string' ? req.headers.referer : null,
+        siteHost: space.publicHost ?? '',
+      })
+    },
+    siteRoutes: async (space, req, reply, ctx) =>
+      editionSite.siteRoutes ? editionSite.siteRoutes(space, req, reply, ctx) : false,
+    siteHtml: (space, slot, ctx) => editionSite.siteHtml?.(space, slot, ctx) ?? '',
   })
+  // where a published space is reached from outside: its own host when that
+  // looks like a real domain, else the /s/<host> path every instance serves
+  const appBase = config.BASE_URL.replace(/\/+$/, '')
+  const siteUrls = (space: SpaceRow) => {
+    const host = space.publicHost ?? ''
+    if (host.includes('.') && !/^(localhost|127\.|0\.0\.0\.0)/.test(host)) {
+      const origin = `${new URL(config.BASE_URL).protocol}//${host}`
+      return { site: origin, origin }
+    }
+    return { site: `${appBase}/s/${host}`, origin: appBase }
+  }
   const blobs = createDynamicBlobStore(settings, config, repo)
   const attachments = createAttachmentsService(repo, blobs)
   const reminders = createRemindersService(repo)
@@ -145,6 +207,23 @@ export async function buildServer(config: Config, appDb: AppDb) {
   const locks = createLockService(repo)
 
   const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
+
+  // AI on the admin's own model server (ai.ts); inert until it's set up
+  const aiConfig = () => settings.effectiveAi()
+  const aiClient = createAiClient(aiConfig)
+  const aiIndex = createAiIndex({
+    repo,
+    client: aiClient,
+    model: () => aiConfig()?.embedModel || null,
+  })
+  const assistant = createAssistant({
+    repo,
+    access,
+    client: aiClient,
+    index: aiIndex,
+    hiddenPages: (token, user) => locks.hiddenPageIds(token, user),
+    config: aiConfig,
+  })
 
   // every channel resolves its config per send; unconfigured channels no-op
   const notifiers: Notifier[] = [
@@ -159,6 +238,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     getConfig: () => settings.backup(),
     isS3: () => settings.effectiveStorage().driver === 's3',
     secretsKey,
+    offsite,
   })
   // restore reuses backup.resolve so it inherits the same traversal guard
   const restore = createRestoreService({ repo, blobs, resolvePath: (name) => backup.resolve(name) })
@@ -191,6 +271,106 @@ export async function buildServer(config: Config, appDb: AppDb) {
     }
     return { user: proxied.user, token: proxied.token }
   }
+  // an add-on edition (EDITION_MODULE) registers its routes before the SPA
+  // fallback below; without one this is Community and nothing is added
+  const editionModule = opts.edition ?? (await loadEdition(config.EDITION_MODULE))
+  const edition = editionHandle(editionModule)
+  siteGate = editionModule.siteGate ?? null
+  countsVisits = editionModule.countVisits ? (id) => Boolean(editionModule.countVisits?.(id)) : null
+  editionSite = {
+    siteRoutes: editionModule.siteRoutes?.bind(editionModule),
+    siteHtml: editionModule.siteHtml?.bind(editionModule),
+  }
+  await editionModule.register(server, {
+    config,
+    repo,
+    auth,
+    settings,
+    audit,
+    access,
+    version,
+    resolveSession: (req) => resolveSession(req),
+    startSession: async (reply, user) => {
+      const session = await auth.sessionFor(user.id)
+      reply.setCookie(
+        SESSION_COOKIE,
+        session.token,
+        sessionCookieOptions(config, session.expiresAt),
+      )
+    },
+    mailer,
+    sites: {
+      urls: siteUrls,
+      noticePage: (space, basePath, heading, html) =>
+        publicSrv.notice(space, basePath, heading, html),
+      emailFor: (space, pageId) => publicSrv.emailFor(space, pageId, siteUrls(space)),
+      onPublished: (listener) => publishing.onPublished(listener),
+    },
+    log: {
+      info: (msg) => server.log.info(msg),
+      warn: (msg) => server.log.warn(msg),
+      error: (err, msg) => server.log.error(err, msg),
+    },
+  })
+  // sites.no-footer: published pages go out without the "Built with" credit.
+  // Only HTML is touched, and only the exact credit markup the renderer writes.
+  server.addHook('onSend', async (_req, reply, payload) => {
+    if (typeof payload !== 'string' || !edition.has('sites.no-footer')) return payload
+    const type = String(reply.getHeader('content-type') ?? '')
+    return type.startsWith('text/html') ? stripCredit(payload) : payload
+  })
+  if (editionModule.name !== 'community') {
+    server.log.info(`edition module ${editionModule.name}: running as ${edition.info().label}`)
+  }
+
+  // Live co-editing (collab.ts): a WebSocket per browser, checked here and
+  // then per page. Without the feature the endpoint refuses every page and
+  // editors keep autosaving as before.
+  const collab = createCollab({
+    repo,
+    access,
+    locks,
+    enabled: () => edition.has('collab.live'),
+    debounce: config.COLLAB_SAVE_DELAY_MS,
+    maxDebounce: config.COLLAB_SAVE_DELAY_MS * 5,
+    log: { warn: (msg) => server.log.warn(msg), error: (err, msg) => server.log.error(err, msg) },
+  })
+  await server.register(fastifyWebsocket, { options: { maxPayload: 16 * 1024 * 1024 } })
+  // who is connecting is settled before the upgrade: the client starts
+  // talking the moment the socket opens, and anything sent before the
+  // connection is handed over would be lost
+  const collabUsers = new WeakMap<object, { user: UserRow; token: string | null }>()
+  server.get(
+    '/api/collab',
+    {
+      websocket: true,
+      preValidation: async (req, reply) => {
+        const { user, token } = await resolveSession(req)
+        if (!user) return reply.code(401).send({ error: 'Sign in first.' })
+        collabUsers.set(req, { user, token })
+      },
+    },
+    (socket, req) => {
+      const who = collabUsers.get(req)
+      if (!who) {
+        socket.close(4401, 'Sign in first.')
+        return
+      }
+      const headers = new Headers()
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (typeof v === 'string') headers.set(k, v)
+        else if (Array.isArray(v)) headers.set(k, v.join(', '))
+      }
+      collab.connect(socket, new Request(`http://collab${req.url}`, { headers }), {
+        user: who.user,
+        sessionToken: who.token,
+      })
+    },
+  )
+  server.addHook('onClose', async () => {
+    await collab.close()
+  })
+
   const userFromRequest = async (req: {
     cookies?: Record<string, string | undefined>
     headers: any
@@ -222,7 +402,17 @@ export async function buildServer(config: Config, appDb: AppDb) {
     const attachment = await repo.getAttachment(id)
     if (!attachment) return reply.code(404).send({ error: 'not found' })
     const user = await userFromRequest(req)
-    if (!user && !(await publishing.publicAttachmentIds()).has(id)) {
+    // published in at least one site this visitor may read: open sites always,
+    // protected ones only once their gate lets the request through
+    const publishedIn = await (async () => {
+      const spaces = (await publishing.publicAttachmentSpaces()).get(id)
+      if (!spaces) return false
+      for (const spaceId of spaces) {
+        if (!siteGate?.isGated(spaceId) || (await siteGate.allowsFiles(spaceId, req))) return true
+      }
+      return false
+    })()
+    if (!user && !publishedIn) {
       // a valid draft-preview token authorizes exactly that page's attachments
       const previewToken = typeof req.query?.preview === 'string' ? req.query.preview : ''
       const previewPage = previewToken ? await publishing.resolvePreviewToken(previewToken) : null
@@ -451,12 +641,75 @@ export async function buildServer(config: Config, appDb: AppDb) {
     }
   })
 
+  // AI answers stream as server-sent events: `sources` first (Ask), then
+  // `text` pieces, then `done` or `error`. One request at a time per person,
+  // since a home model server usually runs one thing at once.
+  const aiBusy = new Set<string>()
+  const aiStream = async (
+    req: any,
+    reply: any,
+    run: (user: UserRow, token: string | null, signal: AbortSignal) => AsyncIterable<unknown>,
+  ) => {
+    const { user, token } = await resolveSession(req)
+    if (!user) return reply.code(401).send({ error: 'Sign in first.' })
+    if (!assistant.status().enabled) {
+      return reply.code(404).send({ error: 'AI is switched off here.' })
+    }
+    if (aiBusy.has(user.id)) {
+      return reply.code(429).send({ error: 'One question at a time. Wait for the last answer.' })
+    }
+    aiBusy.add(user.id)
+    const stop = new AbortController()
+    req.raw.on('close', () => stop.abort())
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no',
+    })
+    const send = (event: string, data: unknown) =>
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    try {
+      for await (const item of run(user, token, stop.signal)) {
+        if (stop.signal.aborted) break
+        if (typeof item === 'string') send('text', { text: item })
+        else send((item as { type: string }).type, item)
+      }
+      send('done', {})
+    } catch (err) {
+      if (!stop.signal.aborted) {
+        if (!(err instanceof AiError)) server.log.error(err, 'AI request failed')
+        send('error', {
+          message:
+            err instanceof AiError ? err.message : 'Something went wrong with the AI server.',
+        })
+      }
+    } finally {
+      aiBusy.delete(user.id)
+      reply.raw.end()
+    }
+  }
+  server.post('/api/ai/ask', async (req, reply) => {
+    const input = aiAskInput.safeParse(req.body)
+    if (!input.success) return reply.code(400).send({ error: 'Ask a question.' })
+    return aiStream(req, reply, (user, token, signal) =>
+      assistant.ask(user, token, input.data, signal),
+    )
+  })
+  server.post('/api/ai/summary', async (req, reply) => {
+    const input = aiSummaryInput.safeParse(req.body)
+    if (!input.success) return reply.code(400).send({ error: 'Pick a day.' })
+    return aiStream(req, reply, (user, token, signal) =>
+      assistant.summarise(user, token, input.data, signal),
+    )
+  })
+
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
     if (!user) return reply.code(401).send({ error: 'sign in first' })
     const space = await repo.getSpace(String(req.params.id ?? ''))
-    if (!space || (space.ownerId !== null && space.ownerId !== user.id)) {
+    if (!(await access.can(space, user, 'read')) || !space) {
       return reply.code(404).send({ error: 'not found' })
     }
     const { filename, data } = await exportSpaceZip(repo, blobs, space.id)
@@ -532,7 +785,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
     const url = new URL(req.url, 'http://placeholder')
     // a signed-in visitor gets an "Edit this page" link back into the app
     const viewer = await userFromRequest(req)
-    await publicSrv.serve(
+    const handled = await publicSrv.serve(
       host,
       decodeURIComponent(url.pathname),
       Object.fromEntries(url.searchParams),
@@ -540,6 +793,29 @@ export async function buildServer(config: Config, appDb: AppDb) {
       reply,
       { editBase: viewer ? config.BASE_URL : null },
     )
+    // an async hook that has replied must return the reply, or Fastify may
+    // route the request on and answer it a second time
+    if (handled) return reply
+  })
+
+  // A newsletter's unsubscribe button, and mail apps' one-click unsubscribe
+  // (RFC 8058: a POST to the List-Unsubscribe URL). The token rides the URL.
+  const unsubscribe = async (req: any, reply: any, host: string, basePath: string) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const token = String((req.query as { t?: string }).t ?? body.t ?? '')
+    const html = await publicSrv.unsubscribe(host, token, basePath)
+    if (html === null) return reply.code(404).send({ error: 'not found' })
+    return reply
+      .header('cache-control', 'private, no-store')
+      .type('text/html; charset=utf-8')
+      .send(html)
+  }
+  server.post(UNSUBSCRIBE_PATH, (req, reply) =>
+    unsubscribe(req, reply, String(req.headers.host ?? ''), ''),
+  )
+  server.post(`/s/:host${UNSUBSCRIBE_PATH}`, (req, reply) => {
+    const host = String((req.params as { host?: string }).host ?? '')
+    return unsubscribe(req, reply, host, `/s/${host}`)
   })
 
   // Path-based escape hatch (/s/<host>/...) so a published site can be viewed
@@ -557,6 +833,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
       { editBase: viewer ? config.BASE_URL : null },
     )
     if (!handled) reply.code(404).send({ error: 'no published site for this host' })
+    return reply
   }
 
   // Draft preview: the working copy of a whole space, in its real chrome, on
@@ -573,12 +850,12 @@ export async function buildServer(config: Config, appDb: AppDb) {
       return reply.redirect(config.BASE_URL)
     }
     const space = await repo.getSpace(spaceId)
-    // same visibility rule as the app: household spaces open to any member,
-    // a personal space only to its owner
-    if (!space || (space.ownerId !== null && space.ownerId !== viewer.id)) {
+    // same visibility rule as the app (access.ts)
+    if (!space || !(await access.can(space, viewer, 'read'))) {
       return reply.code(404).send({ error: 'not found' })
     }
     await publicSrv.serveDraft(space, decodeURIComponent(rest), `/s/draft/${spaceId}`, reply)
+    return reply
   }
   server.get('/s/draft/:spaceId', serveDraftByPath)
   server.get('/s/draft/:spaceId/*', serveDraftByPath)
@@ -588,7 +865,9 @@ export async function buildServer(config: Config, appDb: AppDb) {
   // provider identity to the current account instead of signing in.
   const OIDC_STATE_COOKIE = 'bn_oidc'
   const ssoFail = (reply: any, err: unknown, to: string) => {
-    const message = err instanceof SsoError ? err.message : 'Single sign-on failed.'
+    // our own explanations (not allowed, deactivated…) are fit to show
+    const message =
+      err instanceof SsoError || err instanceof AuthError ? err.message : 'Single sign-on failed.'
     if (!(err instanceof SsoError)) server.log.error(err)
     return reply.redirect(`${to}?sso_error=${encodeURIComponent(message)}`)
   }
@@ -668,6 +947,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
         tables,
         locks,
         backup,
+        access,
+        offsite,
         restore,
         sso,
         proxy,
@@ -676,6 +957,10 @@ export async function buildServer(config: Config, appDb: AppDb) {
         tokens,
         importStash,
         updates,
+        edition,
+        ai: assistant,
+        aiClient,
+        aiIndex,
         resolveSession,
       }),
     },
@@ -683,7 +968,7 @@ export async function buildServer(config: Config, appDb: AppDb) {
 
   // personal-access-token surface: REST (/api/v1) and MCP (/api/mcp)
   registerPublicApi(server, {
-    api: createPublicApi({ repo, pages, daily, tasks, locks }),
+    api: createPublicApi({ repo, pages, daily, tasks, locks, access }),
     tokens,
     version,
   })
@@ -693,6 +978,10 @@ export async function buildServer(config: Config, appDb: AppDb) {
   // the one in-process set of services (caches included) — tests must mutate
   // publish state through these, not through parallel instances
   server.decorate('bnServices', {
+    visits,
+    access,
+    collab,
+    aiIndex,
     repo,
     auth,
     pages,
@@ -720,6 +1009,8 @@ export async function buildServer(config: Config, appDb: AppDb) {
       if (purged > 0) server.log.info(`trash purge: hard-deleted ${purged} page subtree(s)`)
       // the audit log keeps its own, much longer, window
       await audit.prune(config.AUDIT_RETENTION_DAYS)
+      // visit counts: a little over a year, enough to compare with last year
+      await visits.prune(400)
     }
     server.addHook('onReady', async () => {
       await scheduler.runOnce()
@@ -734,7 +1025,22 @@ export async function buildServer(config: Config, appDb: AppDb) {
       scheduler.stop()
       if (purgeTimer) clearInterval(purgeTimer)
     })
+    // visit counts are buffered in memory and written once a minute
+    const visitTimer = setInterval(() => void visits.flush(), 60_000)
+    visitTimer.unref()
+    server.addHook('onClose', async () => clearInterval(visitTimer))
+    // keep Ask's note index current (does nothing without an embedding model)
+    const aiTimer = setInterval(() => void aiIndex.run(), 2 * 60_000)
+    aiTimer.unref()
+    server.addHook('onReady', async () => {
+      setTimeout(() => void aiIndex.run(), 20_000).unref()
+    })
+    server.addHook('onClose', async () => clearInterval(aiTimer))
   }
+  // whatever was counted since the last write goes out on shutdown
+  server.addHook('onClose', async () => {
+    await visits.flush()
+  })
 
   // Serve the built SPA when present (production); in dev, Vite serves the web app.
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : ''

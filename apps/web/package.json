@@ -1,7 +1,7 @@
 {
   "name": "@bn/web",
   "private": true,
-  "version": "0.8.26",
+  "version": "0.8.27",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -11,17 +11,20 @@
     "test": "echo no tests yet"
   },
   "dependencies": {
+    "@bn/editor": "workspace:*",
     "@blocknote/core": "^0.51.4",
     "@blocknote/mantine": "^0.51.4",
     "@blocknote/react": "^0.51.4",
     "@bn/schema": "workspace:*",
+    "@hocuspocus/provider": "^4.7.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@tanstack/react-query": "^5.62.11",
     "@tanstack/react-router": "^1.95.1",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@bn/server": "workspace:*",

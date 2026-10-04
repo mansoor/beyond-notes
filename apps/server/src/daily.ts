@@ -1,16 +1,33 @@
-import { plainText } from '@bn/renderer'
+import { markdownToBlocks, plainText } from '@bn/renderer'
 import { nanoid } from 'nanoid'
+import { type AccessService, createAccess } from './access'
 import { PagesError } from './pages'
 import type { MemoRow, PageRow, Repo, SpaceRow, UserRow } from './repo'
 import { reconcileTags } from './tags'
 import { appendBlocksToContent, makeCheckBlock, makeParagraphBlock, reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
+
+/** New ids all the way down: imported blocks must not clash with the page's. */
+function freshIds(blocks: unknown[]): unknown[] {
+  return blocks.map((b) => {
+    const block = b as { children?: unknown[] }
+    return {
+      ...block,
+      id: nanoid(),
+      children: Array.isArray(block.children) ? freshIds(block.children) : [],
+    }
+  })
+}
 const DOC_SCHEMA_VERSION = 1
 const TASKS_INBOX_KEY = 'inbox' // sentinel dateKey for the per-user tasks-inbox page
 
-export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) {
+export function createDailyService(
+  repo: Repo,
+  opts: { now?: () => Date; access?: AccessService } = {},
+) {
   const now = opts.now ?? (() => new Date())
+  const access = opts.access ?? createAccess(repo)
 
   async function ensureJournalSpace(user: UserRow): Promise<SpaceRow> {
     const existing = await repo.getSpaceByOwnerAndKind(user.id, 'journal')
@@ -195,6 +212,13 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
       await appendToPage(page.id, [makeParagraphBlock(text)])
     },
 
+    /** Append Markdown (an AI summary) to the main note of a day. */
+    async appendMarkdownToDay(user: UserRow, date: string, markdown: string): Promise<void> {
+      const { page } = await this.day(user, date)
+      const blocks = freshIds(markdownToBlocks(markdown))
+      await appendToPage(page.id, blocks as ReturnType<typeof makeParagraphBlock>[])
+    },
+
     /** Which days of a month ('YYYY-MM') have journal pages — calendar dots. */
     async days(user: UserRow, month: string): Promise<string[]> {
       const space = await repo.getSpaceByOwnerAndKind(user.id, 'journal')
@@ -313,11 +337,7 @@ export function createDailyService(repo: Repo, opts: { now?: () => Date } = {}) 
     async promoteToNote(user: UserRow, memoId: string, spaceId: string): Promise<PageRow> {
       const memo = await this.requireMemo(user, memoId)
       const space = await repo.getSpace(spaceId)
-      if (
-        !space ||
-        (space.ownerId !== null && space.ownerId !== user.id) ||
-        space.kind !== 'tree'
-      ) {
+      if (!space || space.kind !== 'tree' || !(await access.can(space, user, 'write'))) {
         throw new PagesError('NOT_FOUND', 'Space not found.')
       }
       const siblings = (await repo.listPagesInSpace(spaceId)).filter((p) => p.parentId === null)

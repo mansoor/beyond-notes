@@ -1,6 +1,12 @@
 export { blocknoteToHtml, plainText, galleryHtml, extractHeadings } from './render'
 export type { GalleryLayout, TocEntry } from './render'
-export { socialLinksHtml, shareBarHtml, SOCIAL_PLATFORMS } from './chrome'
+export {
+  CREDIT_HTML,
+  socialLinksHtml,
+  shareBarHtml,
+  stripCredit,
+  SOCIAL_PLATFORMS,
+} from './chrome'
 export type { SocialLink, SocialPlatform } from './chrome'
 export { blocknoteToMarkdown, dedupeBlockIds, markdownToBlocks, mergeDocuments } from './markdown'
 export type { GalleryRenderItem } from './render'
@@ -15,6 +21,7 @@ export {
   siteTagPage,
   site404,
   maintenancePage,
+  noticePage,
   buildRss,
   buildSitemap,
   crumbsHtml,

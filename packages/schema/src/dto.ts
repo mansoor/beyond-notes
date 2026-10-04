@@ -68,12 +68,15 @@ export const auditAction = z.enum([
   'auth.token_revoked',
   'user.invited',
   'user.invite_revoked',
+  'user.deactivated',
+  'user.reactivated',
   'settings.saved',
   'backup.created',
   'backup.deleted',
   'backup.downloaded',
   'backup.restored',
   'export.space',
+  'newsletter.sent',
 ])
 export type AuditAction = z.infer<typeof auditAction>
 
@@ -172,6 +175,8 @@ export type UserView = {
   email: string
   name: string
   role: 'admin' | 'member'
+  /** deactivated: can't sign in; their content stays */
+  disabled: boolean
   emailNotifications: boolean
   /** sidebar sections/spaces this user has hidden — see sidebarTokenPattern */
   sidebarHidden: string[]
@@ -257,6 +262,10 @@ export type SpaceView = {
   name: string
   category: SpaceCategory
   personal: boolean
+  /** what this person may do here: owner (settings too), editor (pages), viewer (read) */
+  role: 'owner' | 'editor' | 'viewer'
+  /** someone else's personal space, shared with this person */
+  sharedWithMe: boolean
   publicEnabled: boolean
   /** published, but serving a holding page instead of the content */
   publicMaintenance: boolean
@@ -817,6 +826,85 @@ export const backupSettings = z.object({
 })
 export type BackupSettings = z.infer<typeof backupSettings>
 
+/**
+ * Offsite copies: each backup encrypted (age, passphrase) and uploaded to an
+ * S3-compatible bucket that isn't this server's storage.
+ */
+export const offsiteSettings = z.object({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().trim().max(500).default(''),
+  region: z.string().trim().max(100).default('us-east-1'),
+  bucket: z.string().trim().max(255).default(''),
+  // folder inside the bucket, e.g. "beyond-notes/"
+  prefix: z.string().trim().max(200).default('beyond-notes/'),
+  accessKey: z.string().max(255).default(''),
+  // empty string on save = keep the stored secret (both fields)
+  secretKey: z.string().max(255).default(''),
+  passphrase: z.string().max(500).default(''),
+  forcePathStyle: z.boolean().default(true),
+})
+export type OffsiteSettings = z.infer<typeof offsiteSettings>
+
+// ---- AI (a model server the admin points at; nothing leaves otherwise) ----
+
+export const aiSettings = z.object({
+  enabled: z.boolean().default(false),
+  /** an OpenAI-compatible API: Ollama (http://localhost:11434), LM Studio, llama.cpp… */
+  baseUrl: z.string().trim().max(500).default(''),
+  // empty string on save = keep the stored key (never echoed to the UI)
+  apiKey: z.string().max(500).default(''),
+  chatModel: z.string().trim().max(200).default(''),
+  /** optional: finds notes by meaning; without it, Ask matches words */
+  embedModel: z.string().trim().max(200).default(''),
+})
+export type AiSettings = z.infer<typeof aiSettings>
+
+export type AiSettingsView = Omit<AiSettings, 'apiKey'> & {
+  hasKey: boolean
+  /** where the config in force comes from */
+  source: 'db' | 'env' | 'off'
+}
+
+/** What everyone signed in may know about AI here. */
+export type AiStatusView = {
+  enabled: boolean
+  /** an embedding model is set: Ask finds notes by meaning */
+  semantic: boolean
+}
+
+export type AiIndexView = {
+  model: string | null
+  pages: number
+  chunks: number
+  /** pages waiting to be (re)indexed */
+  pending: number
+  running: boolean
+  lastRunAt: string | null
+  lastError: string | null
+}
+
+export const aiSummaryInput = z.object({
+  kind: z.enum(['day', 'week']),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** the browser's offset from UTC in minutes (Date#getTimezoneOffset) */
+  tzOffset: z.number().int().min(-900).max(900).default(0),
+})
+
+export const aiAskInput = z.object({
+  question: z.string().trim().min(2).max(2000),
+  /** the conversation so far, oldest first (a few turns) */
+  history: z
+    .array(z.object({ question: z.string().max(2000), answer: z.string().max(8000) }))
+    .max(6)
+    .default([]),
+})
+
+/** A note an answer drew on, numbered as the answer cites it. */
+export type AiSource = { n: number; pageId: string; title: string; context: string }
+
+/** One encrypted copy in the offsite bucket. */
+export type OffsiteCopyView = { name: string; sizeBytes: number; createdAt: string }
+
 /** One stored backup, listed in Settings (the local dir is the source of truth). */
 export type BackupView = {
   name: string
@@ -893,6 +981,12 @@ export type ServerSettingsView = {
   /** forward-auth as configured by env (read-only in the UI); null = off */
   proxyAuth: { emailHeader: string; trusted: string[]; autoCreate: boolean } | null
   backup: BackupSettings
+  offsite: Omit<OffsiteSettings, 'secretKey' | 'passphrase'> & {
+    hasSecret: boolean
+    hasPassphrase: boolean
+    /** the last upload since the server started */
+    last: { at: string; name: string; ok: boolean; error: string | null } | null
+  }
   // which sources are effectively active right now (db beats env)
   mailSource: 'db' | 'env' | 'off'
   ntfySource: 'db' | 'env' | 'off'

@@ -1,6 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { CenterCard, ErrorNote, Field, PageIcon, SubmitButton, useSubmit } from '../components'
+import { webEdition } from '../edition'
 import { passkeyErrorMessage, passkeysSupported, startAuthentication } from '../passkey'
 import { trpc } from '../trpc'
 import { Shell } from './Shell'
@@ -38,6 +39,10 @@ export function Gate() {
     )
   }
   if (status.data?.me) {
+    // signed in with somewhere to go back to (e.g. a members-only site's
+    // sign-in handoff): continue there instead of opening the app
+    const back = returnTo()
+    if (back) return <Continue to={back} />
     return (
       <Shell me={status.data.me}>
         <Outlet />
@@ -46,6 +51,30 @@ export function Gate() {
   }
   if (status.data?.needsSetup) return <SetupPage />
   return <LoginPage />
+}
+
+/**
+ * `?return_to=/path` on any app URL: where to go once signed in. Same-site
+ * paths only, so it can never send anyone to another host.
+ */
+function returnTo(): string | null {
+  const raw = new URLSearchParams(window.location.search).get('return_to')
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return null
+  return raw
+}
+
+function Continue(props: { to: string }) {
+  useEffect(() => {
+    window.location.replace(props.to)
+  }, [props.to])
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center"
+      style={{ color: 'var(--text-3)' }}
+    >
+      Continuing…
+    </div>
+  )
 }
 
 function SetupPage() {
@@ -119,6 +148,9 @@ function takeSsoError(): string | null {
   window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`)
   return message
 }
+
+// sign-in methods an add-on edition contributes (e.g. SAML)
+const SignInExtras = webEdition.signInExtras
 
 function LoginPage() {
   const utils = trpc.useUtils()
@@ -196,6 +228,7 @@ function LoginPage() {
           )}
         </>
       )}
+      {SignInExtras ? <SignInExtras /> : null}
       {showPassword ? (
         <form onSubmit={onSubmit}>
           <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus={!sso} />
