@@ -623,7 +623,7 @@ export async function buildServer(
     const url = new URL(req.url, 'http://placeholder')
     // a signed-in visitor gets an "Edit this page" link back into the app
     const viewer = await userFromRequest(req)
-    await publicSrv.serve(
+    const handled = await publicSrv.serve(
       host,
       decodeURIComponent(url.pathname),
       Object.fromEntries(url.searchParams),
@@ -631,6 +631,9 @@ export async function buildServer(
       reply,
       { editBase: viewer ? config.BASE_URL : null },
     )
+    // an async hook that has replied must return the reply, or Fastify may
+    // route the request on and answer it a second time
+    if (handled) return reply
   })
 
   // Path-based escape hatch (/s/<host>/...) so a published site can be viewed
@@ -648,6 +651,7 @@ export async function buildServer(
       { editBase: viewer ? config.BASE_URL : null },
     )
     if (!handled) reply.code(404).send({ error: 'no published site for this host' })
+    return reply
   }
 
   // Draft preview: the working copy of a whole space, in its real chrome, on
@@ -669,6 +673,7 @@ export async function buildServer(
       return reply.code(404).send({ error: 'not found' })
     }
     await publicSrv.serveDraft(space, decodeURIComponent(rest), `/s/draft/${spaceId}`, reply)
+    return reply
   }
   server.get('/s/draft/:spaceId', serveDraftByPath)
   server.get('/s/draft/:spaceId/*', serveDraftByPath)
