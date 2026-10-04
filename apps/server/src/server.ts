@@ -5,6 +5,7 @@ import { stripCredit } from '@bn/renderer'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
+import fastifyWebsocket from '@fastify/websocket'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import pkg from '../package.json'
@@ -16,6 +17,7 @@ import { AuthError, createAuthService } from './auth'
 import { createBackupService } from './backup'
 import { createDynamicBlobStore } from './blobstore-dynamic'
 import { effectiveCaptchaMode, verifyMathChallenge, verifyRecaptcha } from './captcha'
+import { createCollab } from './collab'
 import type { Config } from './config'
 import { createDailyService } from './daily'
 import type { AppDb } from './db'
@@ -35,7 +37,7 @@ import { createPublicServer } from './public'
 import { createPublicApi } from './publicapi'
 import { createPublishingService } from './publishing'
 import { createRemindersService } from './reminders'
-import { createRepo } from './repo'
+import { type UserRow, createRepo } from './repo'
 import { registerPublicApi } from './restapi'
 import { createRestoreService } from './restore'
 import { appRouter } from './routers'
@@ -271,6 +273,54 @@ export async function buildServer(
   if (editionModule.name !== 'community') {
     server.log.info(`edition module ${editionModule.name}: running as ${edition.info().label}`)
   }
+
+  // Live co-editing (collab.ts): a WebSocket per browser, checked here and
+  // then per page. Without the feature the endpoint refuses every page and
+  // editors keep autosaving as before.
+  const collab = createCollab({
+    repo,
+    access,
+    locks,
+    enabled: () => edition.has('collab.live'),
+    debounce: config.COLLAB_SAVE_DELAY_MS,
+    maxDebounce: config.COLLAB_SAVE_DELAY_MS * 5,
+    log: { warn: (msg) => server.log.warn(msg), error: (err, msg) => server.log.error(err, msg) },
+  })
+  await server.register(fastifyWebsocket, { options: { maxPayload: 16 * 1024 * 1024 } })
+  // who is connecting is settled before the upgrade: the client starts
+  // talking the moment the socket opens, and anything sent before the
+  // connection is handed over would be lost
+  const collabUsers = new WeakMap<object, { user: UserRow; token: string | null }>()
+  server.get(
+    '/api/collab',
+    {
+      websocket: true,
+      preValidation: async (req, reply) => {
+        const { user, token } = await resolveSession(req)
+        if (!user) return reply.code(401).send({ error: 'Sign in first.' })
+        collabUsers.set(req, { user, token })
+      },
+    },
+    (socket, req) => {
+      const who = collabUsers.get(req)
+      if (!who) {
+        socket.close(4401, 'Sign in first.')
+        return
+      }
+      const headers = new Headers()
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (typeof v === 'string') headers.set(k, v)
+        else if (Array.isArray(v)) headers.set(k, v.join(', '))
+      }
+      collab.connect(socket, new Request(`http://collab${req.url}`, { headers }), {
+        user: who.user,
+        sessionToken: who.token,
+      })
+    },
+  )
+  server.addHook('onClose', async () => {
+    await collab.close()
+  })
 
   const userFromRequest = async (req: {
     cookies?: Record<string, string | undefined>
@@ -794,6 +844,8 @@ export async function buildServer(
   // publish state through these, not through parallel instances
   server.decorate('bnServices', {
     visits,
+    access,
+    collab,
     repo,
     auth,
     pages,

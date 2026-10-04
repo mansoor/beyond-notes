@@ -619,3 +619,19 @@ export const siteReferrersDaily = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.spaceId, t.day, t.host] })],
 )
+
+// ---- live co-editing ----
+
+/**
+ * The collaborative (Yjs) state of a page being co-edited. Only a cache: it
+ * can always be rebuilt from documents.content, and is when content_at no
+ * longer matches the document (something else wrote the page meanwhile).
+ */
+export const documentLiveStates = sqliteTable('document_live_states', {
+  pageId: text('page_id')
+    .primaryKey()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  state: blob('state', { mode: 'buffer' }).notNull(),
+  // documents.updated_at this state matches
+  contentAt: integer('content_at', { mode: 'timestamp_ms' }).notNull(),
+})

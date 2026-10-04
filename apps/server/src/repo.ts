@@ -350,6 +350,7 @@ export type DbRowRow = {
 // for the portable SQL this repo restricts itself to (see TECH-PLAN, database
 // section). Types are enforced at this boundary, not inside the queries.
 export function createRepo(appDb: AppDb) {
+  let documentListener: ((pageId: string, content: string) => void) | null = null
   const db = appDb.db
   const t = appDb.tables as any
 
@@ -1019,8 +1020,44 @@ export function createRepo(appDb: AppDb) {
       return rows[0] ?? null
     },
 
-    async updateDocument(pageId: string, content: string, updatedAt: Date): Promise<void> {
+    /**
+     * The one write path for page content. Anything listening (live
+     * co-editing) hears about writes that didn't come from itself.
+     */
+    async updateDocument(
+      pageId: string,
+      content: string,
+      updatedAt: Date,
+      source: 'collab' | null = null,
+    ): Promise<void> {
       await db.update(t.documents).set({ content, updatedAt }).where(eq(t.documents.pageId, pageId))
+      if (source !== 'collab') documentListener?.(pageId, content)
+    },
+    /** Hear about page content written outside live co-editing. */
+    onDocumentWritten(listener: ((pageId: string, content: string) => void) | null) {
+      documentListener = listener
+    },
+
+    async getLiveState(pageId: string): Promise<{ state: Uint8Array; contentAt: Date } | null> {
+      const rows = await db
+        .select()
+        .from(t.documentLiveStates)
+        .where(eq(t.documentLiveStates.pageId, pageId))
+        .limit(1)
+      const row = rows[0]
+      return row
+        ? { state: new Uint8Array(row.state as Uint8Array), contentAt: row.contentAt }
+        : null
+    },
+    async putLiveState(pageId: string, state: Uint8Array, contentAt: Date): Promise<void> {
+      const value = Buffer.from(state)
+      await db
+        .insert(t.documentLiveStates)
+        .values({ pageId, state: value, contentAt })
+        .onConflictDoUpdate({
+          target: t.documentLiveStates.pageId,
+          set: { state: value, contentAt },
+        })
     },
 
     // ---- journal helpers ----

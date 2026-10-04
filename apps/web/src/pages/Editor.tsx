@@ -3,7 +3,7 @@ import { pageTypesByCategory } from '@bn/schema'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPicker, Modal, RightDrawer, TimeField } from '../components'
-import { DocumentEditor, SaveBadge, type SaveState } from '../editor'
+import { DocumentEditor, LiveDocumentEditor, SaveBadge, type SaveState } from '../editor'
 import { UnlockModal, useLockState } from '../locks'
 import { spaceLabel } from '../sidebarprefs'
 import { isDarkTheme } from '../theme'
@@ -12,6 +12,9 @@ import { trpc } from '../trpc'
 export function EditorPage() {
   const { pageId } = useParams({ from: '/app/p/$pageId' })
   const q = trpc.pages.get.useQuery({ pageId })
+  // live co-editing is on for this instance (a licence feature)
+  const edition = trpc.system.edition.useQuery(undefined, { staleTime: 5 * 60 * 1000 })
+  const live = edition.data?.features.includes('collab.live') ?? false
   // Watch the lock covering this page — its own, and the space it lives in —
   // reactively. Navigating to a locked page trips q.error below, but a lock
   // that *fires after* the page is already open (an idle timeout) never
@@ -21,7 +24,7 @@ export function EditorPage() {
   const spaceLock = useLockState('space', q.data?.page.spaceId ?? null)
   const shutNow = Boolean((pageLock && !pageLock.open) || (spaceLock && !spaceLock.open))
 
-  if (q.isLoading) {
+  if (q.isLoading || edition.isLoading) {
     return (
       <div className="p-10 text-sm" style={{ color: 'var(--text-3)' }}>
         Loading page…
@@ -47,7 +50,10 @@ export function EditorPage() {
   }
   return (
     <PageView
-      key={`${pageId}:${q.data.doc.updatedAt}`}
+      // a classic editor remounts when the saved document changes; a live one
+      // must not (every refetch would drop the cursor and the connection)
+      key={live ? pageId : `${pageId}:${q.data.doc.updatedAt}`}
+      live={live}
       page={q.data.page}
       doc={q.data.doc}
       publishing={q.data.publishing}
@@ -140,12 +146,18 @@ function PageView(props: {
   doc: Parameters<typeof DocumentEditor>[0]['doc']
   publishing: PublishingView
   canEdit: boolean
+  live: boolean
 }) {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
   const rename = trpc.pages.rename.useMutation()
   const [title, setTitle] = useState(props.page.title)
-  const [state, setState] = useState<SaveState>('saved')
+  const [state, setState] = useState<SaveState>(props.live ? 'connecting' : 'saved')
+  const [others, setOthers] = useState(0)
+  // the server wouldn't open this page live: the classic editor takes over
+  const [classic, setClassic] = useState(!props.live)
+  const me = trpc.auth.status.useQuery().data?.me
+  const tagsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // the live document, seeded from the load and updated in place on each save
   // (never via a refetch — see DocumentEditor.onSaved)
   const [content, setContent] = useState(props.doc.content)
@@ -209,7 +221,7 @@ function PageView(props: {
             onBlur={commitTitle}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
-          <SaveBadge state={state} />
+          <SaveBadge state={state} others={others} />
           <ContextDrawerButton page={props.page} publishing={props.publishing} />
         </div>
         {props.canEdit ? (
@@ -222,21 +234,48 @@ function PageView(props: {
             View only. This space was shared with you to read.
           </p>
         )}
-        <DocumentEditor
-          pageId={props.page.id}
-          doc={props.doc}
-          readOnly={!props.canEdit}
-          onSaved={setContent}
-          onStateChange={(s) => {
-            setState(s)
-            // a save may have changed inline #tags or @-links — refresh the rail
-            if (s === 'saved') {
-              utils.tags.forPage.invalidate({ pageId: props.page.id })
-              utils.pages.backlinks.invalidate()
-            }
-          }}
-          onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
-        />
+        {!classic && me ? (
+          <LiveDocumentEditor
+            pageId={props.page.id}
+            me={{ id: me.id, name: me.name }}
+            readOnly={!props.canEdit}
+            onStateChange={(s, n) => {
+              setState(s)
+              setOthers(n)
+            }}
+            onSaved={(c) => {
+              setContent(c)
+              // the server saves a moment after edits settle; refresh the rail then
+              if (tagsTimer.current) clearTimeout(tagsTimer.current)
+              tagsTimer.current = setTimeout(() => {
+                utils.tags.forPage.invalidate({ pageId: props.page.id })
+                utils.pages.backlinks.invalidate()
+              }, 3000)
+            }}
+            onFallback={() => {
+              setClassic(true)
+              setState('saved')
+              // start the classic editor from what is saved now
+              utils.pages.get.invalidate({ pageId: props.page.id })
+            }}
+          />
+        ) : (
+          <DocumentEditor
+            pageId={props.page.id}
+            doc={props.doc}
+            readOnly={!props.canEdit}
+            onSaved={setContent}
+            onStateChange={(s) => {
+              setState(s)
+              // a save may have changed inline #tags or @-links — refresh the rail
+              if (s === 'saved') {
+                utils.tags.forPage.invalidate({ pageId: props.page.id })
+                utils.pages.backlinks.invalidate()
+              }
+            }}
+            onReload={() => utils.pages.get.invalidate({ pageId: props.page.id })}
+          />
+        )}
         <MermaidPreview content={content} />
         {props.page.pageType === 'gallery' && props.canEdit && <GalleryManager page={props.page} />}
       </div>

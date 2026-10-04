@@ -20,7 +20,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:3800',
+      // ws: live co-editing connects to /api/collab
+      '/api': { target: 'http://127.0.0.1:3800', ws: true },
       // single sign-on redirects (/auth/oidc/login, /auth/oidc/callback)
       '/auth': 'http://127.0.0.1:3800',
       // published-site dev escape (/s/<host>/...). Regex-anchored: a bare '/s'

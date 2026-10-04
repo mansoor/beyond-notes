@@ -110,6 +110,8 @@ const envSchema = z.object({
   UPDATE_CHECK_URL: z
     .string()
     .default('https://api.github.com/repos/mansoor/beyond-notes/releases/latest'),
+  // live co-editing: save this long after edits settle (ms)
+  COLLAB_SAVE_DELAY_MS: z.coerce.number().int().min(10).max(60_000).default(2_000),
   // an add-on edition to load at boot (package name or file path); empty = Community
   EDITION_MODULE: z.string().default(''),
   NODE_ENV: z.string().default('development'),

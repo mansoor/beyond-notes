@@ -295,6 +295,13 @@
       "when": 1791070293029,
       "tag": "0041_pink_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791075503095,
+      "tag": "0042_friendly_sleepwalker",
+      "breakpoints": true
     }
   ]
 }

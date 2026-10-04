@@ -1,6 +1,6 @@
 import '@blocknote/core/fonts/inter.css'
-import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core'
 import '@blocknote/mantine/style.css'
+import type { BlockNoteEditor } from '@blocknote/core'
 import { BlockNoteView } from '@blocknote/mantine'
 import {
   FormattingToolbar,
@@ -10,41 +10,22 @@ import {
   getFormattingToolbarItems,
   useCreateBlockNote,
 } from '@blocknote/react'
+import { COLLAB_FRAGMENT, editorSchema as schema } from '@bn/editor'
 import type { DocumentView } from '@bn/schema'
+import { HocuspocusProvider } from '@hocuspocus/provider'
 import { useEffect, useRef, useState } from 'react'
+import * as Y from 'yjs'
 import { isDarkTheme } from './theme'
 import { trpc } from './trpc'
 
-// The stock code block ships with no `supportedLanguages`, so BlockNote draws
-// no language selector at all — leaving no way to tag a block as `mermaid`,
-// which is the one flag the publish renderer and the diagram preview both key
-// off. Give it a curated list (mermaid + the languages highlight.ts actually
-// colours). No `createHighlighter`: editor-side Shiki would be a heavy bundle,
-// and published pages get their own lightweight highlighting at render time.
-const schema = BlockNoteSchema.create({
-  blockSpecs: {
-    ...defaultBlockSpecs,
-    codeBlock: createCodeBlockSpec({
-      defaultLanguage: 'text',
-      supportedLanguages: {
-        text: { name: 'Plain Text', aliases: ['text', 'plain'] },
-        mermaid: { name: 'Mermaid', aliases: ['mermaid'] },
-        javascript: { name: 'JavaScript', aliases: ['js'] },
-        typescript: { name: 'TypeScript', aliases: ['ts'] },
-        python: { name: 'Python', aliases: ['py'] },
-        bash: { name: 'Shell', aliases: ['sh', 'shell', 'zsh', 'console'] },
-        json: { name: 'JSON' },
-        yaml: { name: 'YAML', aliases: ['yml'] },
-        sql: { name: 'SQL' },
-        html: { name: 'HTML', aliases: ['xml'] },
-        css: { name: 'CSS' },
-        markdown: { name: 'Markdown', aliases: ['md'] },
-      },
-    }),
-  },
-})
-
-export type SaveState = 'saved' | 'saving' | 'conflict' | 'error'
+export type SaveState =
+  | 'saved'
+  | 'saving'
+  | 'conflict'
+  | 'error'
+  | 'live'
+  | 'connecting'
+  | 'offline'
 
 /**
  * Give every block a document-unique id, children included. BlockNote resolves
@@ -159,8 +140,6 @@ export function DocumentEditor(props: {
     }, 800)
   }
 
-  const dark = isDarkTheme()
-
   return (
     <div>
       {state === 'conflict' && (
@@ -180,16 +159,65 @@ export function DocumentEditor(props: {
           16px (see .bn-editor override in styles.css) and the margin only
           cancels the container's px-4, so the editor is exactly viewport-wide
           instead of overflowing 108px and forcing a horizontal scroll. */}
+      <EditorSurface
+        editor={editor}
+        readOnly={props.readOnly}
+        onChange={props.readOnly ? undefined : scheduleSave}
+      />
+    </div>
+  )
+}
+
+export function SaveBadge(props: { state: SaveState; others?: number }) {
+  const map: Record<SaveState, { label: string; color: string }> = {
+    saved: { label: 'Saved', color: 'var(--live)' },
+    saving: { label: 'Saving…', color: 'var(--text-3)' },
+    conflict: { label: 'Conflict', color: 'var(--danger)' },
+    error: { label: 'Save failed — retrying on next edit', color: 'var(--danger)' },
+    live: { label: 'Live', color: 'var(--live)' },
+    connecting: { label: 'Connecting…', color: 'var(--text-3)' },
+    offline: { label: 'Offline — your changes sync when you reconnect', color: 'var(--danger)' },
+  }
+  const m = map[props.state]
+  return (
+    <span className="text-xs whitespace-nowrap" style={{ color: m.color }}>
+      {m.label}
+      {props.state === 'live' && props.others
+        ? ` · ${props.others} other${props.others === 1 ? '' : 's'} here`
+        : ''}
+    </span>
+  )
+}
+
+type Editor = BlockNoteEditor<
+  typeof schema.blockSchema,
+  typeof schema.inlineContentSchema,
+  typeof schema.styleSchema
+>
+
+/** The editor itself, with our toolbar and @-mentions, for both editing modes. */
+function EditorSurface(props: { editor: Editor; readOnly?: boolean; onChange?: () => void }) {
+  const utils = trpc.useUtils()
+  const editor = props.editor
+  const dark = isDarkTheme()
+  return (
+    <>
+      {/* BlockNote pads its editor 54px inline for the block side-menu; the
+          negative margin pulls the text back to the page edge. On desktop
+          (lg+, container px-10) that's -54; below lg the gutter shrinks to
+          16px (see .bn-editor override in styles.css) and the margin only
+          cancels the container's px-4, so the editor is exactly viewport-wide
+          instead of overflowing 108px and forcing a horizontal scroll. */}
       <div className="-mx-4 lg:-mx-[54px]">
         <BlockNoteView
           editor={editor}
           editable={!props.readOnly}
-          onChange={props.readOnly ? undefined : scheduleSave}
+          onChange={props.onChange}
           theme={dark ? 'dark' : 'light'}
           formattingToolbar={false}
         >
           {/* default toolbar plus a Justify align button (BlockNote ships every
-              other alignment but not this one) */}
+          other alignment but not this one) */}
           <FormattingToolbarController
             formattingToolbar={() => (
               <FormattingToolbar>
@@ -222,22 +250,132 @@ export function DocumentEditor(props: {
           />
         </BlockNoteView>
       </div>
-    </div>
+    </>
   )
 }
 
-export function SaveBadge(props: { state: SaveState }) {
-  const map: Record<SaveState, { label: string; color: string }> = {
-    saved: { label: 'Saved', color: 'var(--live)' },
-    saving: { label: 'Saving…', color: 'var(--text-3)' },
-    conflict: { label: 'Conflict', color: 'var(--danger)' },
-    error: { label: 'Save failed — retrying on next edit', color: 'var(--danger)' },
+/** A stable, readable cursor colour per person. */
+const CURSOR_COLOURS = [
+  '#2f6fd0',
+  '#c2410c',
+  '#15803d',
+  '#a21caf',
+  '#0e7490',
+  '#b45309',
+  '#be123c',
+  '#4d7c0f',
+]
+function colourFor(id: string): string {
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return CURSOR_COLOURS[h % CURSOR_COLOURS.length] as string
+}
+
+/**
+ * Live co-editing (server: collab.ts): the page is a shared document edited
+ * over a WebSocket, and the server saves it. There is no autosave and no
+ * conflict here. If the server won't open the page live (the feature is off,
+ * or anything else), `onFallback` switches the page back to the classic
+ * editor before anyone has typed into this one.
+ */
+export function LiveDocumentEditor(props: {
+  pageId: string
+  me: { id: string; name: string }
+  readOnly?: boolean
+  onStateChange?: (s: SaveState, others: number) => void
+  /** the document as blocks JSON after edits settle (mermaid preview) */
+  onSaved?: (content: string) => void
+  onFallback: () => void
+}) {
+  const [live] = useState(() => {
+    const doc = new Y.Doc()
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const provider = new HocuspocusProvider({
+      url: `${scheme}://${window.location.host}/api/collab`,
+      name: props.pageId,
+      document: doc,
+    })
+    return { doc, provider }
+  })
+  const [synced, setSynced] = useState(false)
+  const fallbackRef = useRef(props.onFallback)
+  fallbackRef.current = props.onFallback
+  const stateRef = useRef(props.onStateChange)
+  stateRef.current = props.onStateChange
+
+  useEffect(() => {
+    const { provider } = live
+    let isSynced = false
+    const report = () => {
+      const others = Math.max(0, provider.awareness ? provider.awareness.getStates().size - 1 : 0)
+      const status = provider.configuration.websocketProvider.status
+      stateRef.current?.(
+        status === 'connected'
+          ? isSynced
+            ? 'live'
+            : 'connecting'
+          : status === 'connecting'
+            ? 'connecting'
+            : 'offline',
+        others,
+      )
+    }
+    const onSynced = ({ state }: { state: boolean }) => {
+      if (state) {
+        isSynced = true
+        setSynced(true)
+      }
+      report()
+    }
+    provider.on('synced', onSynced)
+    provider.on('status', report)
+    provider.awareness?.on('change', report)
+    report()
+    // never opened live: go back to the classic editor
+    const giveUp = setTimeout(() => {
+      if (!isSynced) fallbackRef.current()
+    }, 6000)
+    return () => {
+      clearTimeout(giveUp)
+      provider.off('synced', onSynced)
+      provider.off('status', report)
+      provider.awareness?.off('change', report)
+      provider.destroy()
+    }
+  }, [live])
+
+  const editor = useCreateBlockNote(
+    {
+      schema,
+      uploadFile,
+      collaboration: {
+        // BlockNote only needs the provider's awareness (for cursors)
+        provider: { awareness: live.provider.awareness ?? undefined } as never,
+        fragment: live.doc.getXmlFragment(COLLAB_FRAGMENT),
+        user: { name: props.me.name, color: colourFor(props.me.id) },
+        showCursorLabels: 'activity',
+      },
+    },
+    [live],
+  )
+
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onChange = () => {
+    if (!props.onSaved) return
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => props.onSaved?.(JSON.stringify(editor.document)), 600)
   }
-  const m = map[props.state]
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
+
   return (
-    <span className="text-xs whitespace-nowrap" style={{ color: m.color }}>
-      {m.label}
-    </span>
+    <div style={{ opacity: synced ? 1 : 0.6 }}>
+      <EditorSurface editor={editor} readOnly={props.readOnly || !synced} onChange={onChange} />
+    </div>
   )
 }
 
