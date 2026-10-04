@@ -2,6 +2,7 @@ import '@fastify/cookie'
 import { TRPCError, initTRPC } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { AccessService } from './access'
+import type { AiClient, AiIndex, Assistant } from './ai'
 import type { ApiTokenService } from './apitokens'
 import type { AttachmentsService } from './attachments'
 import type { AuditService } from './audit'
@@ -76,6 +77,9 @@ export type Context = {
   importStash: ImportStash
   updates: UpdateChecker
   edition: Edition
+  ai: Assistant
+  aiClient: AiClient
+  aiIndex: AiIndex
   user: UserRow | null
   sessionToken: string | null
 }
@@ -107,6 +111,9 @@ export function makeCreateContext(deps: {
   importStash: ImportStash
   updates: UpdateChecker
   edition: Edition
+  ai: Assistant
+  aiClient: AiClient
+  aiIndex: AiIndex
   resolveSession: ResolveSession
 }) {
   const { resolveSession, ...services } = deps

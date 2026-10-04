@@ -62,6 +62,14 @@ const envSchema = z.object({
   GRAPH_EMBED_THRESHOLD: z.coerce.number().min(0).max(1).default(0.55),
   // most semantic neighbours kept per page, so a dense space can't go N².
   GRAPH_EMBED_NEIGHBORS: z.coerce.number().int().min(1).max(20).default(4),
+  // AI (optional, off by default): Ask your notes, summaries, tag suggestions.
+  // Point it at an OpenAI-compatible model server you run, e.g. Ollama at
+  // http://localhost:11434 (http://host.docker.internal:11434 from Docker).
+  // Your notes go to that server and nowhere else. Settings -> AI overrides.
+  AI_BASE_URL: z.string().default(''),
+  AI_API_KEY: z.string().default(''),
+  AI_CHAT_MODEL: z.string().default(''),
+  AI_EMBED_MODEL: z.string().default(''),
   // OpenID Connect single sign-on (optional). Setting OIDC_ISSUER and
   // OIDC_CLIENT_ID turns it on; Settings → Server can override all of it.
   // Register <BASE_URL>/auth/oidc/callback as the redirect URI at the provider.

@@ -24,13 +24,14 @@ const TABS = [
   'Security',
   'Notifications',
   'Integrations',
+  'AI',
   'Users',
   'Storage',
   'Backup',
   'Activity',
 ] as const
 type Tab = (typeof TABS)[number]
-const ADMIN_TABS: Tab[] = ['Users', 'Storage', 'Backup', 'Activity']
+const ADMIN_TABS: Tab[] = ['AI', 'Users', 'Storage', 'Backup', 'Activity']
 const TAB_ICONS: Record<Tab, string> = {
   Account: '👤',
   Appearance: '👁',
@@ -38,6 +39,7 @@ const TAB_ICONS: Record<Tab, string> = {
   Security: '🔒',
   Notifications: '🔔',
   Integrations: '🔗',
+  AI: '✨',
   Users: '👥',
   Storage: '🗄',
   Backup: '💾',
@@ -108,6 +110,7 @@ export function SettingsPage() {
           {tab === 'Security' && <SecurityTab />}
           {tab === 'Notifications' && <NotificationsTab isAdmin={isAdmin} />}
           {tab === 'Integrations' && <IntegrationsTab />}
+          {tab === 'AI' && isAdmin && <AiTab />}
           {tab === 'Users' && isAdmin && <UsersTab />}
           {tab === 'Storage' && isAdmin && <StorageTab />}
           {tab === 'Backup' && isAdmin && <BackupTab />}
@@ -1448,6 +1451,250 @@ function WebhooksCard() {
         )}
       </ul>
     </Card>
+  )
+}
+
+const AI_INPUT = 'w-full rounded-lg border px-3 py-1.5 text-sm'
+const AI_INPUT_STYLE = { borderColor: 'var(--border)', background: 'var(--bg)' } as const
+
+/** Admin: the model server behind Ask, summaries and tag suggestions. */
+function AiTab() {
+  const utils = trpc.useUtils()
+  const settings = trpc.ai.settings.useQuery()
+  const save = trpc.ai.saveSettings.useMutation()
+  const test = trpc.ai.test.useMutation()
+  const reindex = trpc.ai.reindex.useMutation()
+  const index = trpc.ai.index.useQuery(undefined, {
+    enabled: Boolean(settings.data?.embedModel),
+    refetchInterval: (q) =>
+      q.state.data?.running || (q.state.data?.pending ?? 0) > 0 ? 3000 : false,
+  })
+  const [form, setForm] = useState({
+    enabled: false,
+    baseUrl: '',
+    apiKey: '',
+    chatModel: '',
+    embedModel: '',
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [done, setDone] = useState(false)
+  const s = settings.data
+  if (s && !loaded) {
+    setForm({
+      enabled: s.enabled,
+      baseUrl: s.baseUrl,
+      apiKey: '',
+      chatModel: s.chatModel,
+      embedModel: s.embedModel,
+    })
+    setLoaded(true)
+  }
+  const set = (patch: Partial<typeof form>) => {
+    setForm({ ...form, ...patch })
+    setDone(false)
+  }
+  const { busy, error, onSubmit } = useSubmit(async () => {
+    await save.mutateAsync(form)
+    setForm({ ...form, apiKey: '' })
+    await Promise.all([
+      utils.ai.settings.invalidate(),
+      utils.ai.status.invalidate(),
+      utils.ai.index.invalidate(),
+    ])
+    setDone(true)
+  })
+  const models = test.data?.models ?? []
+  const ix = index.data
+
+  return (
+    <>
+      <Card title="AI on your own model server">
+        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+          Ask your notes, summaries of a day or week, and tag suggestions for the Inbox, using a
+          model server you run, such as{' '}
+          <a
+            href="https://ollama.com"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+            style={{ color: 'var(--accent)' }}
+          >
+            Ollama
+          </a>
+          . Notes go to that server and nowhere else, only what the person asking may open, and
+          never locked pages.
+        </p>
+        {s?.source === 'env' ? (
+          <p className="text-xs mb-3" style={{ color: 'var(--text-3)' }}>
+            Set by environment variables. Saving here takes over from them.
+          </p>
+        ) : null}
+        <form onSubmit={onSubmit}>
+          <label className="flex items-center gap-2 text-sm font-medium mb-4">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => set({ enabled: e.target.checked })}
+            />
+            Use AI
+          </label>
+          <label className="block text-sm mb-3">
+            <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+              Server address
+            </span>
+            <input
+              className={AI_INPUT}
+              style={AI_INPUT_STYLE}
+              value={form.baseUrl}
+              placeholder="http://localhost:11434"
+              onChange={(e) => set({ baseUrl: e.target.value })}
+            />
+            <span className="block text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+              Ollama, LM Studio, llama.cpp, or any OpenAI-compatible server. From Docker, Ollama on
+              the same machine is http://host.docker.internal:11434.
+            </span>
+          </label>
+          <label className="block text-sm mb-3">
+            <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+              API key
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              className={AI_INPUT}
+              style={AI_INPUT_STYLE}
+              value={form.apiKey}
+              placeholder={
+                s?.hasKey ? 'Saved (leave blank to keep it)' : 'Only if your server asks for one'
+              }
+              onChange={(e) => set({ apiKey: e.target.value })}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-x-4">
+            <label className="block text-sm mb-3">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Chat model
+              </span>
+              <input
+                className={AI_INPUT}
+                style={AI_INPUT_STYLE}
+                list="ai-models"
+                value={form.chatModel}
+                placeholder="llama3.2"
+                onChange={(e) => set({ chatModel: e.target.value })}
+              />
+            </label>
+            <label className="block text-sm mb-3">
+              <span className="block mb-1" style={{ color: 'var(--text-2)' }}>
+                Embedding model
+              </span>
+              <input
+                className={AI_INPUT}
+                style={AI_INPUT_STYLE}
+                list="ai-models"
+                value={form.embedModel}
+                placeholder="nomic-embed-text"
+                onChange={(e) => set({ embedModel: e.target.value })}
+              />
+            </label>
+          </div>
+          <datalist id="ai-models">
+            {models.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-3)' }}>
+            The embedding model is optional: with one, Ask finds notes by meaning; without it, by
+            their words. With Ollama: <code>ollama pull llama3.2</code> and{' '}
+            <code>ollama pull nomic-embed-text</code>.
+          </p>
+          <ErrorNote message={error} />
+          <div className="flex items-center gap-3">
+            <div className="w-32">
+              <SubmitButton label="Save" busy={busy} />
+            </div>
+            <button
+              type="button"
+              disabled={test.isPending || !s?.enabled}
+              onClick={() => test.mutate()}
+              className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+              title={s?.enabled ? 'Try the saved settings' : 'Save with AI switched on first'}
+            >
+              {test.isPending ? 'Testing…' : 'Test connection'}
+            </button>
+            {done && !busy ? (
+              <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                Saved.
+              </span>
+            ) : null}
+          </div>
+        </form>
+        {test.data ? (
+          <div className="text-sm mt-4" aria-live="polite">
+            {test.data.ok ? (
+              <p style={{ color: 'var(--live)' }}>
+                ✓ Connected. The chat model answers
+                {s?.embedModel ? ' and the embedding model works' : ''}.
+              </p>
+            ) : (
+              <>
+                {test.data.chat ? (
+                  <p style={{ color: 'var(--danger)' }}>Chat: {test.data.chat}</p>
+                ) : null}
+                {test.data.embed ? (
+                  <p style={{ color: 'var(--danger)' }}>Embeddings: {test.data.embed}</p>
+                ) : null}
+              </>
+            )}
+            {models.length > 0 ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+                Models on the server: {models.join(', ')}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
+
+      {s?.embedModel ? (
+        <Card title="Note index">
+          <p className="text-sm mb-3" style={{ color: 'var(--text-2)' }}>
+            Every page is read in passages and kept as embeddings, so Ask can find notes by meaning.
+            It keeps up as pages change, a few minutes behind.
+          </p>
+          {ix ? (
+            <p className="text-sm mb-3">
+              {ix.pages.toLocaleString()} page{ix.pages === 1 ? '' : 's'} in{' '}
+              {ix.chunks.toLocaleString()} passage{ix.chunks === 1 ? '' : 's'}
+              {ix.running ? ' · indexing now…' : ix.pending > 0 ? ` · ${ix.pending} waiting` : ''}
+              {ix.lastRunAt ? (
+                <span style={{ color: 'var(--text-3)' }}>
+                  {' '}
+                  · last run {new Date(ix.lastRunAt).toLocaleTimeString()}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+          {ix?.lastError ? (
+            <p className="text-sm mb-3" style={{ color: 'var(--danger)' }}>
+              {ix.lastError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            disabled={reindex.isPending || ix?.running}
+            onClick={async () => {
+              await reindex.mutateAsync()
+              await utils.ai.index.invalidate()
+            }}
+            className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+          >
+            Rebuild the index
+          </button>
+        </Card>
+      ) : null}
+    </>
   )
 }
 

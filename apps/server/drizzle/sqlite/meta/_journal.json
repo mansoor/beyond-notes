@@ -309,6 +309,13 @@
       "when": 1791088534735,
       "tag": "0043_chief_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1791135609876,
+      "tag": "0044_closed_scalphunter",
+      "breakpoints": true
     }
   ]
 }

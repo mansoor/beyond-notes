@@ -754,3 +754,29 @@ export const newsletterIssues = pgTable(
   },
   (t) => [index('newsletter_issues_space_idx').on(t.spaceId)],
 )
+
+// ---- AI ----
+
+/**
+ * The note index behind Ask: each page cut into passages, each passage as an
+ * embedding vector from the configured model. Only a cache — rebuilt from the
+ * pages whenever they change or the model does — so it isn't in exports.
+ */
+export const aiChunks = pgTable(
+  'ai_chunks',
+  {
+    id: text('id').primaryKey(),
+    pageId: text('page_id')
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    spaceId: text('space_id').notNull(),
+    seq: integer('seq').notNull(),
+    text: text('text').notNull(),
+    model: text('model').notNull(),
+    // float32, little-endian
+    vector: bytea('vector').notNull(),
+    // documents.updated_at this passage was cut from
+    sourceAt: timestamp('source_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (t) => [index('ai_chunks_page_idx').on(t.pageId)],
+)

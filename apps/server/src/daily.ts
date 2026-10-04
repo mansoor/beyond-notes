@@ -1,4 +1,4 @@
-import { plainText } from '@bn/renderer'
+import { markdownToBlocks, plainText } from '@bn/renderer'
 import { nanoid } from 'nanoid'
 import { type AccessService, createAccess } from './access'
 import { PagesError } from './pages'
@@ -7,6 +7,18 @@ import { reconcileTags } from './tags'
 import { appendBlocksToContent, makeCheckBlock, makeParagraphBlock, reconcileTasks } from './tasks'
 
 const EMPTY_DOC = '[]'
+
+/** New ids all the way down: imported blocks must not clash with the page's. */
+function freshIds(blocks: unknown[]): unknown[] {
+  return blocks.map((b) => {
+    const block = b as { children?: unknown[] }
+    return {
+      ...block,
+      id: nanoid(),
+      children: Array.isArray(block.children) ? freshIds(block.children) : [],
+    }
+  })
+}
 const DOC_SCHEMA_VERSION = 1
 const TASKS_INBOX_KEY = 'inbox' // sentinel dateKey for the per-user tasks-inbox page
 
@@ -198,6 +210,13 @@ export function createDailyService(
     async appendToDay(user: UserRow, date: string, text: string): Promise<void> {
       const { page } = await this.day(user, date)
       await appendToPage(page.id, [makeParagraphBlock(text)])
+    },
+
+    /** Append Markdown (an AI summary) to the main note of a day. */
+    async appendMarkdownToDay(user: UserRow, date: string, markdown: string): Promise<void> {
+      const { page } = await this.day(user, date)
+      const blocks = freshIds(markdownToBlocks(markdown))
+      await appendToPage(page.id, blocks as ReturnType<typeof makeParagraphBlock>[])
     },
 
     /** Which days of a month ('YYYY-MM') have journal pages — calendar dots. */

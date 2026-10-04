@@ -1,4 +1,6 @@
 import {
+  type AiSettings,
+  type AiSettingsView,
   type BackupSettings,
   type NtfySettings,
   type OffsiteSettings,
@@ -7,6 +9,7 @@ import {
   type ServerSettingsView,
   type SmtpSettings,
   type StorageSettings,
+  aiSettings,
   backupSettings,
   ntfySettings,
   offsiteSettings,
@@ -160,6 +163,57 @@ export function createSettingsService(
     passwordLoginEnabled(): boolean {
       const sso = this.effectiveOidc()
       return sso ? sso.passwordLogin : true
+    },
+
+    ai(): AiSettings | null {
+      return parse('ai', aiSettings)
+    },
+
+    /**
+     * The AI config in force, or null when AI is off. A saved group with a
+     * server address wins outright (including `enabled: false`); env turns it
+     * on when it names a server and a chat model.
+     */
+    effectiveAi(): (AiSettings & { source: 'db' | 'env' }) | null {
+      const db = this.ai()
+      const picked = db?.baseUrl
+        ? { ...db, source: 'db' as const }
+        : config.AI_BASE_URL && config.AI_CHAT_MODEL
+          ? {
+              enabled: true,
+              baseUrl: config.AI_BASE_URL,
+              apiKey: config.AI_API_KEY,
+              chatModel: config.AI_CHAT_MODEL,
+              embedModel: config.AI_EMBED_MODEL,
+              source: 'env' as const,
+            }
+          : null
+      if (!picked?.enabled || !picked.baseUrl || !picked.chatModel) return null
+      return picked
+    },
+
+    aiView(): AiSettingsView {
+      const db = this.ai()
+      const shown: AiSettings = db?.baseUrl
+        ? db
+        : {
+            enabled: Boolean(config.AI_BASE_URL && config.AI_CHAT_MODEL),
+            baseUrl: config.AI_BASE_URL,
+            apiKey: config.AI_API_KEY,
+            chatModel: config.AI_CHAT_MODEL,
+            embedModel: config.AI_EMBED_MODEL,
+          }
+      const { apiKey, ...rest } = shown
+      return { ...rest, hasKey: Boolean(apiKey), source: this.effectiveAi()?.source ?? 'off' }
+    },
+
+    /** Blank key keeps the stored one (or env's). */
+    async saveAi(input: AiSettings): Promise<void> {
+      const prev = this.ai()
+      await this.put('ai', {
+        ...input,
+        apiKey: input.apiKey || prev?.apiKey || config.AI_API_KEY || '',
+      })
     },
 
     /** Effective reCAPTCHA keys, or null when not fully configured. */

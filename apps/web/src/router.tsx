@@ -1,6 +1,7 @@
 import { Outlet, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { AcceptInvitePage } from './pages/AcceptInvite'
 import { ArchivePage } from './pages/Archive'
+import { AskPage } from './pages/Ask'
 import { DataPage } from './pages/Data'
 import { EditorPage } from './pages/Editor'
 import { Gate } from './pages/Gate'
@@ -97,6 +98,12 @@ const tagsRoute = createRoute({
   component: TagsPage,
 })
 
+const askRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/ask',
+  component: AskPage,
+})
+
 const journalRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/journal',
@@ -137,6 +144,7 @@ export const router = createRouter({
       trashRoute,
       staleRoute,
       tagsRoute,
+      askRoute,
       journalRoute,
       dataRoute,
       spaceRoute,

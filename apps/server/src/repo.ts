@@ -144,6 +144,17 @@ export type NewsletterIssueRow = {
   finishedAt: Date | null
 }
 
+export type AiChunkRow = {
+  id: string
+  pageId: string
+  spaceId: string
+  seq: number
+  text: string
+  model: string
+  vector: Uint8Array
+  sourceAt: Date
+}
+
 export type ShareRole = 'viewer' | 'editor'
 export type SpaceShareRow = {
   spaceId: string
@@ -781,6 +792,55 @@ export function createRepo(appDb: AppDb) {
     },
     async listAllIssues(): Promise<NewsletterIssueRow[]> {
       return db.select().from(t.newsletterIssues)
+    },
+
+    // ---- AI passage index ----
+
+    /** One row per indexed page: which model, cut from which document version. */
+    async listAiIndexHeads(): Promise<
+      Array<{ pageId: string; model: string; sourceAt: Date; chunks: number }>
+    > {
+      const rows = (await db
+        .select({
+          pageId: t.aiChunks.pageId,
+          model: t.aiChunks.model,
+          sourceAt: sqlOp`max(${t.aiChunks.sourceAt})`,
+          chunks: sqlOp`count(*)`,
+        })
+        .from(t.aiChunks)
+        .groupBy(t.aiChunks.pageId, t.aiChunks.model)) as Array<{
+        pageId: string
+        model: string
+        sourceAt: unknown
+        chunks: unknown
+      }>
+      return rows.map((r) => ({
+        pageId: r.pageId,
+        model: r.model,
+        // the aggregate comes back raw: epoch ms on sqlite, a timestamp on pg
+        sourceAt: new Date(typeof r.sourceAt === 'number' ? r.sourceAt : String(r.sourceAt)),
+        chunks: Number(r.chunks),
+      }))
+    },
+    /** A page's passages, replaced in one go. */
+    async replaceAiChunks(pageId: string, rows: AiChunkRow[]): Promise<void> {
+      await db.delete(t.aiChunks).where(eq(t.aiChunks.pageId, pageId))
+      for (const row of rows) {
+        await db.insert(t.aiChunks).values({ ...row, vector: Buffer.from(row.vector) })
+      }
+    },
+    async deleteAiChunksForPage(pageId: string): Promise<void> {
+      await db.delete(t.aiChunks).where(eq(t.aiChunks.pageId, pageId))
+    },
+    async deleteAllAiChunks(): Promise<void> {
+      await db.delete(t.aiChunks)
+    },
+    async listAiChunks(model: string): Promise<AiChunkRow[]> {
+      const rows = (await db
+        .select()
+        .from(t.aiChunks)
+        .where(eq(t.aiChunks.model, model))) as AiChunkRow[]
+      return rows.map((r) => ({ ...r, vector: new Uint8Array(r.vector) }))
     },
 
     // ---- sharing ----

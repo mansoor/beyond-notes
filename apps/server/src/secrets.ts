@@ -70,6 +70,7 @@ export const SECRET_FIELDS: Record<string, string[]> = {
   recaptcha: ['secretKey'],
   oidc: ['clientSecret'],
   offsite: ['secretKey', 'passphrase'],
+  ai: ['apiKey'],
 }
 
 type Group = Record<string, unknown>

@@ -845,6 +845,63 @@ export const offsiteSettings = z.object({
 })
 export type OffsiteSettings = z.infer<typeof offsiteSettings>
 
+// ---- AI (a model server the admin points at; nothing leaves otherwise) ----
+
+export const aiSettings = z.object({
+  enabled: z.boolean().default(false),
+  /** an OpenAI-compatible API: Ollama (http://localhost:11434), LM Studio, llama.cpp… */
+  baseUrl: z.string().trim().max(500).default(''),
+  // empty string on save = keep the stored key (never echoed to the UI)
+  apiKey: z.string().max(500).default(''),
+  chatModel: z.string().trim().max(200).default(''),
+  /** optional: finds notes by meaning; without it, Ask matches words */
+  embedModel: z.string().trim().max(200).default(''),
+})
+export type AiSettings = z.infer<typeof aiSettings>
+
+export type AiSettingsView = Omit<AiSettings, 'apiKey'> & {
+  hasKey: boolean
+  /** where the config in force comes from */
+  source: 'db' | 'env' | 'off'
+}
+
+/** What everyone signed in may know about AI here. */
+export type AiStatusView = {
+  enabled: boolean
+  /** an embedding model is set: Ask finds notes by meaning */
+  semantic: boolean
+}
+
+export type AiIndexView = {
+  model: string | null
+  pages: number
+  chunks: number
+  /** pages waiting to be (re)indexed */
+  pending: number
+  running: boolean
+  lastRunAt: string | null
+  lastError: string | null
+}
+
+export const aiSummaryInput = z.object({
+  kind: z.enum(['day', 'week']),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** the browser's offset from UTC in minutes (Date#getTimezoneOffset) */
+  tzOffset: z.number().int().min(-900).max(900).default(0),
+})
+
+export const aiAskInput = z.object({
+  question: z.string().trim().min(2).max(2000),
+  /** the conversation so far, oldest first (a few turns) */
+  history: z
+    .array(z.object({ question: z.string().max(2000), answer: z.string().max(8000) }))
+    .max(6)
+    .default([]),
+})
+
+/** A note an answer drew on, numbered as the answer cites it. */
+export type AiSource = { n: number; pageId: string; title: string; context: string }
+
 /** One encrypted copy in the offsite bucket. */
 export type OffsiteCopyView = { name: string; sizeBytes: number; createdAt: string }
 

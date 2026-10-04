@@ -1,6 +1,9 @@
 import '@fastify/cookie'
 import { plainText as plainTextOf } from '@bn/renderer'
 import type {
+  AiIndexView,
+  AiSettingsView,
+  AiStatusView,
   ApiTokenView,
   ArchivedPageView,
   ArchivedTableView,
@@ -42,6 +45,7 @@ import type {
 import {
   type AuditAction,
   acceptInviteInput,
+  aiSettings,
   appTheme,
   archiveTableInput,
   auditListInput,
@@ -118,6 +122,7 @@ import {
 import { TRPCError } from '@trpc/server'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
+import { AiError } from './ai'
 import type { AuditInput } from './audit'
 import { AuthError } from './auth'
 import { createS3BlobStore } from './blobstore-s3'
@@ -1546,6 +1551,99 @@ const systemRouter = router({
   }),
 })
 
+const aiRouter = router({
+  /** Whether AI is on here, for showing Ask and the other buttons. */
+  status: authedProcedure.query(({ ctx }): AiStatusView => ctx.ai.status()),
+
+  settings: adminProcedure.query(({ ctx }): AiSettingsView => ctx.settings.aiView()),
+
+  saveSettings: adminProcedure.input(aiSettings).mutation(async ({ ctx, input }) => {
+    const before = ctx.settings.effectiveAi()?.embedModel ?? ''
+    await ctx.settings.saveAi(input)
+    await ctx.audit.record({
+      action: 'settings.saved',
+      actor: ctx.user,
+      ip: ctx.req.ip,
+      target: `AI ${input.enabled ? 'on' : 'off'}`,
+    })
+    // a new embedding model starts the index over
+    const after = ctx.settings.effectiveAi()?.embedModel ?? ''
+    if (after !== before) await ctx.aiIndex.reset()
+    if (after) void ctx.aiIndex.run()
+    return ctx.settings.aiView()
+  }),
+
+  /** Try the saved settings: list models, say hello, embed a word. */
+  test: adminProcedure.mutation(async ({ ctx }) => {
+    const cfg = ctx.settings.effectiveAi()
+    if (!cfg)
+      return { ok: false, models: [], chat: 'AI is off: switch it on and save first.', embed: null }
+    const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
+    let models: string[] = []
+    try {
+      models = await ctx.aiClient.models()
+    } catch (err) {
+      return { ok: false, models: [], chat: say(err), embed: null }
+    }
+    let chat: string | null = null
+    try {
+      const reply = await ctx.aiClient.complete(
+        [{ role: 'user', content: 'Reply with the single word: ready' }],
+        { temperature: 0 },
+      )
+      if (!reply) chat = 'The chat model answered with nothing.'
+    } catch (err) {
+      chat = say(err)
+    }
+    let embed: string | null = null
+    if (cfg.embedModel) {
+      try {
+        await ctx.aiClient.embed(['hello'])
+      } catch (err) {
+        embed = say(err)
+      }
+    }
+    return { ok: chat === null && embed === null, models, chat, embed }
+  }),
+
+  index: adminProcedure.query(({ ctx }): Promise<AiIndexView> => ctx.aiIndex.status()),
+
+  reindex: adminProcedure.mutation(async ({ ctx }) => {
+    await ctx.aiIndex.reset()
+    void ctx.aiIndex.run()
+    return { ok: true }
+  }),
+
+  suggestTags: authedProcedure
+    .input(z.object({ memoId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.ai.status().enabled) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'AI is switched off here.' })
+      }
+      try {
+        return { tags: await ctx.ai.suggestTags(ctx.user, input.memoId) }
+      } catch (err) {
+        if (err instanceof AiError) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err.message })
+        }
+        throw err
+      }
+    }),
+
+  /** Keep a summary: it goes at the end of that day's journal page. */
+  addToDay: authedProcedure
+    .input(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        markdown: z.string().trim().min(1).max(20_000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.daily.appendMarkdownToDay(ctx.user, input.date, input.markdown)
+      return { ok: true }
+    }),
+})
+
 const passkeysRouter = router({
   list: authedProcedure.query(async ({ ctx }): Promise<PasskeyView[]> => {
     const rows = await ctx.repo.listPasskeysForUser(ctx.user.id)
@@ -2503,6 +2601,7 @@ export const appRouter = router({
   passkeys: passkeysRouter,
   tokens: tokensRouter,
   system: systemRouter,
+  ai: aiRouter,
   onboarding: onboardingRouter,
   webhooks: webhooksRouter,
   tags: tagsRouter,

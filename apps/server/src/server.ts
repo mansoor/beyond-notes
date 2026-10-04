@@ -2,6 +2,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { stripCredit } from '@bn/renderer'
+import { aiAskInput, aiSummaryInput } from '@bn/schema'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
@@ -10,6 +11,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify from 'fastify'
 import pkg from '../package.json'
 import { createAccess } from './access'
+import { AiError, createAiClient, createAiIndex, createAssistant } from './ai'
 import { createApiTokenService } from './apitokens'
 import { MAX_UPLOAD_BYTES, createAttachmentsService, thumbKey } from './attachments'
 import { createAuditService } from './audit'
@@ -205,6 +207,23 @@ export async function buildServer(
   const locks = createLockService(repo)
 
   const mailer = createDynamicMailer(settings, (msg) => server.log.info(msg))
+
+  // AI on the admin's own model server (ai.ts); inert until it's set up
+  const aiConfig = () => settings.effectiveAi()
+  const aiClient = createAiClient(aiConfig)
+  const aiIndex = createAiIndex({
+    repo,
+    client: aiClient,
+    model: () => aiConfig()?.embedModel || null,
+  })
+  const assistant = createAssistant({
+    repo,
+    access,
+    client: aiClient,
+    index: aiIndex,
+    hiddenPages: (token, user) => locks.hiddenPageIds(token, user),
+    config: aiConfig,
+  })
 
   // every channel resolves its config per send; unconfigured channels no-op
   const notifiers: Notifier[] = [
@@ -622,6 +641,69 @@ export async function buildServer(
     }
   })
 
+  // AI answers stream as server-sent events: `sources` first (Ask), then
+  // `text` pieces, then `done` or `error`. One request at a time per person,
+  // since a home model server usually runs one thing at once.
+  const aiBusy = new Set<string>()
+  const aiStream = async (
+    req: any,
+    reply: any,
+    run: (user: UserRow, token: string | null, signal: AbortSignal) => AsyncIterable<unknown>,
+  ) => {
+    const { user, token } = await resolveSession(req)
+    if (!user) return reply.code(401).send({ error: 'Sign in first.' })
+    if (!assistant.status().enabled) {
+      return reply.code(404).send({ error: 'AI is switched off here.' })
+    }
+    if (aiBusy.has(user.id)) {
+      return reply.code(429).send({ error: 'One question at a time. Wait for the last answer.' })
+    }
+    aiBusy.add(user.id)
+    const stop = new AbortController()
+    req.raw.on('close', () => stop.abort())
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no',
+    })
+    const send = (event: string, data: unknown) =>
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    try {
+      for await (const item of run(user, token, stop.signal)) {
+        if (stop.signal.aborted) break
+        if (typeof item === 'string') send('text', { text: item })
+        else send((item as { type: string }).type, item)
+      }
+      send('done', {})
+    } catch (err) {
+      if (!stop.signal.aborted) {
+        if (!(err instanceof AiError)) server.log.error(err, 'AI request failed')
+        send('error', {
+          message:
+            err instanceof AiError ? err.message : 'Something went wrong with the AI server.',
+        })
+      }
+    } finally {
+      aiBusy.delete(user.id)
+      reply.raw.end()
+    }
+  }
+  server.post('/api/ai/ask', async (req, reply) => {
+    const input = aiAskInput.safeParse(req.body)
+    if (!input.success) return reply.code(400).send({ error: 'Ask a question.' })
+    return aiStream(req, reply, (user, token, signal) =>
+      assistant.ask(user, token, input.data, signal),
+    )
+  })
+  server.post('/api/ai/summary', async (req, reply) => {
+    const input = aiSummaryInput.safeParse(req.body)
+    if (!input.success) return reply.code(400).send({ error: 'Pick a day.' })
+    return aiStream(req, reply, (user, token, signal) =>
+      assistant.summarise(user, token, input.data, signal),
+    )
+  })
+
   // one space as a Markdown+images zip — the UI's download-your-data button
   server.get('/api/export/space/:id', async (req: any, reply) => {
     const user = await userFromRequest(req)
@@ -876,6 +958,9 @@ export async function buildServer(
         importStash,
         updates,
         edition,
+        ai: assistant,
+        aiClient,
+        aiIndex,
         resolveSession,
       }),
     },
@@ -896,6 +981,7 @@ export async function buildServer(
     visits,
     access,
     collab,
+    aiIndex,
     repo,
     auth,
     pages,
@@ -943,6 +1029,13 @@ export async function buildServer(
     const visitTimer = setInterval(() => void visits.flush(), 60_000)
     visitTimer.unref()
     server.addHook('onClose', async () => clearInterval(visitTimer))
+    // keep Ask's note index current (does nothing without an embedding model)
+    const aiTimer = setInterval(() => void aiIndex.run(), 2 * 60_000)
+    aiTimer.unref()
+    server.addHook('onReady', async () => {
+      setTimeout(() => void aiIndex.run(), 20_000).unref()
+    })
+    server.addHook('onClose', async () => clearInterval(aiTimer))
   }
   // whatever was counted since the last write goes out on shutdown
   server.addHook('onClose', async () => {
